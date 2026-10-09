@@ -7,17 +7,35 @@ export type LiveLocation = LatLng & {
   speedMetersPerSecond: number | null;
 };
 
+// TEMPORARY bisection round 9: the real build (MapLibre + real GPS, no
+// SafeAreaProvider) still crashed. That build changed several things at
+// once - this isolates one: fake the location so expo-location's real
+// native permission/GPS calls never run, while the real MapLibre <Map>
+// view still renders. If this build does NOT crash, the real GPS call is
+// the (additional) culprit. If it STILL crashes, MapLibre's real map view
+// is the (additional) culprit.
+const DEBUG_FAKE_LOCATION = true;
+const FAKE_LOCATION: LiveLocation = {
+  latitude: 3.139,
+  longitude: 101.6869,
+  heading: 0,
+  speedMetersPerSecond: 0,
+};
+
 /**
  * Requests foreground location permission and streams the device's live
  * position. Returns null until permission is granted and a first fix
  * arrives, plus a permissionDenied flag the UI can use to show guidance.
  */
 export function useLiveLocation() {
-  const [location, setLocation] = useState<LiveLocation | null>(null);
+  const [location, setLocation] = useState<LiveLocation | null>(
+    DEBUG_FAKE_LOCATION ? FAKE_LOCATION : null
+  );
   const [permissionDenied, setPermissionDenied] = useState(false);
   const subscriptionRef = useRef<Location.LocationSubscription | null>(null);
 
   useEffect(() => {
+    if (DEBUG_FAKE_LOCATION) return;
     let cancelled = false;
 
     (async () => {
