@@ -913,7 +913,10 @@ class MainActivity : AppCompatActivity() {
 
         lastKnownLocation?.let { location ->
             updateNavCamera(location)
-            navigationEngine.onLocation(RoutePoint(location.latitude, location.longitude))
+            navigationEngine.onLocation(
+                RoutePoint(location.latitude, location.longitude),
+                if (location.hasSpeed()) location.speed.toDouble() else null,
+            )
         }
     }
 
@@ -1100,7 +1103,10 @@ class MainActivity : AppCompatActivity() {
         if (activeRoute != null) {
             // Active navigation drives its own 3D follow camera every fix.
             updateNavCamera(location)
-            navigationEngine.onLocation(RoutePoint(location.latitude, location.longitude))
+            navigationEngine.onLocation(
+                RoutePoint(location.latitude, location.longitude),
+                if (location.hasSpeed()) location.speed.toDouble() else null,
+            )
             val kmh = if (location.hasSpeed()) (location.speed * 3.6).toInt() else 0
             speedBadge.text = "$kmh\nkm/h"
             return

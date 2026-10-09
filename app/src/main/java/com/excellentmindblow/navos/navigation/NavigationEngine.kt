@@ -37,8 +37,29 @@ class NavigationEngine(
     companion object {
         private const val ADVANCE_STEP_METERS = 25.0
         private const val OFF_ROUTE_METERS = 40.0
+
+        // Fixed-distance fallback for when speed isn't known (first fix,
+        // or a GPS provider that doesn't report it).
         private const val ANNOUNCE_FAR_METERS = 300.0
         private const val ANNOUNCE_NEAR_METERS = 80.0
+
+        // Speed-aware timing: announce by how many seconds out the turn is,
+        // not a fixed distance - at highway speed a fixed 300m fallback
+        // instruction comes far too late, and the same distance on a slow
+        // kampung road fires far too early. Bounded on both ends so a
+        // near-stationary or very fast reading doesn't produce a silly
+        // distance.
+        private const val ANNOUNCE_FAR_SECONDS = 15.0
+        private const val ANNOUNCE_NEAR_SECONDS = 5.0
+        private const val ANNOUNCE_FAR_MIN_METERS = 150.0
+        private const val ANNOUNCE_FAR_MAX_METERS = 700.0
+        private const val ANNOUNCE_NEAR_MIN_METERS = 40.0
+        private const val ANNOUNCE_NEAR_MAX_METERS = 150.0
+
+        // Below this, GPS speed is noisy/unreliable (stopped at a light,
+        // crawling in traffic) - fall back to the fixed thresholds rather
+        // than let a near-zero speed collapse both windows to the minimum.
+        private const val MIN_RELIABLE_SPEED_MPS = 1.0
     }
 
     private var route: Route? = null
@@ -49,7 +70,10 @@ class NavigationEngine(
         stepIndex = 1
     }
 
-    fun onLocation(location: RoutePoint) {
+    fun onLocation(
+        location: RoutePoint,
+        speedMetersPerSecond: Double? = null,
+    ) {
         val currentRoute = route ?: return
         val steps = currentRoute.steps
         if (steps.size < 2) return
@@ -92,7 +116,7 @@ class NavigationEngine(
         )
 
         if (!offRoute) {
-            announceIfNeeded(idx, distToTurn, steps[idx].instruction, isArrival)
+            announceIfNeeded(idx, distToTurn, steps[idx].instruction, isArrival, speedMetersPerSecond)
         }
     }
 
@@ -101,18 +125,37 @@ class NavigationEngine(
         distanceToTurn: Double,
         instruction: String,
         isArrival: Boolean,
+        speedMetersPerSecond: Double?,
     ) {
-        if (distanceToTurn <= ANNOUNCE_NEAR_METERS) {
+        val nearThreshold = announceDistance(speedMetersPerSecond, ANNOUNCE_NEAR_SECONDS, ANNOUNCE_NEAR_MIN_METERS, ANNOUNCE_NEAR_MAX_METERS, ANNOUNCE_NEAR_METERS)
+        val farThreshold = announceDistance(speedMetersPerSecond, ANNOUNCE_FAR_SECONDS, ANNOUNCE_FAR_MIN_METERS, ANNOUNCE_FAR_MAX_METERS, ANNOUNCE_FAR_METERS)
+
+        if (distanceToTurn <= nearThreshold) {
             onAnnounce("$stepIndex-near", instruction)
-        } else if (distanceToTurn <= ANNOUNCE_FAR_METERS) {
+        } else if (distanceToTurn <= farThreshold) {
             val rounded = (Math.round(distanceToTurn / 10) * 10).toInt()
             onAnnounce(
                 "$stepIndex-far",
                 "In $rounded meters, ${instruction.replaceFirstChar { it.lowercase() }}",
             )
         }
-        if (isArrival && distanceToTurn <= ANNOUNCE_NEAR_METERS) {
+        if (isArrival && distanceToTurn <= nearThreshold) {
             onAnnounce("$stepIndex-arrive", "You have arrived at your destination")
         }
+    }
+
+    /** Converts a "seconds before the turn" target into a distance using
+     * the driver's current speed, clamped to a sane range. Falls back to a
+     * fixed distance when speed isn't known or isn't reliable yet. */
+    private fun announceDistance(
+        speedMetersPerSecond: Double?,
+        seconds: Double,
+        minMeters: Double,
+        maxMeters: Double,
+        fallbackMeters: Double,
+    ): Double {
+        val speed = speedMetersPerSecond ?: return fallbackMeters
+        if (speed < MIN_RELIABLE_SPEED_MPS) return fallbackMeters
+        return (speed * seconds).coerceIn(minMeters, maxMeters)
     }
 }
