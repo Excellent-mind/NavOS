@@ -3,7 +3,10 @@ package com.excellentmindblow.navos
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.graphics.Color
 import android.location.Location
 import android.location.LocationManager
@@ -13,6 +16,7 @@ import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
+import android.view.LayoutInflater
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.ArrayAdapter
@@ -24,6 +28,7 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
@@ -51,6 +56,7 @@ import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.Layer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
@@ -82,8 +88,18 @@ private const val DESTINATION_SOURCE_ID = "navos-destination-source"
 private const val DESTINATION_LAYER_ID = "navos-destination-layer"
 private const val DESTINATION_ICON_ID = "navos-destination-icon"
 
+private const val INCIDENTS_SOURCE_ID = "navos-incidents-source"
+private const val INCIDENTS_LAYER_ID = "navos-incidents-layer"
+private const val INCIDENT_ICON_PROPERTY = "icon"
+private const val TRAFFIC_ICON_ID = "navos-icon-traffic"
+private const val POLICE_ICON_ID = "navos-icon-police"
+private const val HAZARD_ICON_ID = "navos-icon-hazard"
+private const val CRASH_ICON_ID = "navos-icon-crash"
+
 private const val NAV_TILT_DEGREES = 55.0
 private const val NAV_ZOOM = 18.0
+
+private const val PREFS_NAME = "navos_prefs"
 
 /** Where the app currently is in the search -> preview -> drive flow. */
 private enum class NavMode { IDLE, PREVIEW, ACTIVE }
@@ -110,6 +126,19 @@ class MainActivity : AppCompatActivity() {
     private lateinit var turnIcon: ImageView
     private lateinit var speedBadge: TextView
     private lateinit var recenterButton: ImageButton
+    private lateinit var reportButton: ImageButton
+    private lateinit var homeButton: View
+    private lateinit var homeButtonLabel: TextView
+    private lateinit var workButton: View
+    private lateinit var workButtonLabel: TextView
+    private lateinit var prefs: SharedPreferences
+
+    /** Set while waiting for the user to pick a destination to save under
+     * "home" or "work" - cleared once that pick is saved. */
+    private var pendingSavedPlaceLabel: String? = null
+
+    private var incidentsSource: GeoJsonSource? = null
+    private val incidentFeatures = mutableListOf<Feature>()
 
     private var map: MapLibreMap? = null
     private var locationTracker: LiveLocationTracker? = null
@@ -164,6 +193,8 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_main)
 
+        prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
         voiceNarrator = VoiceNarrator(this)
         navigationEngine =
             NavigationEngine(
@@ -210,6 +241,8 @@ class MainActivity : AppCompatActivity() {
         setUpSearch()
         setUpRouteControls()
         setUpSettingsDrawer()
+        setUpSavedPlaces()
+        setUpDrawerExtras()
     }
 
     private fun setUpSettingsDrawer() {
@@ -225,6 +258,31 @@ class MainActivity : AppCompatActivity() {
 
         // "Dark" is disabled in the layout until we've confirmed a working
         // dark style URL to switch to - nothing more to wire up here yet.
+    }
+
+    /** Placeholder profile-drawer rows - there's no account/backend system
+     * yet, so these are simple, honest actions rather than fake screens. */
+    private fun setUpDrawerExtras() {
+        findViewById<TextView>(R.id.helpFeedbackRow).setOnClickListener {
+            val intent =
+                Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:excellentmindblow@gmail.com")).apply {
+                    putExtra(Intent.EXTRA_SUBJECT, "NavOS feedback")
+                }
+            try {
+                startActivity(intent)
+            } catch (e: Exception) {
+                Toast.makeText(this, "No email app found", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        findViewById<TextView>(R.id.aboutRow).setOnClickListener {
+            AlertDialog
+                .Builder(this)
+                .setTitle("NavOS")
+                .setMessage("Version ${BuildConfig.VERSION_NAME}\nPowered by Excellent Mindblow")
+                .setPositiveButton("OK", null)
+                .show()
+        }
     }
 
     private fun setUpSearch() {
@@ -262,6 +320,7 @@ class MainActivity : AppCompatActivity() {
         turnIcon = findViewById(R.id.turnIcon)
         speedBadge = findViewById(R.id.speedBadge)
         recenterButton = findViewById(R.id.recenterButton)
+        reportButton = findViewById(R.id.reportButton)
 
         findViewById<android.widget.Button>(R.id.startNavigationButton).setOnClickListener {
             beginActiveNavigation()
@@ -279,6 +338,109 @@ class MainActivity : AppCompatActivity() {
                 map?.easeCamera(CameraUpdateFactory.newLatLng(LatLng(location.latitude, location.longitude)), 500)
             }
         }
+        reportButton.setOnClickListener {
+            showReportDialog()
+        }
+    }
+
+    // ---- Incident reporting ----------------------------------------------
+
+    /** Shows the "What do you see?" grid; each tap reports that type at
+     * the current location and dismisses the dialog. */
+    private fun showReportDialog() {
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_report, null)
+        val dialog = AlertDialog.Builder(this).setView(view).create()
+
+        val typeToViewId =
+            mapOf(
+                "Traffic" to R.id.reportTraffic,
+                "Police" to R.id.reportPolice,
+                "Hazard" to R.id.reportHazard,
+                "Crash" to R.id.reportCrash,
+            )
+        typeToViewId.forEach { (type, viewId) ->
+            view.findViewById<View>(viewId).setOnClickListener {
+                reportIncident(type)
+                dialog.dismiss()
+            }
+        }
+
+        dialog.show()
+    }
+
+    private fun reportIncident(type: String) {
+        val location = lastKnownLocation
+        if (location == null) {
+            Toast.makeText(this, "Still waiting for a GPS fix", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val iconId =
+            when (type) {
+                "Traffic" -> TRAFFIC_ICON_ID
+                "Police" -> POLICE_ICON_ID
+                "Hazard" -> HAZARD_ICON_ID
+                else -> CRASH_ICON_ID
+            }
+        val feature = Feature.fromGeometry(Point.fromLngLat(location.longitude, location.latitude))
+        feature.addStringProperty(INCIDENT_ICON_PROPERTY, iconId)
+        incidentFeatures.add(feature)
+        incidentsSource?.setGeoJson(FeatureCollection.fromFeatures(incidentFeatures))
+        Toast.makeText(this, "$type reported - thanks!", Toast.LENGTH_SHORT).show()
+    }
+
+    // ---- Saved places (Home/Work) -----------------------------------------
+
+    private fun setUpSavedPlaces() {
+        homeButton = findViewById(R.id.homeButton)
+        homeButtonLabel = findViewById(R.id.homeButtonLabel)
+        workButton = findViewById(R.id.workButton)
+        workButtonLabel = findViewById(R.id.workButtonLabel)
+
+        homeButton.setOnClickListener { onSavedPlaceTapped("home") }
+        workButton.setOnClickListener { onSavedPlaceTapped("work") }
+
+        refreshSavedPlaceLabels()
+    }
+
+    private fun refreshSavedPlaceLabels() {
+        homeButtonLabel.text = savedPlaceLabel("home") ?: "Home"
+        workButtonLabel.text = savedPlaceLabel("work") ?: "Work"
+    }
+
+    private fun savedPlaceLabel(key: String): String? {
+        if (!prefs.contains("${key}_lat")) return null
+        return prefs.getString("${key}_label", null)
+    }
+
+    private fun onSavedPlaceTapped(key: String) {
+        val label = savedPlaceLabel(key)
+        if (label != null) {
+            val lat = prefs.getFloat("${key}_lat", 0f).toDouble()
+            val lon = prefs.getFloat("${key}_lon", 0f).toDouble()
+            onDestinationSelected(GeocodeResult(label, lat, lon))
+            return
+        }
+
+        // Not set yet - same as Waze's "Set once and go": start a search,
+        // and save whatever destination gets picked next under this label.
+        pendingSavedPlaceLabel = key
+        val name = if (key == "home") "home" else "work"
+        Toast.makeText(this, "Search your $name address - we'll save it", Toast.LENGTH_LONG).show()
+        searchInput.requestFocus()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.showSoftInput(searchInput, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun maybeSaveAsPendingPlace(result: GeocodeResult) {
+        val key = pendingSavedPlaceLabel ?: return
+        pendingSavedPlaceLabel = null
+        prefs
+            .edit()
+            .putFloat("${key}_lat", result.latitude.toFloat())
+            .putFloat("${key}_lon", result.longitude.toFloat())
+            .putString("${key}_label", result.label)
+            .apply()
+        refreshSavedPlaceLabels()
     }
 
     private fun scheduleSearch(query: String) {
@@ -332,6 +494,8 @@ class MainActivity : AppCompatActivity() {
 
         // A new destination picked mid-drive replaces whatever was active.
         if (navMode == NavMode.ACTIVE) endActiveNavigation()
+
+        maybeSaveAsPendingPlace(result)
 
         topBar.visibility = View.GONE
         recenterButton.visibility = View.GONE
@@ -428,6 +592,37 @@ class MainActivity : AppCompatActivity() {
                 PropertyFactory.iconAllowOverlap(true),
             )
         style.addLayer(destLayer)
+
+        // Incident reports ("What do you see?") - also on top of labels,
+        // same as the destination pin. One source holds every reported
+        // type; each feature carries which icon to draw via a data
+        // expression instead of needing a separate layer per type.
+        registerIncidentIcon(style, TRAFFIC_ICON_ID, R.drawable.ic_report_traffic)
+        registerIncidentIcon(style, POLICE_ICON_ID, R.drawable.ic_report_police)
+        registerIncidentIcon(style, HAZARD_ICON_ID, R.drawable.ic_report_hazard)
+        registerIncidentIcon(style, CRASH_ICON_ID, R.drawable.ic_report_crash)
+
+        val incidentsSrc = GeoJsonSource(INCIDENTS_SOURCE_ID)
+        style.addSource(incidentsSrc)
+        incidentsSource = incidentsSrc
+
+        val incidentsLayer =
+            SymbolLayer(INCIDENTS_LAYER_ID, INCIDENTS_SOURCE_ID).withProperties(
+                PropertyFactory.iconImage(Expression.get(INCIDENT_ICON_PROPERTY)),
+                PropertyFactory.iconAllowOverlap(true),
+            )
+        style.addLayer(incidentsLayer)
+    }
+
+    private fun registerIncidentIcon(
+        style: Style,
+        iconId: String,
+        drawableRes: Int,
+    ) {
+        val bitmap = ContextCompat.getDrawable(this, drawableRes)?.toBitmap()
+        if (bitmap != null) {
+            style.addImage(iconId, bitmap)
+        }
     }
 
     private fun showDestinationMarker(latLng: LatLng) {
@@ -587,6 +782,7 @@ class MainActivity : AppCompatActivity() {
         topNavBar.visibility = View.VISIBLE
         bottomNavBar.visibility = View.VISIBLE
         speedBadge.visibility = View.VISIBLE
+        reportButton.visibility = View.VISIBLE
         turnDistanceText.text = ""
         turnStreetText.text = "Starting navigation..."
         etaSummaryText.text =
@@ -639,6 +835,7 @@ class MainActivity : AppCompatActivity() {
         topNavBar.visibility = View.GONE
         bottomNavBar.visibility = View.GONE
         speedBadge.visibility = View.GONE
+        reportButton.visibility = View.GONE
         topBar.visibility = View.VISIBLE
         routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))

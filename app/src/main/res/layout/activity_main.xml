@@ -64,6 +64,84 @@
 
             </LinearLayout>
 
+            <!-- Saved-place shortcuts, same as Waze's Home/Work buttons.
+                 Tapping an unset one starts a search and saves whatever
+                 destination you pick next under that label. -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:id="@+id/homeButton"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/search_bar_bg"
+                    android:backgroundTint="@color/navos_navy"
+                    android:elevation="4dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="8dp">
+
+                    <ImageView
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:layout_marginEnd="6dp"
+                        android:contentDescription="Home"
+                        android:src="@drawable/ic_home" />
+
+                    <TextView
+                        android:id="@+id/homeButtonLabel"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="@color/white"
+                        android:textSize="13sp"
+                        tools:text="Home" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/workButton"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/search_bar_bg"
+                    android:backgroundTint="@color/navos_navy"
+                    android:elevation="4dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="8dp">
+
+                    <ImageView
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:layout_marginEnd="6dp"
+                        android:contentDescription="Work"
+                        android:src="@drawable/ic_work" />
+
+                    <TextView
+                        android:id="@+id/workButtonLabel"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="@color/white"
+                        android:textSize="13sp"
+                        tools:text="Work" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
             <ListView
                 android:id="@+id/searchResultsList"
                 android:layout_width="match_parent"
@@ -166,6 +244,24 @@
             android:elevation="4dp"
             android:padding="11dp"
             android:src="@drawable/ic_recenter"
+            android:visibility="gone" />
+
+        <!-- "What do you see?" incident report button, shown only during
+             active navigation - same spot the re-centre button uses in
+             free-roam, since the two are never visible at once. -->
+        <ImageButton
+            android:id="@+id/reportButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="120dp"
+            android:background="@drawable/search_bar_bg"
+            android:backgroundTint="@color/navos_navy"
+            android:contentDescription="Report what you see"
+            android:elevation="4dp"
+            android:padding="11dp"
+            android:src="@drawable/ic_report_button"
             android:visibility="gone" />
 
         <!-- Route preview: shown after a destination is picked, before the
@@ -277,17 +373,76 @@
 
     </FrameLayout>
 
-    <!-- Settings drawer, opened from the gear button next to search. -->
-    <LinearLayout
+    <!-- Settings drawer, opened from the gear button next to search.
+         Scrollable now that the profile header + help/about rows make it
+         taller than a short screen may show at once. -->
+    <ScrollView
         android:layout_width="280dp"
         android:layout_height="match_parent"
         android:layout_gravity="end"
         android:background="@color/white"
         android:elevation="8dp"
+        android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
         android:orientation="vertical"
         android:paddingTop="48dp"
         android:paddingStart="20dp"
-        android:paddingEnd="20dp">
+        android:paddingEnd="20dp"
+        android:paddingBottom="24dp">
+
+        <!-- Lightweight profile header - there's no account system yet, so
+             this is a placeholder greeting rather than a real signed-in
+             identity, same spirit as Waze's drawer header. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="20dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@drawable/bg_circle_navy"
+                android:gravity="center"
+                android:text="N"
+                android:textColor="@color/white"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Hey, driver!"
+                    android:textColor="@color/navos_navy"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="NavOS"
+                    android:textColor="#80142A4B"
+                    android:textSize="12sp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginBottom="20dp"
+            android:background="#E0E0E0" />
 
         <TextView
             android:layout_width="match_parent"
@@ -364,6 +519,33 @@
             android:layout_width="match_parent"
             android:layout_height="1dp"
             android:layout_marginTop="20dp"
+            android:layout_marginBottom="12dp"
+            android:background="#E0E0E0" />
+
+        <TextView
+            android:id="@+id/helpFeedbackRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:text="Help &amp; feedback"
+            android:textColor="@color/navos_navy"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/aboutRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:text="About"
+            android:textColor="@color/navos_navy"
+            android:textSize="15sp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="8dp"
             android:layout_marginBottom="20dp"
             android:background="#E0E0E0" />
 
@@ -384,5 +566,7 @@
             android:textSize="12sp" />
 
     </LinearLayout>
+
+    </ScrollView>
 
 </androidx.drawerlayout.widget.DrawerLayout>
