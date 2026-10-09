@@ -4,6 +4,20 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Required to run NavigationService as a foreground service so an
+         active drive keeps tracking/announcing turns when the screen locks
+         or the driver switches apps - without this, Android would stop
+         delivering location callbacks to a plain background component. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Android 14 (API 34) requires every foreground-service type to be
+         backed by its own permission; this is the one for "location". -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Lets the ongoing-navigation notification actually show on API 33+
+         (Android 13 made all notifications, including a foreground
+         service's, opt-in). Requested at runtime before starting a drive;
+         if denied, navigation still runs, the driver just won't see the
+         persistent notification. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -22,5 +36,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Not exported - only this app ever starts/binds it (from
+             MainActivity) or targets its "end navigation" action (from the
+             notification action's own PendingIntent, which doesn't need
+             exported="true" to work). -->
+        <service
+            android:name=".navigation.NavigationService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
     </application>
 </manifest>

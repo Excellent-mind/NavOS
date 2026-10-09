@@ -2,10 +2,14 @@ package com.excellentmindblow.navos
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.os.Build
+import android.os.IBinder
 import android.net.Uri
 import android.graphics.Color
 import android.location.Location
@@ -40,9 +44,8 @@ import androidx.core.view.GravityCompat
 import androidx.core.view.WindowCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import com.excellentmindblow.navos.location.LiveLocationTracker
-import com.excellentmindblow.navos.navigation.NavigationEngine
+import com.excellentmindblow.navos.navigation.NavigationService
 import com.excellentmindblow.navos.navigation.NavigationState
-import com.excellentmindblow.navos.navigation.VoiceNarrator
 import com.excellentmindblow.navos.routing.LaneInfo
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
@@ -105,7 +108,17 @@ private const val CRASH_ICON_ID = "navos-icon-crash"
 private const val NAV_TILT_DEGREES = 55.0
 private const val NAV_ZOOM = 18.0
 
+// Position-button / nav-follow camera tuning. Two different ease
+// durations on purpose: a short one for the continuous per-GPS-fix follow
+// (so it reads as smooth tracking, not a fresh animation firing every
+// second) and a longer one only for the deliberate "snap into place"
+// moment - the Position button tap or entering active navigation.
+private const val NAV_FOLLOW_EASE_MS = 350
+private const val NAV_RECENTER_EASE_MS = 700
+private const val IDLE_RECENTER_ZOOM = 16.5
+
 private const val PREFS_NAME = "navos_prefs"
+private const val KEY_VOICE_ENABLED = "voice_enabled"
 
 /** Where the app currently is in the search -> preview -> drive flow. */
 private enum class NavMode { IDLE, PREVIEW, ACTIVE }
@@ -178,6 +191,11 @@ class MainActivity : AppCompatActivity() {
      * driver as they move (Waze-style), turned off the moment they drag
      * the map themselves so we don't fight their pan. */
     private var followingUser = true
+
+    /** Same idea as followingUser, but for the 3D nav camera during
+     * NavMode.ACTIVE - a separate flag since the two modes have different
+     * cameras (flat pan vs. tilted follow) and shouldn't share one state. */
+    private var navFollowing = true
     private var smoothedBearing: Double? = null
 
     private var routeSource: GeoJsonSource? = null
@@ -186,20 +204,68 @@ class MainActivity : AppCompatActivity() {
 
     private var navMode = NavMode.IDLE
     private var routeOptions: List<Route> = emptyList()
-
-    /** Guards against firing a second reroute calculation while one is
-     * already in flight - onNavigationState fires on every GPS tick, and
-     * staying off-route for several seconds would otherwise spam the
-     * routing API with overlapping requests. */
-    private var isRerouting = false
     private var selectedRouteIndex = 0
 
     /** Only non-null while NavMode.ACTIVE - gates feeding GPS fixes into
      * the navigation engine. */
     private var activeRoute: Route? = null
 
-    private lateinit var navigationEngine: NavigationEngine
-    private lateinit var voiceNarrator: VoiceNarrator
+    // The actual GPS subscription, NavigationEngine and voice guidance for
+    // an active drive all live in NavigationService now, not here - that's
+    // what lets a drive keep tracking/announcing turns when the screen
+    // locks or the app is backgrounded, which a plain Activity field can't
+    // do on its own. MainActivity only binds to mirror state into the UI
+    // (camera, turn card, lane strip) while it's actually visible; see
+    // startAndBindNavigationService()/navServiceConnection below.
+    private var navigationService: NavigationService? = null
+    private var navServiceBound = false
+    private var pendingStartRoute: Route? = null
+
+    private val navServiceListener =
+        object : NavigationService.Listener {
+            override fun onNavLocation(location: Location) {
+                lastKnownLocation = location
+                map?.locationComponent?.forceLocationUpdate(location)
+                updateNavCamera(location)
+                val kmh = if (location.hasSpeed()) (location.speed * 3.6).toInt() else 0
+                speedBadge.text = "$kmh\nkm/h"
+            }
+
+            override fun onNavState(state: NavigationState) {
+                onNavigationState(state)
+            }
+
+            override fun onNavigationEnded() {
+                if (navMode == NavMode.ACTIVE) endActiveNavigation()
+            }
+
+            override fun onRerouted(route: Route) {
+                activeRoute = route
+                routeOptions = listOf(route)
+                selectedRouteIndex = 0
+                redrawRouteLines()
+            }
+        }
+
+    private val navServiceConnection =
+        object : ServiceConnection {
+            override fun onServiceConnected(
+                name: ComponentName?,
+                binder: IBinder?,
+            ) {
+                val service = (binder as NavigationService.LocalBinder).getService()
+                navigationService = service
+                service.setListener(navServiceListener)
+                pendingStartRoute?.let { route ->
+                    service.startNavigation(route)
+                    pendingStartRoute = null
+                }
+            }
+
+            override fun onServiceDisconnected(name: ComponentName?) {
+                navigationService = null
+            }
+        }
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val searchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -213,6 +279,13 @@ class MainActivity : AppCompatActivity() {
                 permissionDeniedOverlay.visibility = View.VISIBLE
             }
         }
+
+    // Denying this only hides the ongoing-navigation notification (API
+    // 33+) - the drive and the foreground service keep running either
+    // way, so there's nothing to react to here beyond the system request
+    // itself.
+    private val requestNotificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must happen before any MapView touches its native state.
@@ -233,13 +306,6 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-
-        voiceNarrator = VoiceNarrator(this)
-        navigationEngine =
-            NavigationEngine(
-                onState = { state -> onNavigationState(state) },
-                onAnnounce = { key, text -> voiceNarrator.speak(key, text) },
-            )
 
         mapView = findViewById(R.id.mapView)
         mapView.onCreate(savedInstanceState)
@@ -262,14 +328,26 @@ class MainActivity : AppCompatActivity() {
 
             loadedMap.addOnMapClickListener { latLng -> onMapTapped(loadedMap, latLng) }
 
-            // A manual pan means the driver wants to look elsewhere - stop
-            // auto-recentering until they pick a destination again, and
-            // offer a way back (Waze/Google Maps both show this same
-            // re-centre affordance once you've panned away).
+            // A manual pan/rotate/tilt means the driver wants to look
+            // elsewhere - stop auto-recentering (in whichever mode is
+            // actually active) and offer a way back via the Position
+            // button, same affordance Waze/Google Maps both show once
+            // you've panned away. Only during PREVIEW is a manual gesture
+            // left alone entirely - that screen has no camera-follow of
+            // its own to pause.
             loadedMap.addOnCameraMoveStartedListener { reason ->
                 if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
-                    followingUser = false
-                    if (navMode == NavMode.IDLE) recenterButton.visibility = View.VISIBLE
+                    when (navMode) {
+                        NavMode.ACTIVE -> {
+                            navFollowing = false
+                            recenterButton.visibility = View.VISIBLE
+                        }
+                        NavMode.IDLE -> {
+                            followingUser = false
+                            recenterButton.visibility = View.VISIBLE
+                        }
+                        NavMode.PREVIEW -> {}
+                    }
                 }
             }
 
@@ -294,8 +372,12 @@ class MainActivity : AppCompatActivity() {
             drawerLayout.openDrawer(GravityCompat.END)
         }
 
-        findViewById<Switch>(R.id.voiceGuidanceSwitch).setOnCheckedChangeListener { _, isChecked ->
-            voiceNarrator.enabled = isChecked
+        findViewById<Switch>(R.id.voiceGuidanceSwitch).apply {
+            isChecked = prefs.getBoolean(KEY_VOICE_ENABLED, true)
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit().putBoolean(KEY_VOICE_ENABLED, isChecked).apply()
+                navigationService?.setVoiceEnabled(isChecked)
+            }
         }
 
         // "Dark" is disabled in the layout until we've confirmed a working
@@ -423,13 +505,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.stopNavigationButton).setOnClickListener {
             endActiveNavigation()
         }
-        recenterButton.setOnClickListener {
-            followingUser = true
-            recenterButton.visibility = View.GONE
-            lastKnownLocation?.let { location ->
-                map?.easeCamera(CameraUpdateFactory.newLatLng(LatLng(location.latitude, location.longitude)), 500)
-            }
-        }
+        recenterButton.setOnClickListener { recenterCamera() }
         reportButton.setOnClickListener {
             showReportDialog()
         }
@@ -865,39 +941,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Recalculates a fresh route from where the driver actually is, back
-     * to the same destination, once NavigationEngine flags them as having
-     * left the route - a real reroute, same as every other nav app, not
-     * just an "(off route)" label that never does anything about it. */
-    private fun rerouteFromCurrentLocation() {
-        val origin = lastKnownLocation ?: return
-        val destinationPoint = activeRoute?.geometry?.lastOrNull() ?: return
-        isRerouting = true
-
-        val originPoint = RoutePoint(origin.latitude, origin.longitude)
-        searchExecutor.execute {
-            var routes: List<Route> = emptyList()
-            try {
-                routes = RoutingService.calculateRoutes(originPoint, destinationPoint)
-            } catch (e: Exception) {
-                // handled below - empty list just means "try again next tick"
-            }
-            mainHandler.post {
-                isRerouting = false
-                val newRoute = routes.firstOrNull()
-                // Only apply it if we're still actively driving this same
-                // trip - the driver may have cancelled or arrived while the
-                // request was in flight.
-                if (newRoute != null && navMode == NavMode.ACTIVE) {
-                    activeRoute = newRoute
-                    routeOptions = listOf(newRoute)
-                    selectedRouteIndex = 0
-                    navigationEngine.setRoute(newRoute)
-                    redrawRouteLines()
-                }
-            }
-        }
-    }
+    // Reroute-on-off-route used to live here, recalculating from
+    // lastKnownLocation back to the destination whenever NavigationEngine
+    // flagged offRoute=true. It now lives in NavigationService instead
+    // (same RoutingService call, same "only apply if still this trip"
+    // guard) so a reroute still happens even if the driver has locked the
+    // screen or switched apps - the whole reason that logic needed a
+    // longer-lived home than this Activity. The service reports the result
+    // back via NavigationService.Listener.onRerouted() above, which is
+    // what redraws the route line here.
 
     // ---- Route preview (pre-navigation) --------------------------------
 
@@ -1013,7 +1065,7 @@ class MainActivity : AppCompatActivity() {
 
         navMode = NavMode.ACTIVE
         smoothedBearing = null
-        isRerouting = false
+        navFollowing = true
         topBar.visibility = View.GONE
         recenterButton.visibility = View.GONE
         routePreviewCard.visibility = View.GONE
@@ -1022,8 +1074,6 @@ class MainActivity : AppCompatActivity() {
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
 
         activeRoute = route
-        navigationEngine.setRoute(route)
-        voiceNarrator.resetGuard()
         topNavBar.visibility = View.VISIBLE
         bottomNavBar.visibility = View.VISIBLE
         speedBadge.visibility = View.VISIBLE
@@ -1044,19 +1094,77 @@ class MainActivity : AppCompatActivity() {
             cameraMode = CameraMode.NONE
         }
 
-        lastKnownLocation?.let { location ->
-            updateNavCamera(location)
-            navigationEngine.onLocation(
-                RoutePoint(location.latitude, location.longitude),
-                if (location.hasSpeed()) location.speed.toDouble() else null,
-            )
+        lastKnownLocation?.let { location -> updateNavCamera(location, durationMs = NAV_RECENTER_EASE_MS) }
+
+        // The actual GPS subscription + NavigationEngine + voice guidance
+        // move to NavigationService for the duration of the drive, so they
+        // keep running when the screen locks or this Activity is
+        // backgrounded - stop this Activity's own idle tracker first so
+        // there's only ever one GPS subscription live at a time.
+        locationTracker?.stop()
+        locationTracker = null
+        startAndBindNavigationService(route)
+    }
+
+    /** Starts NavigationService as a foreground service (so it survives
+     * this Activity going to the background) and binds to it so this
+     * Activity can mirror its state into the UI while visible. Safe to
+     * call again later (e.g. re-entering ACTIVE after process recreation)
+     * - binding again is a no-op if already bound. */
+    private fun startAndBindNavigationService(route: Route) {
+        requestNotificationPermissionIfNeeded()
+        val intent = Intent(this, NavigationService::class.java)
+        ContextCompat.startForegroundService(this, intent)
+        val existingService = navigationService
+        if (existingService != null) {
+            existingService.startNavigation(route)
+            return
         }
+        pendingStartRoute = route
+        if (!navServiceBound) {
+            bindService(intent, navServiceConnection, Context.BIND_AUTO_CREATE)
+            navServiceBound = true
+        }
+    }
+
+    @SuppressLint("InlinedApi") // guarded by the SDK_INT check itself
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted =
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    /** Only unbinds - does NOT stop the service. Unbinding alone lets
+     * NavigationService keep running as a started foreground service (GPS,
+     * engine, voice, notification all still going) even while nothing is
+     * bound to it, which is exactly the point: this Activity can safely
+     * detach while backgrounded without ending the drive. */
+    private fun unbindNavigationService() {
+        if (navServiceBound) {
+            navigationService?.setListener(null)
+            unbindService(navServiceConnection)
+            navServiceBound = false
+        }
+        navigationService = null
     }
 
     /** Keeps the 3D follow camera (tilt + zoom + heading) locked on the
      * driver's position during active navigation. Called on every GPS fix
-     * instead of leaning on LocationComponent's own camera tracking. */
-    private fun updateNavCamera(location: Location) {
+     * instead of leaning on LocationComponent's own camera tracking - and
+     * skipped while the driver has manually panned/tilted away from it, so
+     * tapping Position (recenterCamera()) is the only thing that forces
+     * the camera back rather than fighting the gesture every second. */
+    private fun updateNavCamera(
+        location: Location,
+        durationMs: Int = NAV_FOLLOW_EASE_MS,
+    ) {
+        if (!navFollowing) return
         val rawBearing = if (location.hasBearing()) location.bearing.toDouble() else null
         val bearing = smoothedNavBearing(rawBearing, location)
         map?.easeCamera(
@@ -1069,7 +1177,43 @@ class MainActivity : AppCompatActivity() {
                     .bearing(bearing)
                     .build(),
             ),
-            1000,
+            durationMs,
+        )
+    }
+
+    /** The Position/recenter button's actual behavior, chosen by whether a
+     * drive is active - a flat "jump back to my dot" pan everywhere would
+     * leave active navigation looking nothing like the 3D follow camera it
+     * was in before the driver panned away. */
+    private fun recenterCamera() {
+        val location = lastKnownLocation
+        if (navMode == NavMode.ACTIVE) {
+            navFollowing = true
+            recenterButton.visibility = View.GONE
+            if (location != null) {
+                updateNavCamera(location, durationMs = NAV_RECENTER_EASE_MS)
+            }
+            // else: no fix yet - navFollowing is already true, so the next
+            // GPS update (whichever arrives first) applies it automatically.
+            return
+        }
+
+        followingUser = true
+        recenterButton.visibility = View.GONE
+        if (location == null) {
+            Toast.makeText(this, "Waiting for GPS...", Toast.LENGTH_SHORT).show()
+            return
+        }
+        map?.easeCamera(
+            CameraUpdateFactory.newCameraPosition(
+                CameraPosition
+                    .Builder()
+                    .target(LatLng(location.latitude, location.longitude))
+                    .tilt(0.0)
+                    .zoom(IDLE_RECENTER_ZOOM)
+                    .build(),
+            ),
+            NAV_RECENTER_EASE_MS,
         )
     }
 
@@ -1106,6 +1250,7 @@ class MainActivity : AppCompatActivity() {
         reportButton.visibility = View.GONE
         nextTurnStrip.visibility = View.GONE
         laneContainer.visibility = View.GONE
+        recenterButton.visibility = View.GONE
         bottomTabBar.visibility = View.VISIBLE
         selectTab(HomeTab.MAP)
         routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
@@ -1113,11 +1258,22 @@ class MainActivity : AppCompatActivity() {
         routeOptions = emptyList()
         clearDestinationMarker()
 
+        // Idempotent - safe to call whether this end was user-initiated
+        // (which still needs to tell the service to stop) or reported by
+        // the service itself (arrival, or the notification's "End
+        // navigation" action), in which case it's already stopped.
+        navigationService?.stopNavigation()
+        unbindNavigationService()
+        // The drive's own GPS subscription is gone with the service -
+        // resume this Activity's idle one for free-roam map following.
+        startLocationTracking()
+
         map?.locationComponent?.apply {
             cameraMode = CameraMode.NONE
             renderMode = RenderMode.GPS
         }
         followingUser = true
+        navFollowing = true
 
         val location = lastKnownLocation
         if (location != null) {
@@ -1178,12 +1334,13 @@ class MainActivity : AppCompatActivity() {
             laneContainer.visibility = View.GONE
         }
 
+        // NavigationService detects arrival and off-route itself (it owns
+        // the engine now) and already stops/reroutes on its own; this is
+        // just a UI-side safety net in case a state update ever reaches
+        // here before that - endActiveNavigation()/the service's own stop
+        // are both idempotent, so a harmless double-call is fine.
         if (state.isArrival && state.distanceToNextTurnMeters <= 30) {
             endActiveNavigation()
-        }
-
-        if (state.offRoute && !isRerouting && navMode == NavMode.ACTIVE) {
-            rerouteFromCurrentLocation()
         }
     }
 
@@ -1310,22 +1467,16 @@ class MainActivity : AppCompatActivity() {
         tracker.start()
     }
 
+    // Only fires for the Activity's own idle/free-roam tracker - while
+    // NavMode.ACTIVE, that tracker is stopped (see beginActiveNavigation())
+    // and NavigationService's own GPS subscription drives the drive
+    // instead, via navServiceListener.onNavLocation() above. So there's no
+    // "are we navigating" branch needed here any more: this function only
+    // ever runs for the non-navigating case.
     @SuppressLint("MissingPermission") // permission is confirmed before startLocationTracking() runs
     private fun onLocationUpdate(location: Location) {
         lastKnownLocation = location
         map?.locationComponent?.forceLocationUpdate(location)
-
-        if (activeRoute != null) {
-            // Active navigation drives its own 3D follow camera every fix.
-            updateNavCamera(location)
-            navigationEngine.onLocation(
-                RoutePoint(location.latitude, location.longitude),
-                if (location.hasSpeed()) location.speed.toDouble() else null,
-            )
-            val kmh = if (location.hasSpeed()) (location.speed * 3.6).toInt() else 0
-            speedBadge.text = "$kmh\nkm/h"
-            return
-        }
 
         if (!hasCenteredOnFirstFix) {
             hasCenteredOnFirstFix = true
@@ -1384,6 +1535,14 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         mapView.onStart()
+        // A drive that was going while this Activity was stopped is still
+        // running in NavigationService - rebind to it (no route to pass,
+        // it already has one) so the UI starts mirroring it again instead
+        // of showing a stale or blank drive card.
+        if (navMode == NavMode.ACTIVE && !navServiceBound) {
+            bindService(Intent(this, NavigationService::class.java), navServiceConnection, Context.BIND_AUTO_CREATE)
+            navServiceBound = true
+        }
     }
 
     override fun onResume() {
@@ -1391,8 +1550,13 @@ class MainActivity : AppCompatActivity() {
         mapView.onResume()
         // Covers coming back from the "Open location settings" button -
         // re-check rather than leave the GPS-disabled overlay stuck up
-        // after the driver actually turned GPS back on.
-        if (::gpsDisabledOverlay.isInitialized && gpsDisabledOverlay.visibility == View.VISIBLE) {
+        // after the driver actually turned GPS back on. Only meaningful
+        // outside active navigation - during ACTIVE, NavigationService
+        // owns location, not this Activity's own tracker.
+        if (navMode != NavMode.ACTIVE &&
+            ::gpsDisabledOverlay.isInitialized &&
+            gpsDisabledOverlay.visibility == View.VISIBLE
+        ) {
             startLocationTracking()
         }
     }
@@ -1404,6 +1568,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         mapView.onStop()
+        // Only unbinds NavigationService (if a drive is active) - it keeps
+        // running as a started foreground service regardless. The idle
+        // tracker, on the other hand, really does stop here: there's
+        // nothing to keep tracking for once this Activity isn't visible
+        // and no drive is active (requirement: no background location
+        // tracking without active navigation).
+        unbindNavigationService()
         locationTracker?.stop()
         super.onStop()
     }
@@ -1416,7 +1587,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         mapView.onDestroy()
         searchExecutor.shutdownNow()
-        voiceNarrator.shutdown()
+        unbindNavigationService()
         super.onDestroy()
     }
 
