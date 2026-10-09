@@ -43,6 +43,18 @@ jobs:
           fi
 
       - name: EAS build (preview APK)
-        run: eas build --platform android --profile preview --non-interactive
+        run: |
+          set +e
+          eas build --platform android --profile preview --non-interactive --non-interactive 2>&1 | tee /tmp/eas-build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "Build failed, dumping last 40 log lines as annotations:"
+            tail -n 40 /tmp/eas-build.log | while IFS= read -r line; do
+              safe=$(echo "$line" | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g')
+              echo "::error::${safe}"
+            done
+          fi
+          exit "$status"
+        shell: bash
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
