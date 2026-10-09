@@ -96,8 +96,8 @@ export function MapScreen() {
       {DEBUG_DISABLE_MAP ? (
         <View style={[styles.flex, styles.mapPlaceholder]}>
           <Text style={styles.loadingText}>
-            [Map disabled for crash testing - if you can see this screen and
-            it did NOT close, the map view is what was crashing]
+            [Map + real GPS disabled for crash testing - if you can see this
+            screen and it did NOT close, both are ruled out]
           </Text>
         </View>
       ) : (
