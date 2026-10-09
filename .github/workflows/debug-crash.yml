@@ -1,0 +1,96 @@
+name: Debug APK crash (Android emulator)
+
+# Trigger manually from the GitHub app: Actions tab -> "Debug APK crash
+# (Android emulator)" -> Run workflow, pasting in the expo.dev build's
+# .apk download URL. This boots a virtual Android phone on GitHub's own
+# servers, installs the APK, opens the app, and posts whatever crashed to
+# issue #1 - no phone steps needed.
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: "Direct .apk download URL from the Expo build page"
+        required: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the APK
+        run: curl -fSL -o /tmp/app.apk "${{ github.event.inputs.apk_url }}"
+
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sleep 2
+          ls -la /dev/kvm
+
+      - name: Boot emulator, install app, capture crash
+        timeout-minutes: 15
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          target: default
+          arch: x86_64
+          profile: pixel_5
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+          disable-animations: true
+          script: |
+            set +e
+            SUMMARY=/tmp/crash-summary.txt
+            : > "$SUMMARY"
+            log_step() {
+              echo "## $1" >> "$SUMMARY"
+              shift
+              "$@" >> "$SUMMARY" 2>&1
+              echo "(exit code: $?)" >> "$SUMMARY"
+              echo >> "$SUMMARY"
+            }
+
+            log_step "adb devices" adb devices
+            log_step "clear logcat" adb logcat -c
+            log_step "install APK" adb install -r /tmp/app.apk
+            log_step "grant fine location" adb shell pm grant com.excellentmindblow.navos android.permission.ACCESS_FINE_LOCATION
+            log_step "grant coarse location" adb shell pm grant com.excellentmindblow.navos android.permission.ACCESS_COARSE_LOCATION
+            log_step "list installed package" adb shell pm list packages -3
+            log_step "launch via monkey" adb shell monkey -p com.excellentmindblow.navos -c android.intent.category.LAUNCHER 1
+            sleep 15
+            log_step "ps of app process (empty = already dead/crashed)" adb shell ps -A | grep navos
+            adb logcat -d > /tmp/full-logcat.txt 2>&1
+            echo "## full logcat line count: $(wc -l < /tmp/full-logcat.txt)" >> "$SUMMARY"
+            echo >> "$SUMMARY"
+            echo "## Crash-relevant logcat lines" >> "$SUMMARY"
+            grep -iE "AndroidRuntime|FATAL EXCEPTION|com.excellentmindblow.navos|libc |DEBUG.*pid|signal [0-9]+|SIGSEGV|SIGABRT|backtrace|tombstone|crash" /tmp/full-logcat.txt | tail -c 50000 >> "$SUMMARY"
+            echo >> "$SUMMARY"
+            echo "## last 150 lines of raw logcat (fallback, in case nothing matched above)" >> "$SUMMARY"
+            tail -n 150 /tmp/full-logcat.txt >> "$SUMMARY"
+            cat "$SUMMARY"
+            exit 0
+
+      - name: Post crash log to tracking issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "Crash capture from emulator run ${GITHUB_RUN_ID}, APK: ${{ github.event.inputs.apk_url }}"
+            echo '```'
+            cat /tmp/crash-summary.txt 2>/dev/null || echo "(no crash-summary.txt produced - the emulator step itself likely failed before our script ran)"
+            echo '```'
+          } > /tmp/issue-comment-body.md
+          jq -Rs '{body: .}' /tmp/issue-comment-body.md | gh api repos/${GITHUB_REPOSITORY}/issues/1/comments --input -
+
+      - name: Upload full logcat as a build artifact too
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-logcat
+          path: /tmp/full-logcat.txt
+          retention-days: 7
