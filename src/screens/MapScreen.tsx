@@ -1,6 +1,8 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import { Camera, GeoJSONSource, Layer, Map, Marker, UserLocation } from "@maplibre/maplibre-react-native";
+// TEMPORARY: @maplibre/maplibre-react-native import removed entirely (not
+// just unused) for this bisection round - see DEBUG_DISABLE_MAP below.
+// import { Camera, GeoJSONSource, Layer, Map, Marker, UserLocation } from "@maplibre/maplibre-react-native";
 import { useLiveLocation } from "../services/useLiveLocation";
 import { calculateRoute } from "../services/routing";
 import { useNavigationEngine } from "../services/navigationEngine";
@@ -15,11 +17,15 @@ import { TripSummaryBar } from "../components/TripSummaryBar";
 // https://openfreemap.org
 const MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
-// TEMPORARY bisection flag: the app crashes instantly on open with no JS
-// error shown at all, which points to a native-level crash. MapLibre's
-// native map view is the only non-trivial native UI in this app, so this
-// flag swaps it for a plain placeholder box to test that theory in
-// isolation. Set back to false (or remove) once we know the answer.
+// TEMPORARY bisection flag, round 3: hiding <Map> in JSX (round 1) and
+// faking GPS (round 2) both failed to fix the crash. That's an important
+// result - MapLibre's native module gets registered with Android at app
+// startup via autolinking REGARDLESS of whether <Map> is ever rendered in
+// JS, so round 1 never actually tested "is MapLibre the cause" - it only
+// tested "is rendering the map view the cause". This round removes the
+// @maplibre/maplibre-react-native package from the build entirely (see
+// package.json and app.json) to test the real theory: that its native
+// module registration itself is what's crashing on this device.
 const DEBUG_DISABLE_MAP = true;
 
 function toLngLat(p: LatLng): [number, number] {
@@ -96,38 +102,12 @@ export function MapScreen() {
       {DEBUG_DISABLE_MAP ? (
         <View style={[styles.flex, styles.mapPlaceholder]}>
           <Text style={styles.loadingText}>
-            [Map + real GPS disabled for crash testing - if you can see this
-            screen and it did NOT close, both are ruled out]
+            [MapLibre package removed from the build entirely for this
+            test - if you can see this screen and it did NOT close, the
+            map library itself (not just the map view) is cleared too]
           </Text>
         </View>
-      ) : (
-        <Map style={styles.flex} mapStyle={MAP_STYLE_URL} logo={false}>
-          <Camera
-            initialViewState={{ center: toLngLat(location), zoom: 15 }}
-            trackUserLocation={isNavigating ? "course" : undefined}
-            zoom={isNavigating ? 17 : undefined}
-            duration={600}
-          />
-          <UserLocation heading accuracy />
-
-          {routeGeometry && (
-            <GeoJSONSource id="routeSource" data={routeGeometry}>
-              <Layer
-                type="line"
-                id="routeLine"
-                layout={{ "line-cap": "round", "line-join": "round" }}
-                paint={{ "line-color": "#1CB0F6", "line-width": 6 }}
-              />
-            </GeoJSONSource>
-          )}
-
-          {destination && (
-            <Marker lngLat={toLngLat(destination)}>
-              <View style={styles.destinationPin} />
-            </Marker>
-          )}
-        </Map>
-      )}
+      ) : null /* real <Map>...</Map> block removed for this bisection round - restore from git history once @maplibre/maplibre-react-native is back in package.json */}
 
       {!isNavigating && <SearchBar origin={location} onSelect={handleSelectDestination} />}
 

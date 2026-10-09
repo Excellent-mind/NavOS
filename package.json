@@ -10,7 +10,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@maplibre/maplibre-react-native": "11.5.0",
     "expo": "55.0.25",
     "expo-dev-client": "*",
     "expo-location": "*",
