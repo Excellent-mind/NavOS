@@ -4,6 +4,7 @@
     "slug": "navos",
     "version": "0.1.0",
     "orientation": "portrait",
+    "jsEngine": "hermes",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
