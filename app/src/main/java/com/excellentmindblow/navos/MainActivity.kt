@@ -293,6 +293,16 @@ class MainActivity : AppCompatActivity() {
         val km = route.distanceMeters / 1000.0
         val minutes = route.durationSeconds / 60.0
         turnBanner.text = String.format(Locale.US, "Route set: %.1f km, about %.0f min", km, minutes)
+
+        // Android's LocationManager only fires another update once you've
+        // moved ~3m (LiveLocationTracker's MIN_DISTANCE_M) - so if you're
+        // standing still when a route is set, the engine would otherwise
+        // never run and this banner would be stuck on the line above
+        // forever. Feed it the fix we already have right away so the first
+        // turn instruction shows immediately, not only once you move.
+        lastKnownLocation?.let { location ->
+            navigationEngine.onLocation(RoutePoint(location.latitude, location.longitude))
+        }
     }
 
     private fun onNavigationState(state: NavigationState) {
@@ -302,8 +312,12 @@ class MainActivity : AppCompatActivity() {
             } else {
                 "${state.distanceToNextTurnMeters.toInt()} m"
             }
+        val remainingKm = state.distanceRemainingMeters / 1000.0
+        val remainingMin = state.durationRemainingSeconds / 60.0
         val suffix = if (state.offRoute) " (off route - recalculating soon)" else ""
-        turnBanner.text = "${state.instruction} • $distanceLabel$suffix"
+        turnBanner.text =
+            "${state.instruction} • $distanceLabel$suffix\n" +
+            String.format(Locale.US, "%.1f km • %.0f min left", remainingKm, remainingMin)
     }
 
     private fun ensureLocationPermissionThenTrack() {
