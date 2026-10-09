@@ -57,7 +57,7 @@ jobs:
               tail -c 60000 /tmp/eas-build-clean.log
               echo '```'
             } > /tmp/issue-comment-body.md
-            gh api repos/${GITHUB_REPOSITORY}/issues/1/comments -f body=@/tmp/issue-comment-body.md
+            jq -Rs '{body: .}' /tmp/issue-comment-body.md | gh api repos/${GITHUB_REPOSITORY}/issues/1/comments --input -
           fi
           exit "$status"
         shell: bash
