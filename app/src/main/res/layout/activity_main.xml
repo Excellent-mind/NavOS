@@ -8,4 +8,42 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="40dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
+
+        <EditText
+            android:id="@+id/searchInput"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:autofillHints=""
+            android:background="@drawable/search_bar_bg"
+            android:elevation="4dp"
+            android:hint="Search destination in Malaysia"
+            android:imeOptions="actionSearch"
+            android:inputType="text"
+            android:maxLines="1"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:textColor="@color/navos_navy"
+            android:textColorHint="#80142A4B" />
+
+        <ListView
+            android:id="@+id/searchResultsList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/search_bar_bg"
+            android:divider="#14142A4B"
+            android:dividerHeight="1dp"
+            android:elevation="4dp"
+            android:maxHeight="320dp"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
 </FrameLayout>

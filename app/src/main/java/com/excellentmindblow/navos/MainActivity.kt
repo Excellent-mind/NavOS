@@ -8,11 +8,22 @@ import android.graphics.Color
 import android.location.Location
 import android.location.LocationManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.inputmethod.InputMethodManager
+import android.widget.ArrayAdapter
+import android.widget.EditText
+import android.widget.ListView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.excellentmindblow.navos.location.LiveLocationTracker
+import com.excellentmindblow.navos.search.GeocodeResult
+import com.excellentmindblow.navos.search.GeocodingService
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -23,6 +34,8 @@ import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 // Same free, no-API-key, production-safe tile style used by the earlier
 // React Native build. https://openfreemap.org
@@ -35,9 +48,23 @@ private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
  */
 class MainActivity : AppCompatActivity() {
     private lateinit var mapView: MapView
+    private lateinit var searchInput: EditText
+    private lateinit var searchResultsList: ListView
     private var map: MapLibreMap? = null
     private var locationTracker: LiveLocationTracker? = null
     private var hasCenteredOnFirstFix = false
+    private var lastKnownLocation: Location? = null
+
+    /** The destination the user last picked from search results - routing
+     * (next port) will read this to calculate a route from the current GPS
+     * fix to here. */
+    var selectedDestination: GeocodeResult? = null
+        private set
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val searchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private var pendingSearch: Runnable? = null
+    private var currentResults: List<GeocodeResult> = emptyList()
 
     private val requestLocationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -72,6 +99,94 @@ class MainActivity : AppCompatActivity() {
                 ensureLocationPermissionThenTrack()
             }
         }
+
+        setUpSearch()
+    }
+
+    private fun setUpSearch() {
+        searchInput = findViewById(R.id.searchInput)
+        searchResultsList = findViewById(R.id.searchResultsList)
+
+        searchInput.addTextChangedListener(
+            object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    scheduleSearch(s?.toString().orEmpty())
+                }
+
+                override fun afterTextChanged(s: Editable?) {}
+            },
+        )
+
+        searchResultsList.setOnItemClickListener { _, _, position, _ ->
+            val result = currentResults.getOrNull(position) ?: return@setOnItemClickListener
+            onDestinationSelected(result)
+        }
+    }
+
+    private fun scheduleSearch(query: String) {
+        pendingSearch?.let { mainHandler.removeCallbacks(it) }
+
+        if (query.trim().length < 3) {
+            currentResults = emptyList()
+            searchResultsList.visibility = android.view.View.GONE
+            return
+        }
+
+        val runnable = Runnable { runSearch(query) }
+        pendingSearch = runnable
+        // Debounce so we don't hammer Nominatim's free, rate-limited
+        // (~1 req/sec) endpoint on every keystroke.
+        mainHandler.postDelayed(runnable, 400)
+    }
+
+    private fun runSearch(query: String) {
+        val bias = lastKnownLocation
+        searchExecutor.execute {
+            val results =
+                try {
+                    GeocodingService.search(query, bias?.latitude, bias?.longitude)
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            mainHandler.post { showSearchResults(results) }
+        }
+    }
+
+    private fun showSearchResults(results: List<GeocodeResult>) {
+        currentResults = results
+        if (results.isEmpty()) {
+            searchResultsList.visibility = android.view.View.GONE
+            return
+        }
+        searchResultsList.adapter =
+            ArrayAdapter(this, android.R.layout.simple_list_item_1, results.map { it.label })
+        searchResultsList.visibility = android.view.View.VISIBLE
+    }
+
+    private fun onDestinationSelected(result: GeocodeResult) {
+        selectedDestination = result
+        searchResultsList.visibility = android.view.View.GONE
+        currentResults = emptyList()
+        searchInput.setText(result.label)
+        searchInput.clearFocus()
+
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(searchInput.windowToken, 0)
+
+        Toast.makeText(this, "Destination set: ${result.label}", Toast.LENGTH_SHORT).show()
+
+        map?.easeCamera(
+            CameraUpdateFactory.newCameraPosition(
+                CameraPosition
+                    .Builder()
+                    .target(LatLng(result.latitude, result.longitude))
+                    .zoom(15.0)
+                    .build(),
+            ),
+            600,
+        )
     }
 
     private fun ensureLocationPermissionThenTrack() {
@@ -100,6 +215,7 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("MissingPermission") // permission is confirmed before startLocationTracking() runs
     private fun onLocationUpdate(location: Location) {
+        lastKnownLocation = location
         map?.locationComponent?.forceLocationUpdate(location)
 
         if (!hasCenteredOnFirstFix) {
@@ -162,6 +278,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         mapView.onDestroy()
+        searchExecutor.shutdownNow()
         super.onDestroy()
     }
 
