@@ -172,7 +172,7 @@ class MainActivity : AppCompatActivity() {
             // once the nav camera starts rotating the map.
             loadedMap.uiSettings.apply {
                 isCompassEnabled = true
-                setCompassGravity(Gravity.TOP_START)
+                setCompassGravity(Gravity.TOP or Gravity.START)
                 val density = resources.displayMetrics.density
                 setCompassMargins((16 * density).toInt(), (100 * density).toInt(), 0, 0)
             }
