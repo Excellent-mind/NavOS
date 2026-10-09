@@ -165,6 +165,12 @@ class MainActivity : AppCompatActivity() {
 
     private var navMode = NavMode.IDLE
     private var routeOptions: List<Route> = emptyList()
+
+    /** Guards against firing a second reroute calculation while one is
+     * already in flight - onNavigationState fires on every GPS tick, and
+     * staying off-route for several seconds would otherwise spam the
+     * routing API with overlapping requests. */
+    private var isRerouting = false
     private var selectedRouteIndex = 0
 
     /** Only non-null while NavMode.ACTIVE - gates feeding GPS fixes into
@@ -730,6 +736,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Recalculates a fresh route from where the driver actually is, back
+     * to the same destination, once NavigationEngine flags them as having
+     * left the route - a real reroute, same as every other nav app, not
+     * just an "(off route)" label that never does anything about it. */
+    private fun rerouteFromCurrentLocation() {
+        val origin = lastKnownLocation ?: return
+        val destinationPoint = activeRoute?.geometry?.lastOrNull() ?: return
+        isRerouting = true
+
+        val originPoint = RoutePoint(origin.latitude, origin.longitude)
+        searchExecutor.execute {
+            var routes: List<Route> = emptyList()
+            try {
+                routes = RoutingService.calculateRoutes(originPoint, destinationPoint)
+            } catch (e: Exception) {
+                // handled below - empty list just means "try again next tick"
+            }
+            mainHandler.post {
+                isRerouting = false
+                val newRoute = routes.firstOrNull()
+                // Only apply it if we're still actively driving this same
+                // trip - the driver may have cancelled or arrived while the
+                // request was in flight.
+                if (newRoute != null && navMode == NavMode.ACTIVE) {
+                    activeRoute = newRoute
+                    routeOptions = listOf(newRoute)
+                    selectedRouteIndex = 0
+                    navigationEngine.setRoute(newRoute)
+                    redrawRouteLines()
+                }
+            }
+        }
+    }
+
     // ---- Route preview (pre-navigation) --------------------------------
 
     private fun showRoutePreview() {
@@ -840,6 +880,7 @@ class MainActivity : AppCompatActivity() {
 
         navMode = NavMode.ACTIVE
         smoothedBearing = null
+        isRerouting = false
         topBar.visibility = View.GONE
         recenterButton.visibility = View.GONE
         routePreviewCard.visibility = View.GONE
@@ -992,6 +1033,10 @@ class MainActivity : AppCompatActivity() {
 
         if (state.isArrival && state.distanceToNextTurnMeters <= 30) {
             endActiveNavigation()
+        }
+
+        if (state.offRoute && !isRerouting && navMode == NavMode.ACTIVE) {
+            rerouteFromCurrentLocation()
         }
     }
 
