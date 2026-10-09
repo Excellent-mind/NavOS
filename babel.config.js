@@ -1,32 +1,37 @@
 module.exports = function (api) {
   api.cache(true);
   return {
-    presets: ["babel-preset-expo"],
-    overrides: [
-      {
-        // Why this exists (verified by reading babel-preset-expo's actual
-        // source, not guessed): for the Hermes engine, the preset DOES ship
-        // plugins that down-level native "#privateField" class syntax
-        // (which Hermes can't run), but it only runs them on classes that
-        // also use a decorator - an internal "lazy decorators" optimization
-        // in babel-preset-expo/src/plugins/lazy-decorators-plugin.ts. React
-        // Native's own EventEmitter class (node_modules/react-native) uses
-        // plain "#registry" private fields with no decorator, so it falls
-        // through that gap and reaches Hermes untransformed.
-        //
-        // Fix: force the same three plugins to run unconditionally on
-        // node_modules, using the exact same options (loose: true) the
-        // preset itself uses internally - see hermes-v1.ts's own
-        // `const loose = true` comment. A prior attempt without `loose`
-        // broke plain `class Foo {}` declarations elsewhere; matching the
-        // preset's own loose-mode convention avoids that.
-        test: /node_modules/,
-        plugins: [
-          ["@babel/plugin-transform-class-properties", { loose: true }],
-          ["@babel/plugin-transform-private-methods", { loose: true }],
-          ["@babel/plugin-transform-private-property-in-object", { loose: true }],
-        ],
-      },
+    presets: [
+      [
+        "babel-preset-expo",
+        {
+          // Our Android build runs on *classic* Hermes (RN 0.83.6 pins
+          // hermes-engine v0.14.1 for Android - confirmed by reading
+          // react-native's own sdks/hermes-engine/version.properties).
+          // Classic Hermes has NO support at all for native "#privateField"
+          // class syntax (confirmed by reading Hermes's own source at tag
+          // hermes-v0.14.1: lib/AST/SemanticValidator.cpp literally emits
+          // "private properties are not supported" for any private field).
+          //
+          // babel-preset-expo defaults to assuming the *newer* "Hermes V1"
+          // engine (which does support private fields natively) whenever
+          // engine === 'hermes', and in that mode it only lowers private
+          // fields on classes that also use a decorator (an internal "lazy
+          // decorators" optimization) - which is why React Native's own
+          // EventEmitter.js (#registry, no decorator) was reaching Hermes
+          // untransformed.
+          //
+          // Setting this explicitly switches to babel-preset-expo's
+          // "classic Hermes" preset (configs/hermes-v0.ts, literally
+          // commented "The JS syntax preset used with Hermes v0/legacy (pre
+          // SDK 56)"), which unconditionally lowers class-properties,
+          // private-methods and private-property-in-object for every file,
+          // in the correct order (after Flow/TypeScript stripping, which a
+          // manually bolted-on override can't replicate - that's what
+          // caused the earlier "invalid statement encountered" corruption).
+          unstable_transformProfile: "hermes-v0",
+        },
+      ],
     ],
   };
 };
