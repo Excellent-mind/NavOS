@@ -1,83 +1,74 @@
 # NavOS
 
-A Malaysia-focused turn-by-turn navigation app, built with React Native + Expo.
+A Malaysia-focused turn-by-turn navigation app, built as a **native Android
+app in Kotlin**.
+
+## Why native, not React Native
+
+The original build was React Native + Expo (still archived in
+`legacy-expo-rn/` for reference — the routing/navigation/voice logic there
+is pure TypeScript and worth porting over). It crashed instantly on launch
+on the target device with no error dialog and no logs available (no PC, no
+`adb`). Device bisection across many EAS builds eventually traced it to
+`react-native-safe-area-context` colliding with Android 15+'s mandatory
+edge-to-edge enforcement on that device's Android build — but by the time
+that was confirmed and fixed, a second, not-yet-isolated crash source
+turned up and the EAS free-tier monthly Android build quota ran out mid
+diagnosis. Going native sidesteps both: no EAS quota (GitHub Actions'
+Gradle builds are free and unlimited), and no JS bridge between the app and
+MapLibre's native map engine.
 
 ## Stack
 
-- **Expo (managed)** — the whole app is buildable from the cloud via EAS Build, no computer needed
-- **MapLibre** (`@maplibre/maplibre-react-native`) — the map itself, open-source, no Google involved. Tiles come from [OpenFreeMap](https://openfreemap.org) (free, no API key, no rate limit - unlike the two below, it's meant for production use)
-- **OSRM** (`router.project-osrm.org`, free public demo server) — route calculation + turn-by-turn steps
-- **Nominatim** (OpenStreetMap, free) — destination search
-- **expo-location** — live GPS tracking
-- **expo-speech** — spoken turn announcements
+- **Kotlin**, native Android views (no React Native, no JS bridge)
+- **MapLibre Android SDK** (`org.maplibre.gl:android-sdk-opengl`) — the
+  exact same open-source map engine the old `@maplibre/maplibre-react-native`
+  build wrapped, used directly. Tiles from [OpenFreeMap](https://openfreemap.org)
+  (free, no API key, no rate limit, production-safe)
+- Everything else (OSRM routing, Nominatim search, GPS, TTS voice
+  announcements) is being ported over from the archived React Native app -
+  see **Status** below.
 
 ## What's here
 
 ```
-App.tsx                        entry point
-src/screens/MapScreen.tsx      main screen: map, search, navigation UI
-src/components/                SearchBar, TurnCard (next-turn), TripSummaryBar (ETA/stop)
-src/services/
-  geocoding.ts                 destination search (Nominatim)
-  routing.ts                   route + turn-by-turn steps (OSRM)
-  navigationEngine.ts          tracks current step, distance, off-route detection
-  useLiveLocation.ts           GPS permission + live position hook
-  voice.ts                     spoken instructions (expo-speech)
-  geo.ts, polyline.ts          distance/bearing math, polyline decoding
+app/src/main/java/com/excellentmindblow/navos/MainActivity.kt   entry point + map screen
+app/src/main/res/                                                layout, strings, launcher icon
+legacy-expo-rn/                                                  archived RN app (reference only, not built)
 ```
 
-## Before this runs for real
+## Building — no computer needed
 
-No map API key needed — MapLibre + OpenFreeMap means there's nothing to sign
-up for just to see the map.
+GitHub Actions does the build, same as before, but through plain Gradle
+instead of EAS — **no account, no token, no monthly build quota**:
 
-One real constraint: **MapLibre has native code, so it won't run in the
-regular Expo Go app.** You can't scan a QR code with plain Expo Go and see
-the map — it needs a "dev client" or a real EAS build (exactly what the EAS
-Build workflow below produces). This was true the moment a native map
-library was added, Google or not.
+1. From the GitHub app: **Actions tab → "Native Android Build" → Run
+   workflow**.
+2. When it finishes, open the run and download the `navos-debug-apk`
+   artifact (or Claude can fetch and send it directly in chat).
 
-1. **Install dependencies.** This repo has no `node_modules` committed (normal —
-   see `.gitignore`). Nothing here needed to be installed to write the code,
-   so this step happens the first time anyone actually runs or builds it:
-   - Locally (if you ever get a computer): `npm install`
-   - From your phone: GitHub Actions already does this automatically on
-     every push (see **CI** below) — you don't have to do anything.
+This is a **debug** build (self-signed with Android's default debug key) -
+fine for installing and testing on your own phone. Release signing for a
+real launch is a later step.
 
-## Building an installable app from your phone
+## Status
 
-This project is set up so you never need a computer:
+This is a fresh start on the native side - currently just the map screen,
+rebuilding confidence that the core (map rendering) works cleanly on the
+target device before porting over:
 
-1. Create a free account at [expo.dev](https://expo.dev), then run
-   `npx eas login` once *anywhere you have a browser* (or ask me to set this
-   up differently if that's not possible from your phone) to get an
-   `EXPO_TOKEN`.
-2. Add that token as a GitHub Actions secret: repo **Settings → Secrets and
-   variables → Actions → New repository secret**, name it `EXPO_TOKEN`.
-3. From the GitHub app: **Actions tab → "EAS Build (Android APK)" → Run
-   workflow**. Expo's cloud builds the APK; when it's done, the build page
-   on expo.dev gives you a download link and a QR code to install directly
-   on an Android phone.
-
-## CI
-
-`.github/workflows/ci.yml` runs on every push: installs dependencies and
-type-checks the project on GitHub's servers. This is how you'll know if
-something's broken, since this can't be verified from the sandbox that
-wrote the code.
+- [ ] Destination search (Nominatim)
+- [ ] Route calculation + turn-by-turn steps (OSRM)
+- [ ] Live GPS tracking
+- [ ] Spoken turn announcements (Android `TextToSpeech`)
+- [ ] Off-route detection / re-routing
 
 ## Known limits / next steps
 
-- **Routing engine**: using OSRM's free public demo server. It's rate-limited
-  and not meant for production traffic — fine for development, but before a
-  real launch this should move to a self-hosted OSRM instance or a paid
-  routing API (Mapbox Directions).
-- **Destination search**: Nominatim's public instance, same caveat (rate
-  limited, ~1 request/sec) — fine for now.
-- **Re-routing**: the app currently detects when you've drifted off the
-  route (`navigationEngine.ts`, `offRoute` flag) but doesn't yet
-  automatically recalculate — that's the next thing to build.
-- **Lane guidance / speed limits / offline maps**: not built yet — Pintaz-level
-  parity is a longer roadmap, this is the MVP skeleton.
-- Placeholder icon/splash images are in `assets/` — swap for your own
-  Excellent Mindblow branding whenever you're ready.
+- **Routing engine**: OSRM's free public demo server - rate-limited, not
+  meant for production traffic. Fine for development; a real launch should
+  move to a self-hosted OSRM instance or a paid routing API.
+- **Destination search**: Nominatim's public instance, same caveat.
+- **Lane guidance / speed limits / offline maps**: not built yet.
+- Placeholder launcher icon (a simple generated compass glyph) - swap for
+  real Excellent Mindblow branding whenever ready.

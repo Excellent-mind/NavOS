@@ -14,3 +14,15 @@ yarn-error.*
 .DS_Store
 .vscode/
 *.log
+
+# Android / Gradle
+*.iml
+.gradle/
+local.properties
+.idea/
+build/
+app/build/
+captures/
+.cxx/
+*.apk
+*.aab

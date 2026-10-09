@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.NavOS" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@color/navos_navy</item>
+        <item name="android:windowBackground">@color/navos_navy</item>
+    </style>
+</resources>
