@@ -35,16 +35,6 @@ jobs:
             echo
             echo "## groups (unchanged within same job - group membership needs new login)"
             groups
-            echo
-            echo "## Try opening /dev/kvm directly with python"
-            python3 -c "
-try:
-    f = open('/dev/kvm', 'r+b')
-    print('OPENED /dev/kvm successfully')
-    f.close()
-except Exception as e:
-    print('FAILED to open /dev/kvm:', e)
-"
           } > /tmp/kvm-report2.txt
           cat /tmp/kvm-report2.txt
           jq -Rs '{body: .}' /tmp/kvm-report2.txt | gh api repos/${GITHUB_REPOSITORY}/issues/1/comments --input -
