@@ -1,10 +1,26 @@
 package com.excellentmindblow.navos
 
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Color
+import android.location.Location
+import android.location.LocationManager
 import android.os.Bundle
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import com.excellentmindblow.navos.location.LiveLocationTracker
 import org.maplibre.android.MapLibre
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.location.LocationComponentActivationOptions
+import org.maplibre.android.location.modes.CameraMode
+import org.maplibre.android.location.modes.RenderMode
+import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 
@@ -13,15 +29,20 @@ import org.maplibre.android.maps.Style
 private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
 
 /**
- * Minimal native Android entry point - deliberately kept to just "does the
- * map render" for the first native build, before porting over NavOS's
- * other screens/logic (search, routing, turn-by-turn voice) from the
- * archived React Native app in /legacy-expo-rn. See MapView lifecycle
- * forwarding below: MapLibre's MapView needs every Activity lifecycle
- * callback forwarded to it manually, unlike a typical Android view.
+ * Native Android entry point. MapView lifecycle forwarding below:
+ * MapLibre's MapView needs every Activity lifecycle callback forwarded to
+ * it manually, unlike a typical Android view.
  */
 class MainActivity : AppCompatActivity() {
     private lateinit var mapView: MapView
+    private var map: MapLibreMap? = null
+    private var locationTracker: LiveLocationTracker? = null
+    private var hasCenteredOnFirstFix = false
+
+    private val requestLocationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) startLocationTracking()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must happen before any MapView touches its native state.
@@ -44,9 +65,73 @@ class MainActivity : AppCompatActivity() {
         mapView = findViewById(R.id.mapView)
         mapView.onCreate(savedInstanceState)
 
-        mapView.getMapAsync { map ->
-            map.setStyle(Style.Builder().fromUri(MAP_STYLE_URL))
+        mapView.getMapAsync { loadedMap ->
+            map = loadedMap
+            loadedMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
+                enableLocationComponent(loadedMap, style)
+                ensureLocationPermissionThenTrack()
+            }
         }
+    }
+
+    private fun ensureLocationPermissionThenTrack() {
+        val granted =
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED
+
+        if (granted) {
+            startLocationTracking()
+        } else {
+            requestLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
+
+    private fun startLocationTracking() {
+        val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val tracker =
+            LiveLocationTracker(locationManager) { location ->
+                onLocationUpdate(location)
+            }
+        locationTracker = tracker
+        tracker.start()
+    }
+
+    @SuppressLint("MissingPermission") // permission is confirmed before startLocationTracking() runs
+    private fun onLocationUpdate(location: Location) {
+        map?.locationComponent?.forceLocationUpdate(location)
+
+        if (!hasCenteredOnFirstFix) {
+            hasCenteredOnFirstFix = true
+            map?.easeCamera(
+                CameraUpdateFactory.newCameraPosition(
+                    CameraPosition
+                        .Builder()
+                        .target(LatLng(location.latitude, location.longitude))
+                        .zoom(15.0)
+                        .build(),
+                ),
+                600,
+            )
+        }
+    }
+
+    @SuppressLint("MissingPermission") // activation itself needs no permission; display does, gated by ensureLocationPermissionThenTrack()
+    private fun enableLocationComponent(
+        map: MapLibreMap,
+        style: Style,
+    ) {
+        val locationComponent = map.locationComponent
+        locationComponent.activateLocationComponent(
+            LocationComponentActivationOptions
+                .builder(this, style)
+                .useDefaultLocationEngine(false) // we feed it ourselves via LiveLocationTracker
+                .build(),
+        )
+        locationComponent.isLocationComponentEnabled = true
+        locationComponent.cameraMode = CameraMode.NONE // we drive the camera ourselves on first fix
+        locationComponent.renderMode = RenderMode.COMPASS
     }
 
     override fun onStart() {
@@ -66,6 +151,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         mapView.onStop()
+        locationTracker?.stop()
         super.onStop()
     }
 
