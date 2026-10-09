@@ -86,14 +86,14 @@ export function MapScreen() {
 
   return (
     <View style={styles.flex}>
-      <Map style={styles.flex} mapStyle={MAP_STYLE_URL} logoEnabled={false}>
+      <Map style={styles.flex} mapStyle={MAP_STYLE_URL} logo={false}>
         <Camera
           initialViewState={{ center: toLngLat(location), zoom: 15 }}
           trackUserLocation={isNavigating ? "course" : undefined}
           zoom={isNavigating ? 17 : undefined}
           duration={600}
         />
-        <UserLocation visible showsUserHeadingIndicator />
+        <UserLocation heading accuracy />
 
         {routeGeometry && (
           <GeoJSONSource id="routeSource" data={routeGeometry}>
