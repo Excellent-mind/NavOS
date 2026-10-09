@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import MapLibreGL from "@maplibre/maplibre-react-native";
+import { Camera, GeoJSONSource, Layer, Map, Marker, UserLocation } from "@maplibre/maplibre-react-native";
 import { useLiveLocation } from "../services/useLiveLocation";
 import { calculateRoute } from "../services/routing";
 import { useNavigationEngine } from "../services/navigationEngine";
@@ -53,15 +53,11 @@ export function MapScreen() {
     setRouteError(null);
   }, []);
 
-  const routeGeoJson = useMemo(() => {
+  const routeGeometry = useMemo(() => {
     if (!route) return null;
     return {
-      type: "Feature" as const,
-      properties: {},
-      geometry: {
-        type: "LineString" as const,
-        coordinates: route.geometry.map(toLngLat),
-      },
+      type: "LineString" as const,
+      coordinates: route.geometry.map(toLngLat),
     };
   }, [route]);
 
@@ -90,38 +86,32 @@ export function MapScreen() {
 
   return (
     <View style={styles.flex}>
-      <MapLibreGL.MapView style={styles.flex} styleURL={MAP_STYLE_URL} logoEnabled={false}>
-        <MapLibreGL.Camera
-          zoomLevel={15}
-          centerCoordinate={toLngLat(location)}
-          followUserLocation={isNavigating}
-          followUserMode="course"
-          followZoomLevel={17}
-          animationMode="flyTo"
-          animationDuration={600}
+      <Map style={styles.flex} mapStyle={MAP_STYLE_URL} logoEnabled={false}>
+        <Camera
+          initialViewState={{ center: toLngLat(location), zoom: 15 }}
+          trackUserLocation={isNavigating ? "course" : undefined}
+          zoom={isNavigating ? 17 : undefined}
+          duration={600}
         />
-        <MapLibreGL.UserLocation visible showsUserHeadingIndicator />
+        <UserLocation visible showsUserHeadingIndicator />
 
-        {routeGeoJson && (
-          <MapLibreGL.ShapeSource id="routeSource" shape={routeGeoJson}>
-            <MapLibreGL.LineLayer
+        {routeGeometry && (
+          <GeoJSONSource id="routeSource" data={routeGeometry}>
+            <Layer
+              type="line"
               id="routeLine"
-              style={{
-                lineColor: "#1CB0F6",
-                lineWidth: 6,
-                lineCap: "round",
-                lineJoin: "round",
-              }}
+              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={{ "line-color": "#1CB0F6", "line-width": 6 }}
             />
-          </MapLibreGL.ShapeSource>
+          </GeoJSONSource>
         )}
 
         {destination && (
-          <MapLibreGL.PointAnnotation id="destinationMarker" coordinate={toLngLat(destination)}>
+          <Marker lngLat={toLngLat(destination)}>
             <View style={styles.destinationPin} />
-          </MapLibreGL.PointAnnotation>
+          </Marker>
         )}
-      </MapLibreGL.MapView>
+      </Map>
 
       {!isNavigating && <SearchBar origin={location} onSelect={handleSelectDestination} />}
 
