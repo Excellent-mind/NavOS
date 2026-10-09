@@ -48,11 +48,12 @@ jobs:
           eas build --platform android --profile preview --non-interactive --non-interactive 2>&1 | tee /tmp/eas-build.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            echo "Build failed, dumping last 40 log lines as annotations:"
-            tail -n 40 /tmp/eas-build.log | while IFS= read -r line; do
+            echo "Build failed, dumping cleaned tail as annotations:"
+            tr '\r' '\n' < /tmp/eas-build.log | sed '/^[[:space:]]*$/d' | uniq | tail -n 80 > /tmp/eas-build-clean.log
+            while IFS= read -r line; do
               safe=$(echo "$line" | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g')
               echo "::error::${safe}"
-            done
+            done < /tmp/eas-build-clean.log
           fi
           exit "$status"
         shell: bash
