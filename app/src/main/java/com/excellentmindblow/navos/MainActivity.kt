@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
         // this is just making the status bar transparent on purpose.
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
 
         setContentView(R.layout.activity_main)
 
