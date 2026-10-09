@@ -28,12 +28,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#14284B"
       },
-      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
-      "config": {
-        "googleMaps": {
-          "apiKey": "REPLACE_WITH_GOOGLE_MAPS_API_KEY"
-        }
-      }
+      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
     },
     "plugins": [
       [
@@ -41,7 +36,8 @@
         {
           "locationWhenInUsePermission": "NavOS needs your location to show turn-by-turn directions."
         }
-      ]
+      ],
+      "@maplibre/maplibre-react-native"
     ]
   }
 }

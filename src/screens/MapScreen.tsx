@@ -1,14 +1,23 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
+import MapLibreGL from "@maplibre/maplibre-react-native";
 import { useLiveLocation } from "../services/useLiveLocation";
 import { calculateRoute } from "../services/routing";
 import { useNavigationEngine } from "../services/navigationEngine";
 import { stopSpeaking } from "../services/voice";
-import { GeocodeResult, Route } from "../types";
+import { GeocodeResult, LatLng, Route } from "../types";
 import { SearchBar } from "../components/SearchBar";
 import { TurnCard } from "../components/TurnCard";
 import { TripSummaryBar } from "../components/TripSummaryBar";
+
+// OpenFreeMap's hosted "liberty" style: free, no API key, no rate limit -
+// unlike OSRM/Nominatim above this is explicitly meant for production use.
+// https://openfreemap.org
+const MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+
+function toLngLat(p: LatLng): [number, number] {
+  return [p.longitude, p.latitude];
+}
 
 export function MapScreen() {
   const { location, permissionDenied } = useLiveLocation();
@@ -44,6 +53,18 @@ export function MapScreen() {
     setRouteError(null);
   }, []);
 
+  const routeGeoJson = useMemo(() => {
+    if (!route) return null;
+    return {
+      type: "Feature" as const,
+      properties: {},
+      geometry: {
+        type: "LineString" as const,
+        coordinates: route.geometry.map(toLngLat),
+      },
+    };
+  }, [route]);
+
   if (permissionDenied) {
     return (
       <View style={styles.center}>
@@ -65,37 +86,42 @@ export function MapScreen() {
   }
 
   const isNavigating = !!(route && navState);
+  const destination = route?.geometry[route.geometry.length - 1] ?? null;
 
   return (
     <View style={styles.flex}>
-      <MapView
-        style={styles.flex}
-        provider={PROVIDER_GOOGLE}
-        showsUserLocation
-        showsMyLocationButton
-        followsUserLocation={isNavigating}
-        initialRegion={{
-          latitude: location.latitude,
-          longitude: location.longitude,
-          latitudeDelta: 0.02,
-          longitudeDelta: 0.02,
-        }}
-      >
-        {route && (
-          <Polyline
-            coordinates={route.geometry}
-            strokeColor="#1CB0F6"
-            strokeWidth={6}
-          />
+      <MapLibreGL.MapView style={styles.flex} styleURL={MAP_STYLE_URL} logoEnabled={false}>
+        <MapLibreGL.Camera
+          zoomLevel={15}
+          centerCoordinate={toLngLat(location)}
+          followUserLocation={isNavigating}
+          followUserMode="course"
+          followZoomLevel={17}
+          animationMode="flyTo"
+          animationDuration={600}
+        />
+        <MapLibreGL.UserLocation visible showsUserHeadingIndicator />
+
+        {routeGeoJson && (
+          <MapLibreGL.ShapeSource id="routeSource" shape={routeGeoJson}>
+            <MapLibreGL.LineLayer
+              id="routeLine"
+              style={{
+                lineColor: "#1CB0F6",
+                lineWidth: 6,
+                lineCap: "round",
+                lineJoin: "round",
+              }}
+            />
+          </MapLibreGL.ShapeSource>
         )}
-        {route && (
-          <Marker
-            coordinate={route.geometry[route.geometry.length - 1]}
-            title={destinationLabel ?? "Destination"}
-            pinColor="#FF9600"
-          />
+
+        {destination && (
+          <MapLibreGL.PointAnnotation id="destinationMarker" coordinate={toLngLat(destination)}>
+            <View style={styles.destinationPin} />
+          </MapLibreGL.PointAnnotation>
         )}
-      </MapView>
+      </MapLibreGL.MapView>
 
       {!isNavigating && <SearchBar origin={location} onSelect={handleSelectDestination} />}
 
@@ -161,5 +187,13 @@ const styles = StyleSheet.create({
   routingText: {
     color: "#fff",
     fontWeight: "600",
+  },
+  destinationPin: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#FF9600",
+    borderWidth: 3,
+    borderColor: "#fff",
   },
 });

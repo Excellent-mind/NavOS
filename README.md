@@ -5,7 +5,7 @@ A Malaysia-focused turn-by-turn navigation app, built with React Native + Expo.
 ## Stack
 
 - **Expo (managed)** — the whole app is buildable from the cloud via EAS Build, no computer needed
-- **react-native-maps** — the map itself (Google Maps on Android, Apple Maps on iOS)
+- **MapLibre** (`@maplibre/maplibre-react-native`) — the map itself, open-source, no Google involved. Tiles come from [OpenFreeMap](https://openfreemap.org) (free, no API key, no rate limit - unlike the two below, it's meant for production use)
 - **OSRM** (`router.project-osrm.org`, free public demo server) — route calculation + turn-by-turn steps
 - **Nominatim** (OpenStreetMap, free) — destination search
 - **expo-location** — live GPS tracking
@@ -28,12 +28,16 @@ src/services/
 
 ## Before this runs for real
 
-1. **Google Maps API key** (Android only — iOS uses Apple Maps for free).
-   Get one free at [console.cloud.google.com](https://console.cloud.google.com)
-   (enable "Maps SDK for Android"), then put it in `app.json` under
-   `expo.android.config.googleMaps.apiKey`, replacing the placeholder.
+No map API key needed — MapLibre + OpenFreeMap means there's nothing to sign
+up for just to see the map.
 
-2. **Install dependencies.** This repo has no `node_modules` committed (normal —
+One real constraint: **MapLibre has native code, so it won't run in the
+regular Expo Go app.** You can't scan a QR code with plain Expo Go and see
+the map — it needs a "dev client" or a real EAS build (exactly what the EAS
+Build workflow below produces). This was true the moment a native map
+library was added, Google or not.
+
+1. **Install dependencies.** This repo has no `node_modules` committed (normal —
    see `.gitignore`). Nothing here needed to be installed to write the code,
    so this step happens the first time anyone actually runs or builds it:
    - Locally (if you ever get a computer): `npm install`
