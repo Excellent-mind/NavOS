@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
+import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.ArrayAdapter
@@ -25,6 +26,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.GravityCompat
 import androidx.core.view.WindowCompat
 import androidx.drawerlayout.widget.DrawerLayout
@@ -43,6 +45,7 @@ import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.location.LocationComponentActivationOptions
+import org.maplibre.android.location.LocationComponentOptions
 import org.maplibre.android.location.modes.CameraMode
 import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
@@ -51,6 +54,7 @@ import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -69,6 +73,10 @@ private const val ROUTE_LAYER_ID = "navos-route-layer"
 private const val ALT_ROUTE_SOURCE_ID = "navos-alt-route-source"
 private const val ALT_ROUTE_LAYER_ID = "navos-alt-route-layer"
 private const val ROUTE_INDEX_PROPERTY = "routeIndex"
+
+private const val DESTINATION_SOURCE_ID = "navos-destination-source"
+private const val DESTINATION_LAYER_ID = "navos-destination-layer"
+private const val DESTINATION_ICON_ID = "navos-destination-icon"
 
 private const val NAV_TILT_DEGREES = 55.0
 private const val NAV_ZOOM = 18.0
@@ -98,8 +106,14 @@ class MainActivity : AppCompatActivity() {
     private var hasCenteredOnFirstFix = false
     private var lastKnownLocation: Location? = null
 
+    /** True while the free-roam camera should keep re-centering on the
+     * driver as they move (Waze-style), turned off the moment they drag
+     * the map themselves so we don't fight their pan. */
+    private var followingUser = true
+
     private var routeSource: GeoJsonSource? = null
     private var altRouteSource: GeoJsonSource? = null
+    private var destinationSource: GeoJsonSource? = null
 
     private var navMode = NavMode.IDLE
     private var routeOptions: List<Route> = emptyList()
@@ -153,15 +167,25 @@ class MainActivity : AppCompatActivity() {
         mapView.getMapAsync { loadedMap ->
             map = loadedMap
 
-            // MapLibre draws a rotation compass top-right by default, right
-            // where our search bar sits, so it ends up half-hidden behind
-            // it. We don't track map bearing in free-map mode (cameraMode
-            // is NONE), so the compass has nothing useful to show there -
-            // drop it. Active navigation gets its own rotating, tilted
-            // camera instead (see beginActiveNavigation()).
-            loadedMap.uiSettings.isCompassEnabled = false
+            // Keep the compass, just move it out from behind the search
+            // bar instead of hiding it - it's still useful for orientation
+            // once the nav camera starts rotating the map.
+            loadedMap.uiSettings.apply {
+                isCompassEnabled = true
+                setCompassGravity(Gravity.TOP_START)
+                val density = resources.displayMetrics.density
+                setCompassMargins((16 * density).toInt(), (100 * density).toInt(), 0, 0)
+            }
 
             loadedMap.addOnMapClickListener { latLng -> onMapTapped(loadedMap, latLng) }
+
+            // A manual pan means the driver wants to look elsewhere - stop
+            // auto-recentering until they pick a destination again.
+            loadedMap.addOnCameraMoveStartedListener { reason ->
+                if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
+                    followingUser = false
+                }
+            }
 
             loadedMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
                 enableLocationComponent(loadedMap, style)
@@ -283,6 +307,9 @@ class MainActivity : AppCompatActivity() {
         // A new destination picked mid-drive replaces whatever was active.
         if (navMode == NavMode.ACTIVE) endActiveNavigation()
 
+        val destinationLatLng = LatLng(result.latitude, result.longitude)
+        showDestinationMarker(destinationLatLng)
+
         map?.easeCamera(
             CameraUpdateFactory.newCameraPosition(
                 CameraPosition
@@ -325,6 +352,33 @@ class MainActivity : AppCompatActivity() {
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
         style.addLayer(layer)
+
+        // Destination pin - added last so it draws on top of both route
+        // lines.
+        val pinBitmap = ContextCompat.getDrawable(this, R.drawable.ic_destination_pin)?.toBitmap()
+        if (pinBitmap != null) {
+            style.addImage(DESTINATION_ICON_ID, pinBitmap)
+        }
+
+        val destSource = GeoJsonSource(DESTINATION_SOURCE_ID)
+        style.addSource(destSource)
+        destinationSource = destSource
+
+        val destLayer =
+            SymbolLayer(DESTINATION_LAYER_ID, DESTINATION_SOURCE_ID).withProperties(
+                PropertyFactory.iconImage(DESTINATION_ICON_ID),
+                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
+                PropertyFactory.iconAllowOverlap(true),
+            )
+        style.addLayer(destLayer)
+    }
+
+    private fun showDestinationMarker(latLng: LatLng) {
+        destinationSource?.setGeoJson(Point.fromLngLat(latLng.longitude, latLng.latitude))
+    }
+
+    private fun clearDestinationMarker() {
+        destinationSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
     }
 
     private fun fetchRoute(destination: GeocodeResult) {
@@ -350,6 +404,8 @@ class MainActivity : AppCompatActivity() {
                     selectedRouteIndex = 0
                     showRoutePreview()
                 } else {
+                    clearDestinationMarker()
+                    followingUser = true
                     Toast.makeText(this, "Couldn't calculate a route to that destination", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -446,6 +502,8 @@ class MainActivity : AppCompatActivity() {
         routePreviewCard.visibility = View.GONE
         routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        clearDestinationMarker()
+        followingUser = true
     }
 
     // ---- Active (driving) navigation ------------------------------------
@@ -513,11 +571,13 @@ class MainActivity : AppCompatActivity() {
         routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         routeOptions = emptyList()
+        clearDestinationMarker()
 
         map?.locationComponent?.apply {
             cameraMode = CameraMode.NONE
-            renderMode = RenderMode.COMPASS
+            renderMode = RenderMode.GPS
         }
+        followingUser = true
 
         val location = lastKnownLocation
         if (location != null) {
@@ -616,8 +676,10 @@ class MainActivity : AppCompatActivity() {
         map?.locationComponent?.forceLocationUpdate(location)
 
         if (activeRoute != null) {
+            // Active navigation drives its own 3D follow camera every fix.
             updateNavCamera(location)
             navigationEngine.onLocation(RoutePoint(location.latitude, location.longitude))
+            return
         }
 
         if (!hasCenteredOnFirstFix) {
@@ -632,6 +694,12 @@ class MainActivity : AppCompatActivity() {
                 ),
                 600,
             )
+        } else if (followingUser && navMode == NavMode.IDLE) {
+            // Free-roam following, like Waze does before you've even
+            // picked a destination - just re-centers, leaves the user's
+            // current zoom/tilt/bearing alone. Route preview intentionally
+            // skips this since it frames the whole route instead.
+            map?.easeCamera(CameraUpdateFactory.newLatLng(LatLng(location.latitude, location.longitude)), 800)
         }
     }
 
@@ -641,15 +709,31 @@ class MainActivity : AppCompatActivity() {
         style: Style,
     ) {
         val locationComponent = map.locationComponent
+
+        // Our own pro-designed arrow puck instead of MapLibre's default
+        // plain dot, used both for the stationary icon and the heading
+        // (bearing) icon - same drawable, it already points up.
+        val componentOptions =
+            LocationComponentOptions
+                .builder(this)
+                .foregroundDrawable(R.drawable.ic_location_puck)
+                .bearingDrawable(R.drawable.ic_location_puck)
+                .enableStaleState(false)
+                .build()
+
         locationComponent.activateLocationComponent(
             LocationComponentActivationOptions
                 .builder(this, style)
+                .locationComponentOptions(componentOptions)
                 .useDefaultLocationEngine(false) // we feed it ourselves via LiveLocationTracker
                 .build(),
         )
         locationComponent.isLocationComponentEnabled = true
         locationComponent.cameraMode = CameraMode.NONE // we drive the camera ourselves on first fix
-        locationComponent.renderMode = RenderMode.COMPASS
+        // GPS mode rotates the puck using the Location.bearing we already
+        // feed it from LiveLocationTracker - more reliable than COMPASS
+        // mode, which depends on the device's magnetometer instead.
+        locationComponent.renderMode = RenderMode.GPS
     }
 
     override fun onStart() {

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The driver's own position/heading marker ("my arrow"), replacing
+     MapLibre's default plain dot. A soft blue halo + white disc base with
+     a solid navy arrowhead pointing up, rotated live by RenderMode.GPS
+     using the device's GPS bearing - same look-and-feel as the turn-by-
+     turn arrow icons (ic_nav_arrow etc.), not a default/stock marker. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="44dp"
+    android:height="44dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Soft translucent halo -->
+    <path
+        android:fillColor="#331CB0F6"
+        android:pathData="M12,12m-11,0a11,11 0,1 1,22 0a11,11 0,1 1,-22 0" />
+
+    <!-- White disc base -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,12m-8,0a8,8 0,1 1,16 0a8,8 0,1 1,-16 0" />
+
+    <!-- Navy heading arrow, pointing up (north/forward) -->
+    <path
+        android:fillColor="#142A4B"
+        android:pathData="M12,4.2L17.3,16.4L12,13.4L6.7,16.4Z" />
+
+</vector>
