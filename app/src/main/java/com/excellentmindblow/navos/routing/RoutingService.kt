@@ -25,7 +25,9 @@ data class Route(
 /**
  * Native port of legacy-expo-rn/src/services/routing.ts - same OSRM free
  * public demo server, same request shape, and the same maneuver/modifier
- * -> natural-language instruction logic.
+ * -> natural-language instruction logic. Extended with alternatives=true
+ * (the legacy app only ever requested one route) so the UI can offer a
+ * Waze-style route choice before starting navigation.
  *
  * Blocking/synchronous by design - callers must run this off the main
  * thread (see MainActivity's background executor).
@@ -48,11 +50,14 @@ object RoutingService {
             "straight" to "continue straight",
         )
 
+    /** Returns every route OSRM offers - index 0 is always its preferred
+     * ("fastest") one, any further entries are alternatives (OSRM doesn't
+     * always have one to offer, so this can come back with just 1). */
     @Throws(Exception::class)
-    fun calculateRoute(
+    fun calculateRoutes(
         origin: RoutePoint,
         destination: RoutePoint,
-    ): Route {
+    ): List<Route> {
         val coords =
             String.format(
                 Locale.US,
@@ -65,7 +70,7 @@ object RoutingService {
         val url =
             URL(
                 "https://router.project-osrm.org/route/v1/driving/$coords" +
-                    "?overview=full&geometries=polyline&steps=true&annotations=false",
+                    "?overview=full&geometries=polyline&steps=true&annotations=false&alternatives=true",
             )
         val connection = url.openConnection() as HttpURLConnection
         connection.setRequestProperty("User-Agent", USER_AGENT)
@@ -82,44 +87,52 @@ object RoutingService {
                 throw RuntimeException("No route found (${json.optString("code")})")
             }
 
-            val route = json.getJSONArray("routes").getJSONObject(0)
-            val geometry = PolylineDecoder.decode(route.getString("geometry"))
-
-            val steps = mutableListOf<RouteStep>()
-            val legs = route.getJSONArray("legs")
-            for (legIndex in 0 until legs.length()) {
-                val legSteps = legs.getJSONObject(legIndex).getJSONArray("steps")
-                for (stepIndex in 0 until legSteps.length()) {
-                    val step = legSteps.getJSONObject(stepIndex)
-                    val maneuver = step.getJSONObject("maneuver")
-                    val location = maneuver.getJSONArray("location")
-                    val type = maneuver.optString("type", "turn")
-                    val modifier = if (maneuver.has("modifier")) maneuver.getString("modifier") else null
-                    val roadName = step.optString("name", "")
-
-                    steps.add(
-                        RouteStep(
-                            instruction = buildInstruction(type, modifier, roadName, maneuver),
-                            distanceMeters = step.optDouble("distance", 0.0),
-                            durationSeconds = step.optDouble("duration", 0.0),
-                            maneuverType = type,
-                            modifier = modifier,
-                            roadName = roadName,
-                            point = RoutePoint(latitude = location.getDouble(1), longitude = location.getDouble(0)),
-                        ),
-                    )
-                }
+            val routesJson = json.getJSONArray("routes")
+            val routes = mutableListOf<Route>()
+            for (i in 0 until routesJson.length()) {
+                routes.add(parseRoute(routesJson.getJSONObject(i)))
             }
-
-            return Route(
-                geometry = geometry,
-                distanceMeters = route.optDouble("distance", 0.0),
-                durationSeconds = route.optDouble("duration", 0.0),
-                steps = steps,
-            )
+            return routes
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun parseRoute(route: JSONObject): Route {
+        val geometry = PolylineDecoder.decode(route.getString("geometry"))
+
+        val steps = mutableListOf<RouteStep>()
+        val legs = route.getJSONArray("legs")
+        for (legIndex in 0 until legs.length()) {
+            val legSteps = legs.getJSONObject(legIndex).getJSONArray("steps")
+            for (stepIndex in 0 until legSteps.length()) {
+                val step = legSteps.getJSONObject(stepIndex)
+                val maneuver = step.getJSONObject("maneuver")
+                val location = maneuver.getJSONArray("location")
+                val type = maneuver.optString("type", "turn")
+                val modifier = if (maneuver.has("modifier")) maneuver.getString("modifier") else null
+                val roadName = step.optString("name", "")
+
+                steps.add(
+                    RouteStep(
+                        instruction = buildInstruction(type, modifier, roadName, maneuver),
+                        distanceMeters = step.optDouble("distance", 0.0),
+                        durationSeconds = step.optDouble("duration", 0.0),
+                        maneuverType = type,
+                        modifier = modifier,
+                        roadName = roadName,
+                        point = RoutePoint(latitude = location.getDouble(1), longitude = location.getDouble(0)),
+                    ),
+                )
+            }
+        }
+
+        return Route(
+            geometry = geometry,
+            distanceMeters = route.optDouble("distance", 0.0),
+            durationSeconds = route.optDouble("duration", 0.0),
+            steps = steps,
+        )
     }
 
     private fun buildInstruction(

@@ -15,6 +15,9 @@ class VoiceNarrator(context: Context) {
     private var ready = false
     private var lastSpokenKey: String? = null
 
+    /** Settings-drawer "Voice guidance" toggle reads/writes this. */
+    var enabled = true
+
     private val engine: TextToSpeech =
         TextToSpeech(context.applicationContext) { status ->
             if (status == TextToSpeech.SUCCESS) {
@@ -28,7 +31,7 @@ class VoiceNarrator(context: Context) {
     ) {
         if (key == lastSpokenKey) return
         lastSpokenKey = key
-        if (!ready) return
+        if (!ready || !enabled) return
         engine.language = Locale.US
         engine.setSpeechRate(0.95f)
         engine.setPitch(1.0f)

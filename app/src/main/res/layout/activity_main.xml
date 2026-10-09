@@ -1,67 +1,301 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.drawerlayout.widget.DrawerLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/drawerLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <org.maplibre.android.maps.MapView
-        android:id="@+id/mapView"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingTop="40dp"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp">
-
-        <EditText
-            android:id="@+id/searchInput"
+        <org.maplibre.android.maps.MapView
+            android:id="@+id/mapView"
             android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:autofillHints=""
-            android:background="@drawable/search_bar_bg"
-            android:elevation="4dp"
-            android:hint="Search destination in Malaysia"
-            android:imeOptions="actionSearch"
-            android:inputType="text"
-            android:maxLines="1"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:textColor="@color/navos_navy"
-            android:textColorHint="#80142A4B" />
+            android:layout_height="match_parent" />
 
-        <ListView
-            android:id="@+id/searchResultsList"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:orientation="vertical"
+            android:paddingTop="40dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/searchInput"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:autofillHints=""
+                    android:background="@drawable/search_bar_bg"
+                    android:elevation="4dp"
+                    android:hint="Search destination in Malaysia"
+                    android:imeOptions="actionSearch"
+                    android:inputType="text"
+                    android:maxLines="1"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:textColor="@color/navos_navy"
+                    android:textColorHint="#80142A4B" />
+
+                <ImageButton
+                    android:id="@+id/settingsButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/search_bar_bg"
+                    android:backgroundTint="@color/navos_navy"
+                    android:contentDescription="Settings"
+                    android:elevation="4dp"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_settings" />
+
+            </LinearLayout>
+
+            <ListView
+                android:id="@+id/searchResultsList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:background="@drawable/search_bar_bg"
+                android:divider="#14142A4B"
+                android:dividerHeight="1dp"
+                android:elevation="4dp"
+                android:maxHeight="320dp"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
+        <!-- Route preview: shown after a destination is picked, before the
+             user commits to navigating. Lets them see distance/time (and
+             switch between alternative routes drawn on the map) before
+             tapping Start. -->
+        <LinearLayout
+            android:id="@+id/routePreviewCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="32dp"
             android:background="@drawable/search_bar_bg"
-            android:divider="#14142A4B"
-            android:dividerHeight="1dp"
             android:elevation="4dp"
-            android:maxHeight="320dp"
-            android:visibility="gone" />
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/routePreviewSummary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/navos_navy"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                tools:text="49.9 km • 50 min" />
+
+            <TextView
+                android:id="@+id/routePreviewHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="#80142A4B"
+                android:textSize="13sp"
+                tools:text="2 routes found - tap a grey route to switch" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/cancelRouteButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:backgroundTint="#E3E7EC"
+                    android:text="Cancel"
+                    android:textColor="@color/navos_navy" />
+
+                <Button
+                    android:id="@+id/startNavigationButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="2"
+                    android:backgroundTint="@color/navos_blue"
+                    android:text="Start"
+                    android:textColor="@color/white"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- Active navigation bar: turn icon + instruction + distance/ETA,
+             with a stop control to end navigation and drop back to
+             free-map mode. -->
+        <LinearLayout
+            android:id="@+id/activeNavBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="32dp"
+            android:background="@drawable/search_bar_bg"
+            android:backgroundTint="@color/navos_navy"
+            android:elevation="4dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/turnIcon"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginEnd="12dp"
+                android:contentDescription="Next turn"
+                android:src="@drawable/ic_nav_arrow" />
+
+            <TextView
+                android:id="@+id/turnBanner"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/white"
+                android:textSize="16sp"
+                tools:text="Turn right onto Jalan Example • 120 m\n49.9 km • 50 min left" />
+
+            <ImageButton
+                android:id="@+id/stopNavigationButton"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="12dp"
+                android:background="@android:color/transparent"
+                android:contentDescription="Stop navigation"
+                android:padding="8dp"
+                android:src="@drawable/ic_close" />
+
+        </LinearLayout>
+
+    </FrameLayout>
+
+    <!-- Settings drawer, opened from the gear button next to search. -->
+    <LinearLayout
+        android:layout_width="280dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:background="@color/white"
+        android:elevation="8dp"
+        android:orientation="vertical"
+        android:paddingTop="48dp"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="24dp"
+            android:text="Settings"
+            android:textColor="@color/navos_navy"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Voice guidance"
+                android:textColor="@color/navos_navy"
+                android:textSize="16sp" />
+
+            <Switch
+                android:id="@+id/voiceGuidanceSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true" />
+
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="20dp"
+            android:background="#E0E0E0" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:text="Map style"
+            android:textColor="@color/navos_navy"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/mapStyleGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <RadioButton
+                android:id="@+id/mapStyleLight"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="Light"
+                android:textColor="@color/navos_navy" />
+
+            <RadioButton
+                android:id="@+id/mapStyleDark"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:enabled="false"
+                android:text="Dark (coming soon)"
+                android:textColor="#80142A4B" />
+
+        </RadioGroup>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="20dp"
+            android:background="#E0E0E0" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="NavOS"
+            android:textColor="@color/navos_navy"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="Powered by Excellent Mindblow"
+            android:textColor="#80142A4B"
+            android:textSize="12sp" />
 
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/turnBanner"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="12dp"
-        android:layout_marginBottom="32dp"
-        android:background="@drawable/search_bar_bg"
-        android:backgroundTint="@color/navos_navy"
-        android:elevation="4dp"
-        android:padding="16dp"
-        android:textColor="@color/white"
-        android:textSize="16sp"
-        android:visibility="gone"
-        tools:text="Turn right onto Jalan Example • 120 m" />
-
-</FrameLayout>
+</androidx.drawerlayout.widget.DrawerLayout>

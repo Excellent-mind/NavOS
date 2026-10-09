@@ -6,6 +6,8 @@ import com.excellentmindblow.navos.routing.RoutePoint
 data class NavigationState(
     val currentStepIndex: Int,
     val instruction: String,
+    val maneuverType: String,
+    val modifier: String?,
     val distanceToNextTurnMeters: Double,
     val distanceRemainingMeters: Double,
     val durationRemainingSeconds: Double,
@@ -69,6 +71,8 @@ class NavigationEngine(
             NavigationState(
                 currentStepIndex = idx,
                 instruction = steps[idx].instruction,
+                maneuverType = steps[idx].maneuverType,
+                modifier = steps[idx].modifier,
                 distanceToNextTurnMeters = distToTurn,
                 distanceRemainingMeters = distanceRemaining,
                 durationRemainingSeconds = durationRemaining,

@@ -12,16 +12,22 @@ import android.os.Handler
 import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
+import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.ArrayAdapter
 import android.widget.EditText
+import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.ListView
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.GravityCompat
 import androidx.core.view.WindowCompat
+import androidx.drawerlayout.widget.DrawerLayout
 import com.excellentmindblow.navos.location.LiveLocationTracker
 import com.excellentmindblow.navos.navigation.NavigationEngine
 import com.excellentmindblow.navos.navigation.NavigationState
@@ -47,6 +53,7 @@ import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 import java.util.Locale
@@ -59,6 +66,15 @@ private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
 
 private const val ROUTE_SOURCE_ID = "navos-route-source"
 private const val ROUTE_LAYER_ID = "navos-route-layer"
+private const val ALT_ROUTE_SOURCE_ID = "navos-alt-route-source"
+private const val ALT_ROUTE_LAYER_ID = "navos-alt-route-layer"
+private const val ROUTE_INDEX_PROPERTY = "routeIndex"
+
+private const val NAV_TILT_DEGREES = 55.0
+private const val NAV_ZOOM = 18.0
+
+/** Where the app currently is in the search -> preview -> drive flow. */
+private enum class NavMode { IDLE, PREVIEW, ACTIVE }
 
 /**
  * Native Android entry point. MapView lifecycle forwarding below:
@@ -67,24 +83,34 @@ private const val ROUTE_LAYER_ID = "navos-route-layer"
  */
 class MainActivity : AppCompatActivity() {
     private lateinit var mapView: MapView
+    private lateinit var drawerLayout: DrawerLayout
     private lateinit var searchInput: EditText
     private lateinit var searchResultsList: ListView
+    private lateinit var routePreviewCard: View
+    private lateinit var routePreviewSummary: TextView
+    private lateinit var routePreviewHint: TextView
+    private lateinit var activeNavBar: View
     private lateinit var turnBanner: TextView
+    private lateinit var turnIcon: ImageView
+
     private var map: MapLibreMap? = null
     private var locationTracker: LiveLocationTracker? = null
     private var hasCenteredOnFirstFix = false
     private var lastKnownLocation: Location? = null
+
     private var routeSource: GeoJsonSource? = null
+    private var altRouteSource: GeoJsonSource? = null
+
+    private var navMode = NavMode.IDLE
+    private var routeOptions: List<Route> = emptyList()
+    private var selectedRouteIndex = 0
+
+    /** Only non-null while NavMode.ACTIVE - gates feeding GPS fixes into
+     * the navigation engine. */
     private var activeRoute: Route? = null
 
     private lateinit var navigationEngine: NavigationEngine
     private lateinit var voiceNarrator: VoiceNarrator
-
-    /** The destination the user last picked from search results - routing
-     * (next port) will read this to calculate a route from the current GPS
-     * fix to here. */
-    var selectedDestination: GeocodeResult? = null
-        private set
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val searchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -129,26 +155,44 @@ class MainActivity : AppCompatActivity() {
 
             // MapLibre draws a rotation compass top-right by default, right
             // where our search bar sits, so it ends up half-hidden behind
-            // it. We don't track map bearing yet (cameraMode is NONE), so
-            // the compass has nothing useful to show right now anyway -
-            // drop it. (Waze-style rotating-map + its own compass can come
-            // back once turn-by-turn drives the camera.)
+            // it. We don't track map bearing in free-map mode (cameraMode
+            // is NONE), so the compass has nothing useful to show there -
+            // drop it. Active navigation gets its own rotating, tilted
+            // camera instead (see beginActiveNavigation()).
             loadedMap.uiSettings.isCompassEnabled = false
+
+            loadedMap.addOnMapClickListener { latLng -> onMapTapped(loadedMap, latLng) }
 
             loadedMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
                 enableLocationComponent(loadedMap, style)
-                setUpRouteLayer(style)
+                setUpRouteLayers(style)
                 ensureLocationPermissionThenTrack()
             }
         }
 
         setUpSearch()
+        setUpRouteControls()
+        setUpSettingsDrawer()
+    }
+
+    private fun setUpSettingsDrawer() {
+        drawerLayout = findViewById(R.id.drawerLayout)
+
+        findViewById<ImageButton>(R.id.settingsButton).setOnClickListener {
+            drawerLayout.openDrawer(GravityCompat.END)
+        }
+
+        findViewById<Switch>(R.id.voiceGuidanceSwitch).setOnCheckedChangeListener { _, isChecked ->
+            voiceNarrator.enabled = isChecked
+        }
+
+        // "Dark" is disabled in the layout until we've confirmed a working
+        // dark style URL to switch to - nothing more to wire up here yet.
     }
 
     private fun setUpSearch() {
         searchInput = findViewById(R.id.searchInput)
         searchResultsList = findViewById(R.id.searchResultsList)
-        turnBanner = findViewById(R.id.turnBanner)
 
         searchInput.addTextChangedListener(
             object : TextWatcher {
@@ -168,12 +212,31 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setUpRouteControls() {
+        routePreviewCard = findViewById(R.id.routePreviewCard)
+        routePreviewSummary = findViewById(R.id.routePreviewSummary)
+        routePreviewHint = findViewById(R.id.routePreviewHint)
+        activeNavBar = findViewById(R.id.activeNavBar)
+        turnBanner = findViewById(R.id.turnBanner)
+        turnIcon = findViewById(R.id.turnIcon)
+
+        findViewById<android.widget.Button>(R.id.startNavigationButton).setOnClickListener {
+            beginActiveNavigation()
+        }
+        findViewById<android.widget.Button>(R.id.cancelRouteButton).setOnClickListener {
+            cancelRoutePreview()
+        }
+        findViewById<ImageButton>(R.id.stopNavigationButton).setOnClickListener {
+            endActiveNavigation()
+        }
+    }
+
     private fun scheduleSearch(query: String) {
         pendingSearch?.let { mainHandler.removeCallbacks(it) }
 
         if (query.trim().length < 3) {
             currentResults = emptyList()
-            searchResultsList.visibility = android.view.View.GONE
+            searchResultsList.visibility = View.GONE
             return
         }
 
@@ -200,23 +263,25 @@ class MainActivity : AppCompatActivity() {
     private fun showSearchResults(results: List<GeocodeResult>) {
         currentResults = results
         if (results.isEmpty()) {
-            searchResultsList.visibility = android.view.View.GONE
+            searchResultsList.visibility = View.GONE
             return
         }
         searchResultsList.adapter =
             ArrayAdapter(this, android.R.layout.simple_list_item_1, results.map { it.label })
-        searchResultsList.visibility = android.view.View.VISIBLE
+        searchResultsList.visibility = View.VISIBLE
     }
 
     private fun onDestinationSelected(result: GeocodeResult) {
-        selectedDestination = result
-        searchResultsList.visibility = android.view.View.GONE
+        searchResultsList.visibility = View.GONE
         currentResults = emptyList()
         searchInput.setText(result.label)
         searchInput.clearFocus()
 
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(searchInput.windowToken, 0)
+
+        // A new destination picked mid-drive replaces whatever was active.
+        if (navMode == NavMode.ACTIVE) endActiveNavigation()
 
         map?.easeCamera(
             CameraUpdateFactory.newCameraPosition(
@@ -232,7 +297,22 @@ class MainActivity : AppCompatActivity() {
         fetchRoute(result)
     }
 
-    private fun setUpRouteLayer(style: Style) {
+    private fun setUpRouteLayers(style: Style) {
+        // Alternates first so the selected route's layer (added next) ends
+        // up drawn on top of them.
+        val altSource = GeoJsonSource(ALT_ROUTE_SOURCE_ID)
+        style.addSource(altSource)
+        altRouteSource = altSource
+
+        val altLayer =
+            LineLayer(ALT_ROUTE_LAYER_ID, ALT_ROUTE_SOURCE_ID).withProperties(
+                PropertyFactory.lineColor(Color.parseColor("#9AA5B1")),
+                PropertyFactory.lineWidth(4f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            )
+        style.addLayer(altLayer)
+
         val source = GeoJsonSource(ROUTE_SOURCE_ID)
         style.addSource(source)
         routeSource = source
@@ -240,7 +320,7 @@ class MainActivity : AppCompatActivity() {
         val layer =
             LineLayer(ROUTE_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
                 PropertyFactory.lineColor(Color.parseColor("#1CB0F6")),
-                PropertyFactory.lineWidth(5f),
+                PropertyFactory.lineWidth(6f),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
@@ -258,16 +338,17 @@ class MainActivity : AppCompatActivity() {
         val destinationPoint = RoutePoint(destination.latitude, destination.longitude)
 
         searchExecutor.execute {
-            var route: Route? = null
-            var error: String? = null
+            var routes: List<Route> = emptyList()
             try {
-                route = RoutingService.calculateRoute(originPoint, destinationPoint)
+                routes = RoutingService.calculateRoutes(originPoint, destinationPoint)
             } catch (e: Exception) {
-                error = e.message ?: e.javaClass.simpleName
+                // handled below - empty list means "couldn't route"
             }
             mainHandler.post {
-                if (route != null) {
-                    showRoute(route)
+                if (routes.isNotEmpty()) {
+                    routeOptions = routes
+                    selectedRouteIndex = 0
+                    showRoutePreview()
                 } else {
                     Toast.makeText(this, "Couldn't calculate a route to that destination", Toast.LENGTH_SHORT).show()
                 }
@@ -275,33 +356,160 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showRoute(route: Route) {
-        val points = route.geometry.map { Point.fromLngLat(it.longitude, it.latitude) }
-        if (points.size >= 2) {
-            routeSource?.setGeoJson(Feature.fromGeometry(LineString.fromLngLats(points)))
+    // ---- Route preview (pre-navigation) --------------------------------
 
-            val bounds = LatLngBounds.Builder()
-            route.geometry.forEach { bounds.include(LatLng(it.latitude, it.longitude)) }
-            map?.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 120, 120, 120, 420), 800)
+    private fun showRoutePreview() {
+        navMode = NavMode.PREVIEW
+        activeNavBar.visibility = View.GONE
+        redrawRouteLines()
+
+        val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
+        val bounds = LatLngBounds.Builder()
+        selected.geometry.forEach { bounds.include(LatLng(it.latitude, it.longitude)) }
+        map?.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 120, 120, 120, 460), 800)
+
+        updateRoutePreviewSummary()
+        routePreviewCard.visibility = View.VISIBLE
+    }
+
+    private fun updateRoutePreviewSummary() {
+        val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
+        val km = selected.distanceMeters / 1000.0
+        val min = selected.durationSeconds / 60.0
+        routePreviewSummary.text = String.format(Locale.US, "%.1f km • %.0f min", km, min)
+        routePreviewHint.text =
+            if (routeOptions.size > 1) {
+                "${routeOptions.size} routes found - tap a grey route to switch"
+            } else {
+                "Fastest route available"
+            }
+    }
+
+    /** Redraws the map lines for the current routeOptions/selectedRouteIndex:
+     * the selected route in blue on top, every other option in grey
+     * underneath (each tagged with its index so a tap can select it). */
+    private fun redrawRouteLines() {
+        val routes = routeOptions
+        val selected = routes.getOrNull(selectedRouteIndex) ?: return
+
+        val altFeatures =
+            routes.mapIndexedNotNull { index, route ->
+                if (index == selectedRouteIndex) {
+                    null
+                } else {
+                    val points = route.geometry.map { Point.fromLngLat(it.longitude, it.latitude) }
+                    if (points.size < 2) {
+                        null
+                    } else {
+                        Feature.fromGeometry(LineString.fromLngLats(points)).also {
+                            it.addNumberProperty(ROUTE_INDEX_PROPERTY, index)
+                        }
+                    }
+                }
+            }
+        altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(altFeatures))
+
+        val selectedPoints = selected.geometry.map { Point.fromLngLat(it.longitude, it.latitude) }
+        if (selectedPoints.size >= 2) {
+            routeSource?.setGeoJson(Feature.fromGeometry(LineString.fromLngLats(selectedPoints)))
         }
+    }
+
+    private fun onMapTapped(
+        map: MapLibreMap,
+        latLng: LatLng,
+    ): Boolean {
+        if (navMode != NavMode.PREVIEW) return false
+        val screenPoint = map.projection.toScreenLocation(latLng)
+        val tapped =
+            try {
+                map.queryRenderedFeatures(screenPoint, ALT_ROUTE_LAYER_ID)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        val index = tapped.firstOrNull()?.getNumberProperty(ROUTE_INDEX_PROPERTY)?.toInt() ?: return false
+        selectRoute(index)
+        return true
+    }
+
+    private fun selectRoute(index: Int) {
+        if (navMode != NavMode.PREVIEW) return
+        if (index !in routeOptions.indices || index == selectedRouteIndex) return
+        selectedRouteIndex = index
+        redrawRouteLines()
+        updateRoutePreviewSummary()
+    }
+
+    private fun cancelRoutePreview() {
+        navMode = NavMode.IDLE
+        routeOptions = emptyList()
+        routePreviewCard.visibility = View.GONE
+        routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+    }
+
+    // ---- Active (driving) navigation ------------------------------------
+
+    private fun beginActiveNavigation() {
+        val route = routeOptions.getOrNull(selectedRouteIndex) ?: return
+
+        navMode = NavMode.ACTIVE
+        routePreviewCard.visibility = View.GONE
+        // Only the chosen route stays on screen once driving - alternates
+        // were just for picking, not useful mid-drive.
+        altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
 
         activeRoute = route
         navigationEngine.setRoute(route)
         voiceNarrator.resetGuard()
-        turnBanner.visibility = android.view.View.VISIBLE
+        activeNavBar.visibility = View.VISIBLE
+        turnBanner.text = "Starting navigation..."
 
-        val km = route.distanceMeters / 1000.0
-        val minutes = route.durationSeconds / 60.0
-        turnBanner.text = String.format(Locale.US, "Route set: %.1f km, about %.0f min", km, minutes)
+        // Waze-style 3D follow camera: tilted, zoomed in, and (via
+        // CameraMode.TRACKING_GPS below) rotated so the direction you're
+        // driving always points up the screen.
+        map?.easeCamera(
+            CameraUpdateFactory.newCameraPosition(
+                CameraPosition.Builder().tilt(NAV_TILT_DEGREES).zoom(NAV_ZOOM).build(),
+            ),
+            600,
+        )
+        map?.locationComponent?.apply {
+            renderMode = RenderMode.GPS
+            cameraMode = CameraMode.TRACKING_GPS
+        }
 
-        // Android's LocationManager only fires another update once you've
-        // moved ~3m (LiveLocationTracker's MIN_DISTANCE_M) - so if you're
-        // standing still when a route is set, the engine would otherwise
-        // never run and this banner would be stuck on the line above
-        // forever. Feed it the fix we already have right away so the first
-        // turn instruction shows immediately, not only once you move.
         lastKnownLocation?.let { location ->
             navigationEngine.onLocation(RoutePoint(location.latitude, location.longitude))
+        }
+    }
+
+    private fun endActiveNavigation() {
+        navMode = NavMode.IDLE
+        activeRoute = null
+        activeNavBar.visibility = View.GONE
+        routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        routeOptions = emptyList()
+
+        map?.locationComponent?.apply {
+            cameraMode = CameraMode.NONE
+            renderMode = RenderMode.COMPASS
+        }
+
+        val location = lastKnownLocation
+        if (location != null) {
+            map?.easeCamera(
+                CameraUpdateFactory.newCameraPosition(
+                    CameraPosition
+                        .Builder()
+                        .target(LatLng(location.latitude, location.longitude))
+                        .tilt(0.0)
+                        .zoom(15.0)
+                        .build(),
+                ),
+                600,
+            )
         }
     }
 
@@ -318,7 +526,43 @@ class MainActivity : AppCompatActivity() {
         turnBanner.text =
             "${state.instruction} • $distanceLabel$suffix\n" +
             String.format(Locale.US, "%.1f km • %.0f min left", remainingKm, remainingMin)
+
+        val (iconRes, rotation) = iconForManeuver(state.maneuverType, state.modifier)
+        turnIcon.setImageResource(iconRes)
+        turnIcon.rotation = rotation
+
+        if (state.isArrival && state.distanceToNextTurnMeters <= 30) {
+            endActiveNavigation()
+        }
     }
+
+    /** Picks a turn-icon drawable + rotation for a maneuver. Distinct
+     * glyphs for u-turn/roundabout/arrival; every other maneuver reuses
+     * one directional arrow rotated to the right angle - the same
+     * approach professional nav apps use rather than drawing a separate
+     * icon per angle. */
+    private fun iconForManeuver(
+        maneuverType: String,
+        modifier: String?,
+    ): Pair<Int, Float> {
+        if (maneuverType == "arrive") return R.drawable.ic_nav_flag to 0f
+        if (maneuverType == "roundabout" || maneuverType == "rotary") return R.drawable.ic_nav_roundabout to 0f
+        if (maneuverType == "uturn" || modifier == "uturn") return R.drawable.ic_nav_uturn to 0f
+
+        val rotation =
+            when (modifier) {
+                "sharp right" -> 135f
+                "right" -> 90f
+                "slight right" -> 45f
+                "slight left" -> -45f
+                "left" -> -90f
+                "sharp left" -> -135f
+                else -> 0f // straight / depart / continue / new name / merge / fork / ramps
+            }
+        return R.drawable.ic_nav_arrow to rotation
+    }
+
+    // ---- Location / map plumbing ----------------------------------------
 
     private fun ensureLocationPermissionThenTrack() {
         val granted =
