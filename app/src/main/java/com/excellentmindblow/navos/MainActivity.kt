@@ -241,17 +241,21 @@ class MainActivity : AppCompatActivity() {
         val destinationPoint = RoutePoint(destination.latitude, destination.longitude)
 
         searchExecutor.execute {
-            val route =
-                try {
-                    RoutingService.calculateRoute(originPoint, destinationPoint)
-                } catch (e: Exception) {
-                    null
-                }
+            var route: Route? = null
+            var error: String? = null
+            try {
+                route = RoutingService.calculateRoute(originPoint, destinationPoint)
+            } catch (e: Exception) {
+                error = e.message ?: e.javaClass.simpleName
+            }
             mainHandler.post {
-                if (route == null) {
-                    Toast.makeText(this, "Couldn't calculate a route to that destination", Toast.LENGTH_SHORT).show()
-                } else {
+                if (route != null) {
                     showRoute(route)
+                } else {
+                    // TEMP: surfacing the real error (instead of a generic
+                    // message) while we track down why routing is failing
+                    // on-device.
+                    Toast.makeText(this, "Route failed: $error", Toast.LENGTH_LONG).show()
                 }
             }
         }
