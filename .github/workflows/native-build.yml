@@ -7,7 +7,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: read
+  contents: write
   issues: write
 
 jobs:
@@ -51,3 +51,24 @@ jobs:
           name: navos-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
+
+      # GitHub Actions artifact downloads (actions/upload-artifact) are
+      # served from Azure Blob Storage, which isn't reachable from the
+      # sandbox this is built from - so the APK is also published as a
+      # GitHub Release asset, served directly from github.com, which both
+      # the sandbox and a phone browser can reach. Reuses one mutable tag
+      # ("native-debug-latest") so every build updates the same stable
+      # link instead of accumulating a new release each time.
+      - name: Publish APK to a stable release
+        if: success()
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk NavOS-debug.apk
+          gh release delete native-debug-latest --yes || true
+          git tag -f native-debug-latest
+          git push origin native-debug-latest --force
+          gh release create native-debug-latest NavOS-debug.apk \
+            --title "NavOS (native, debug build)" \
+            --notes "Auto-published from run ${GITHUB_RUN_ID}. Debug build, self-signed with Android's default debug key - for testing on your own phone only." \
+            --latest
+        env:
+          GH_TOKEN: ${{ github.token }}
