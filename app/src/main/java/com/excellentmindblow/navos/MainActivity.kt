@@ -132,10 +132,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var workButton: View
     private lateinit var workButtonLabel: TextView
     private lateinit var prefs: SharedPreferences
+    private lateinit var nextTurnStrip: View
+    private lateinit var nextTurnIcon: ImageView
+    private lateinit var searchBackButton: ImageButton
 
     /** Set while waiting for the user to pick a destination to save under
      * "home" or "work" - cleared once that pick is saved. */
     private var pendingSavedPlaceLabel: String? = null
+
+    /** True while the search bar was opened from the drive bar's search
+     * icon (rather than from idle/free-roam) - lets exitSearchFromNav()
+     * know to bring the nav UI back instead of just hiding the search. */
+    private var searchOpenedFromNav = false
 
     private var incidentsSource: GeoJsonSource? = null
     private val incidentFeatures = mutableListOf<Feature>()
@@ -209,14 +217,17 @@ class MainActivity : AppCompatActivity() {
         mapView.getMapAsync { loadedMap ->
             map = loadedMap
 
-            // Keep the compass, just move it out from behind the search
-            // bar instead of hiding it - it's still useful for orientation
-            // once the nav camera starts rotating the map.
+            // Keep the compass, on the right below both the idle search
+            // bar+Home/Work row and the active-nav turn banner - both span
+            // the full width up top, so a left-side or shallow-margin spot
+            // ends up hidden behind them. It's most useful once the nav
+            // camera starts rotating the map, so it needs to actually be
+            // visible during ACTIVE too.
             loadedMap.uiSettings.apply {
                 isCompassEnabled = true
-                setCompassGravity(Gravity.TOP or Gravity.START)
+                setCompassGravity(Gravity.TOP or Gravity.END)
                 val density = resources.displayMetrics.density
-                setCompassMargins((16 * density).toInt(), (100 * density).toInt(), 0, 0)
+                setCompassMargins(0, (150 * density).toInt(), (16 * density).toInt(), 0)
             }
 
             loadedMap.addOnMapClickListener { latLng -> onMapTapped(loadedMap, latLng) }
@@ -322,6 +333,9 @@ class MainActivity : AppCompatActivity() {
         speedBadge = findViewById(R.id.speedBadge)
         recenterButton = findViewById(R.id.recenterButton)
         reportButton = findViewById(R.id.reportButton)
+        nextTurnStrip = findViewById(R.id.nextTurnStrip)
+        nextTurnIcon = findViewById(R.id.nextTurnIcon)
+        searchBackButton = findViewById(R.id.searchBackButton)
 
         findViewById<View>(R.id.startNavigationButton).setOnClickListener {
             beginActiveNavigation()
@@ -341,6 +355,54 @@ class MainActivity : AppCompatActivity() {
         }
         reportButton.setOnClickListener {
             showReportDialog()
+        }
+        findViewById<ImageButton>(R.id.bottomSearchButton).setOnClickListener {
+            enterSearchFromNav()
+        }
+        findViewById<ImageButton>(R.id.bottomAltRouteButton).setOnClickListener {
+            showRoutePreview()
+        }
+        searchBackButton.setOnClickListener {
+            exitSearchFromNav()
+        }
+    }
+
+    /** Opens the search bar over the drive view without stopping the
+     * current turn-by-turn session, same as tapping the magnifier icon in
+     * Waze's drive bar - picking a destination still ends this drive via
+     * onDestinationSelected()'s existing ACTIVE -> endActiveNavigation()
+     * check, same as it already does when idle. */
+    private fun enterSearchFromNav() {
+        if (navMode != NavMode.ACTIVE) return
+        searchOpenedFromNav = true
+        topNavBar.visibility = View.GONE
+        bottomNavBar.visibility = View.GONE
+        speedBadge.visibility = View.GONE
+        reportButton.visibility = View.GONE
+        nextTurnStrip.visibility = View.GONE
+        searchBackButton.visibility = View.VISIBLE
+        topBar.visibility = View.VISIBLE
+        searchInput.requestFocus()
+    }
+
+    /** Backs out of a search opened mid-drive without picking anything,
+     * restoring the drive UI exactly as it was. */
+    private fun exitSearchFromNav() {
+        searchOpenedFromNav = false
+        searchBackButton.visibility = View.GONE
+        searchResultsList.visibility = View.GONE
+        currentResults = emptyList()
+        searchInput.setText("")
+        searchInput.clearFocus()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(searchInput.windowToken, 0)
+        topBar.visibility = View.GONE
+
+        if (navMode == NavMode.ACTIVE) {
+            topNavBar.visibility = View.VISIBLE
+            bottomNavBar.visibility = View.VISIBLE
+            speedBadge.visibility = View.VISIBLE
+            reportButton.visibility = View.VISIBLE
         }
     }
 
@@ -495,6 +557,8 @@ class MainActivity : AppCompatActivity() {
 
         // A new destination picked mid-drive replaces whatever was active.
         if (navMode == NavMode.ACTIVE) endActiveNavigation()
+        searchOpenedFromNav = false
+        searchBackButton.visibility = View.GONE
 
         maybeSaveAsPendingPlace(result)
 
@@ -674,6 +738,11 @@ class MainActivity : AppCompatActivity() {
         topNavBar.visibility = View.GONE
         bottomNavBar.visibility = View.GONE
         recenterButton.visibility = View.GONE
+        // Also reachable mid-drive via the drive bar's alt-route icon, so
+        // clear the ACTIVE-only chrome too (harmless no-ops if already gone).
+        speedBadge.visibility = View.GONE
+        reportButton.visibility = View.GONE
+        nextTurnStrip.visibility = View.GONE
         redrawRouteLines()
 
         val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
@@ -858,6 +927,7 @@ class MainActivity : AppCompatActivity() {
         bottomNavBar.visibility = View.GONE
         speedBadge.visibility = View.GONE
         reportButton.visibility = View.GONE
+        nextTurnStrip.visibility = View.GONE
         topBar.visibility = View.VISIBLE
         routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
@@ -907,6 +977,18 @@ class MainActivity : AppCompatActivity() {
         val (iconRes, rotation) = iconForManeuver(state.maneuverType, state.modifier)
         turnIcon.setImageResource(iconRes)
         turnIcon.rotation = rotation
+
+        // "and then" look-ahead - only worth showing once the current turn
+        // is close enough that the next one is relevant, same as Waze.
+        val nextType = state.nextManeuverType
+        if (nextType != null && state.distanceToNextTurnMeters <= 400 && !state.isArrival) {
+            val (nextIconRes, nextRotation) = iconForManeuver(nextType, state.nextModifier)
+            nextTurnIcon.setImageResource(nextIconRes)
+            nextTurnIcon.rotation = nextRotation
+            nextTurnStrip.visibility = View.VISIBLE
+        } else {
+            nextTurnStrip.visibility = View.GONE
+        }
 
         if (state.isArrival && state.distanceToNextTurnMeters <= 30) {
             endActiveNavigation()

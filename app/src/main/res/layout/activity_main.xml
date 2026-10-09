@@ -33,6 +33,22 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
+                <!-- Only shown when search was opened mid-drive (via the
+                     drive bar's search icon) so there's a way back to the
+                     nav view without having to pick a new destination. -->
+                <ImageButton
+                    android:id="@+id/searchBackButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginEnd="8dp"
+                    android:background="@drawable/search_bar_bg"
+                    android:backgroundTint="@color/navos_navy"
+                    android:contentDescription="Back to navigation"
+                    android:elevation="4dp"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_close"
+                    android:visibility="gone" />
+
                 <EditText
                     android:id="@+id/searchInput"
                     android:layout_width="0dp"
@@ -209,6 +225,45 @@
 
         </LinearLayout>
 
+        <!-- "and then" secondary preview strip, directly under the main
+             turn banner once the step after this one is known - same
+             look-ahead Waze/Google Maps show so the driver isn't surprised
+             by a turn coming right after this one. -->
+        <LinearLayout
+            android:id="@+id/nextTurnStrip"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="128dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/search_bar_bg"
+            android:backgroundTint="#2A3F63"
+            android:elevation="3dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="10dp"
+                android:text="and then"
+                android:textColor="#B8C4D9"
+                android:textSize="13sp" />
+
+            <ImageView
+                android:id="@+id/nextTurnIcon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:contentDescription="Then"
+                android:src="@drawable/ic_nav_arrow" />
+
+        </LinearLayout>
+
         <!-- Live speed badge, shown only during active navigation - same
              bottom-left circular readout Waze shows. -->
         <TextView
@@ -371,8 +426,8 @@
 
             <ImageButton
                 android:id="@+id/stopNavigationButton"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:background="@android:color/transparent"
                 android:contentDescription="Stop navigation"
                 android:padding="8dp"
@@ -383,12 +438,38 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="12dp"
-                android:gravity="end"
+                android:layout_marginStart="8dp"
+                android:gravity="center"
                 android:textColor="@color/white"
-                android:textSize="17sp"
+                android:textSize="15sp"
                 android:textStyle="bold"
                 tools:text="50 min • 49.9 km • 12:10 am" />
+
+            <!-- Search for a new destination without fully stopping the
+                 current drive - opens the search bar, same spot Waze keeps
+                 its magnifier icon in the drive bar. -->
+            <ImageButton
+                android:id="@+id/bottomSearchButton"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="4dp"
+                android:background="@android:color/transparent"
+                android:contentDescription="Search for a new destination"
+                android:padding="8dp"
+                android:src="@drawable/ic_search" />
+
+            <!-- Re-opens the route preview (with alternates redrawn) so the
+                 driver can switch routes mid-drive, same spot Waze's fork
+                 icon sits in the drive bar. -->
+            <ImageButton
+                android:id="@+id/bottomAltRouteButton"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="4dp"
+                android:background="@android:color/transparent"
+                android:contentDescription="Switch route"
+                android:padding="8dp"
+                android:src="@drawable/ic_alt_route" />
 
         </LinearLayout>
 

@@ -13,6 +13,12 @@ data class NavigationState(
     val durationRemainingSeconds: Double,
     val offRoute: Boolean,
     val isArrival: Boolean,
+    // The turn after this one, so the UI can show Waze/Google Maps' "and
+    // then" preview strip. Null once there's no further step (this one IS
+    // the arrival).
+    val nextInstruction: String? = null,
+    val nextManeuverType: String? = null,
+    val nextModifier: String? = null,
 )
 
 /**
@@ -66,6 +72,7 @@ class NavigationEngine(
         val offLineDistance = GeoUtils.distanceToPolyline(location, currentRoute.geometry).first
         val offRoute = offLineDistance > OFF_ROUTE_METERS
         val isArrival = idx == steps.size - 1
+        val nextStep = steps.getOrNull(idx + 1)
 
         onState(
             NavigationState(
@@ -78,6 +85,9 @@ class NavigationEngine(
                 durationRemainingSeconds = durationRemaining,
                 offRoute = offRoute,
                 isArrival = isArrival,
+                nextInstruction = nextStep?.instruction,
+                nextManeuverType = nextStep?.maneuverType,
+                nextModifier = nextStep?.modifier,
             ),
         )
 
