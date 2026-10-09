@@ -15,7 +15,11 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
 
+        <!-- Idle/free-roam top bar: search + settings. Hidden once a route
+             is being previewed or driven, same as Waze/Google Maps hide
+             their search bar during navigation. -->
         <LinearLayout
+            android:id="@+id/topBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
@@ -73,6 +77,60 @@
                 android:visibility="gone" />
 
         </LinearLayout>
+
+        <!-- Active-nav turn instruction banner, pinned to the top like
+             Waze/Google Maps' direction banner - stands in for topBar
+             (hidden) while a route is being previewed or driven. -->
+        <LinearLayout
+            android:id="@+id/topNavBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="40dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/search_bar_bg"
+            android:backgroundTint="@color/navos_navy"
+            android:elevation="4dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/turnIcon"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginEnd="12dp"
+                android:contentDescription="Next turn"
+                android:src="@drawable/ic_nav_arrow" />
+
+            <TextView
+                android:id="@+id/turnInstructionText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/white"
+                android:textSize="16sp"
+                tools:text="Turn right onto Jalan Example • 120 m" />
+
+        </LinearLayout>
+
+        <!-- Re-centre, shown only once the driver pans the free-roam map
+             away from their own position - tap to resume following. -->
+        <ImageButton
+            android:id="@+id/recenterButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="12dp"
+            android:layout_marginBottom="32dp"
+            android:background="@drawable/search_bar_bg"
+            android:backgroundTint="@color/navos_navy"
+            android:contentDescription="Re-centre on my location"
+            android:elevation="4dp"
+            android:padding="11dp"
+            android:src="@drawable/ic_recenter"
+            android:visibility="gone" />
 
         <!-- Route preview: shown after a destination is picked, before the
              user commits to navigating. Lets them see distance/time (and
@@ -140,11 +198,11 @@
 
         </LinearLayout>
 
-        <!-- Active navigation bar: turn icon + instruction + distance/ETA,
-             with a stop control to end navigation and drop back to
-             free-map mode. -->
+        <!-- Bottom ETA/stop bar, shown during active navigation - same
+             bottom-sheet-style layout as Waze's "X · time · distance · ETA"
+             bar, with the stop control on the left. -->
         <LinearLayout
-            android:id="@+id/activeNavBar"
+            android:id="@+id/bottomNavBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
@@ -159,32 +217,25 @@
             android:padding="16dp"
             android:visibility="gone">
 
-            <ImageView
-                android:id="@+id/turnIcon"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_marginEnd="12dp"
-                android:contentDescription="Next turn"
-                android:src="@drawable/ic_nav_arrow" />
-
-            <TextView
-                android:id="@+id/turnBanner"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:textColor="@color/white"
-                android:textSize="16sp"
-                tools:text="Turn right onto Jalan Example • 120 m\n49.9 km • 50 min left" />
-
             <ImageButton
                 android:id="@+id/stopNavigationButton"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
-                android:layout_marginStart="12dp"
                 android:background="@android:color/transparent"
                 android:contentDescription="Stop navigation"
                 android:padding="8dp"
                 android:src="@drawable/ic_close" />
+
+            <TextView
+                android:id="@+id/etaSummaryText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="12dp"
+                android:gravity="end"
+                android:textColor="@color/white"
+                android:textSize="16sp"
+                tools:text="50 min • 49.9 km • 12:10 am" />
 
         </LinearLayout>
 

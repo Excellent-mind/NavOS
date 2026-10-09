@@ -51,6 +51,7 @@ import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.Layer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
@@ -60,6 +61,8 @@ import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -69,6 +72,7 @@ import java.util.concurrent.Executors
 private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
 
 private const val ROUTE_SOURCE_ID = "navos-route-source"
+private const val ROUTE_CASING_LAYER_ID = "navos-route-casing-layer"
 private const val ROUTE_LAYER_ID = "navos-route-layer"
 private const val ALT_ROUTE_SOURCE_ID = "navos-alt-route-source"
 private const val ALT_ROUTE_LAYER_ID = "navos-alt-route-layer"
@@ -92,14 +96,18 @@ private enum class NavMode { IDLE, PREVIEW, ACTIVE }
 class MainActivity : AppCompatActivity() {
     private lateinit var mapView: MapView
     private lateinit var drawerLayout: DrawerLayout
+    private lateinit var topBar: View
     private lateinit var searchInput: EditText
     private lateinit var searchResultsList: ListView
     private lateinit var routePreviewCard: View
     private lateinit var routePreviewSummary: TextView
     private lateinit var routePreviewHint: TextView
-    private lateinit var activeNavBar: View
-    private lateinit var turnBanner: TextView
+    private lateinit var topNavBar: View
+    private lateinit var bottomNavBar: View
+    private lateinit var turnInstructionText: TextView
+    private lateinit var etaSummaryText: TextView
     private lateinit var turnIcon: ImageView
+    private lateinit var recenterButton: ImageButton
 
     private var map: MapLibreMap? = null
     private var locationTracker: LiveLocationTracker? = null
@@ -180,10 +188,13 @@ class MainActivity : AppCompatActivity() {
             loadedMap.addOnMapClickListener { latLng -> onMapTapped(loadedMap, latLng) }
 
             // A manual pan means the driver wants to look elsewhere - stop
-            // auto-recentering until they pick a destination again.
+            // auto-recentering until they pick a destination again, and
+            // offer a way back (Waze/Google Maps both show this same
+            // re-centre affordance once you've panned away).
             loadedMap.addOnCameraMoveStartedListener { reason ->
                 if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
                     followingUser = false
+                    if (navMode == NavMode.IDLE) recenterButton.visibility = View.VISIBLE
                 }
             }
 
@@ -237,12 +248,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setUpRouteControls() {
+        topBar = findViewById(R.id.topBar)
         routePreviewCard = findViewById(R.id.routePreviewCard)
         routePreviewSummary = findViewById(R.id.routePreviewSummary)
         routePreviewHint = findViewById(R.id.routePreviewHint)
-        activeNavBar = findViewById(R.id.activeNavBar)
-        turnBanner = findViewById(R.id.turnBanner)
+        topNavBar = findViewById(R.id.topNavBar)
+        bottomNavBar = findViewById(R.id.bottomNavBar)
+        turnInstructionText = findViewById(R.id.turnInstructionText)
+        etaSummaryText = findViewById(R.id.etaSummaryText)
         turnIcon = findViewById(R.id.turnIcon)
+        recenterButton = findViewById(R.id.recenterButton)
 
         findViewById<android.widget.Button>(R.id.startNavigationButton).setOnClickListener {
             beginActiveNavigation()
@@ -252,6 +267,13 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<ImageButton>(R.id.stopNavigationButton).setOnClickListener {
             endActiveNavigation()
+        }
+        recenterButton.setOnClickListener {
+            followingUser = true
+            recenterButton.visibility = View.GONE
+            lastKnownLocation?.let { location ->
+                map?.easeCamera(CameraUpdateFactory.newLatLng(LatLng(location.latitude, location.longitude)), 500)
+            }
         }
     }
 
@@ -307,6 +329,9 @@ class MainActivity : AppCompatActivity() {
         // A new destination picked mid-drive replaces whatever was active.
         if (navMode == NavMode.ACTIVE) endActiveNavigation()
 
+        topBar.visibility = View.GONE
+        recenterButton.visibility = View.GONE
+
         val destinationLatLng = LatLng(result.latitude, result.longitude)
         showDestinationMarker(destinationLatLng)
 
@@ -325,7 +350,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setUpRouteLayers(style: Style) {
-        // Alternates first so the selected route's layer (added next) ends
+        // The base style's own road/POI name labels are symbol layers
+        // further up its layer stack. style.addLayer() appends at the very
+        // top by default, which was silently burying every label under our
+        // route lines and the destination pin - inserting our route layers
+        // below the first symbol layer keeps street names readable on top
+        // of the route, matching how Google Maps/Waze draw it. (The
+        // destination pin is deliberately NOT inserted this way - it's
+        // meant to sit on top of labels too, like a real map pin.)
+        val firstSymbolLayerId = style.layers.firstOrNull { it is SymbolLayer }?.id
+        fun addBelowLabels(layer: Layer) {
+            if (firstSymbolLayerId != null) {
+                style.addLayerBelow(layer, firstSymbolLayerId)
+            } else {
+                style.addLayer(layer)
+            }
+        }
+
+        // Alternates first so the selected route's layers (added next) end
         // up drawn on top of them.
         val altSource = GeoJsonSource(ALT_ROUTE_SOURCE_ID)
         style.addSource(altSource)
@@ -338,11 +380,22 @@ class MainActivity : AppCompatActivity() {
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
-        style.addLayer(altLayer)
+        addBelowLabels(altLayer)
 
         val source = GeoJsonSource(ROUTE_SOURCE_ID)
         style.addSource(source)
         routeSource = source
+
+        // A white casing under the blue line, same two-tone look Google
+        // Maps draws its route in, instead of a single flat line.
+        val routeCasingLayer =
+            LineLayer(ROUTE_CASING_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
+                PropertyFactory.lineColor(Color.WHITE),
+                PropertyFactory.lineWidth(10f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            )
+        addBelowLabels(routeCasingLayer)
 
         val layer =
             LineLayer(ROUTE_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
@@ -351,10 +404,10 @@ class MainActivity : AppCompatActivity() {
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
-        style.addLayer(layer)
+        addBelowLabels(layer)
 
-        // Destination pin - added last so it draws on top of both route
-        // lines.
+        // Destination pin - added last, with the plain addLayer() that
+        // puts it above everything (including labels), same as a real pin.
         val pinBitmap = ContextCompat.getDrawable(this, R.drawable.ic_destination_pin)?.toBitmap()
         if (pinBitmap != null) {
             style.addImage(DESTINATION_ICON_ID, pinBitmap)
@@ -406,6 +459,7 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     clearDestinationMarker()
                     followingUser = true
+                    topBar.visibility = View.VISIBLE
                     Toast.makeText(this, "Couldn't calculate a route to that destination", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -416,7 +470,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun showRoutePreview() {
         navMode = NavMode.PREVIEW
-        activeNavBar.visibility = View.GONE
+        topBar.visibility = View.GONE
+        topNavBar.visibility = View.GONE
+        bottomNavBar.visibility = View.GONE
+        recenterButton.visibility = View.GONE
         redrawRouteLines()
 
         val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
@@ -504,6 +561,7 @@ class MainActivity : AppCompatActivity() {
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         clearDestinationMarker()
         followingUser = true
+        topBar.visibility = View.VISIBLE
     }
 
     // ---- Active (driving) navigation ------------------------------------
@@ -512,6 +570,8 @@ class MainActivity : AppCompatActivity() {
         val route = routeOptions.getOrNull(selectedRouteIndex) ?: return
 
         navMode = NavMode.ACTIVE
+        topBar.visibility = View.GONE
+        recenterButton.visibility = View.GONE
         routePreviewCard.visibility = View.GONE
         // Only the chosen route stays on screen once driving - alternates
         // were just for picking, not useful mid-drive.
@@ -520,8 +580,11 @@ class MainActivity : AppCompatActivity() {
         activeRoute = route
         navigationEngine.setRoute(route)
         voiceNarrator.resetGuard()
-        activeNavBar.visibility = View.VISIBLE
-        turnBanner.text = "Starting navigation..."
+        topNavBar.visibility = View.VISIBLE
+        bottomNavBar.visibility = View.VISIBLE
+        turnInstructionText.text = "Starting navigation..."
+        etaSummaryText.text =
+            String.format(Locale.US, "%.0f min • %.1f km", route.durationSeconds / 60.0, route.distanceMeters / 1000.0)
 
         // Waze-style 3D follow camera. NOTE: we deliberately do NOT use
         // LocationComponent's CameraMode.TRACKING_GPS here - it resets
@@ -567,7 +630,9 @@ class MainActivity : AppCompatActivity() {
     private fun endActiveNavigation() {
         navMode = NavMode.IDLE
         activeRoute = null
-        activeNavBar.visibility = View.GONE
+        topNavBar.visibility = View.GONE
+        bottomNavBar.visibility = View.GONE
+        topBar.visibility = View.VISIBLE
         routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         routeOptions = emptyList()
@@ -605,9 +670,12 @@ class MainActivity : AppCompatActivity() {
         val remainingKm = state.distanceRemainingMeters / 1000.0
         val remainingMin = state.durationRemainingSeconds / 60.0
         val suffix = if (state.offRoute) " (off route - recalculating soon)" else ""
-        turnBanner.text =
-            "${state.instruction} • $distanceLabel$suffix\n" +
-            String.format(Locale.US, "%.1f km • %.0f min left", remainingKm, remainingMin)
+        turnInstructionText.text = "${state.instruction} • $distanceLabel$suffix"
+
+        val arrivalTime = Date(System.currentTimeMillis() + (state.durationRemainingSeconds * 1000).toLong())
+        val arrivalLabel = SimpleDateFormat("h:mm a", Locale.US).format(arrivalTime)
+        etaSummaryText.text =
+            String.format(Locale.US, "%.0f min • %.1f km • %s", remainingMin, remainingKm, arrivalLabel)
 
         val (iconRes, rotation) = iconForManeuver(state.maneuverType, state.modifier)
         turnIcon.setImageResource(iconRes)
