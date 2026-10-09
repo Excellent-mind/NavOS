@@ -1,7 +1,14 @@
 name: Native Android Build
 
+# Trigger this manually from the GitHub app: Actions tab -> "Native Android
+# Build" -> Run workflow. Plain Gradle build on GitHub's own runners - no
+# account, no token, no monthly quota (unlike the old EAS workflow).
 on:
   workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
 
 jobs:
   build:
@@ -19,8 +26,23 @@ jobs:
 
       - name: Build debug APK
         run: |
-          set -o pipefail
+          set +e
           ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "Build failed, posting log to issue #1:"
+            {
+              echo "Native build failed in run ${GITHUB_RUN_ID} (attempt ${GITHUB_RUN_ATTEMPT})."
+              echo '```'
+              tail -c 60000 /tmp/build.log
+              echo '```'
+            } > /tmp/issue-comment-body.md
+            jq -Rs '{body: .}' /tmp/issue-comment-body.md | gh api repos/${GITHUB_REPOSITORY}/issues/1/comments --input -
+          fi
+          exit "$status"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Upload APK artifact
         if: success()
@@ -29,17 +51,3 @@ jobs:
           name: navos-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
-
-      - name: Post failure log to tracking issue
-        if: failure()
-        run: |
-          tail -c 60000 /tmp/build.log > /tmp/build-tail.log || true
-          {
-            echo "Native build failed in run ${{ github.run_id }}."
-            echo '```'
-            cat /tmp/build-tail.log
-            echo '```'
-          } > /tmp/comment.md
-          jq -Rs '{body: .}' /tmp/comment.md | gh api repos/${{ github.repository }}/issues/1/comments --input -
-        env:
-          GH_TOKEN: ${{ github.token }}
