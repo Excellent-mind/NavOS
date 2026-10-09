@@ -40,21 +40,35 @@ jobs:
           disable-animations: true
           script: |
             set +e
-            adb logcat -c
-            adb install -r /tmp/app.apk
-            adb shell pm grant com.excellentmindblow.navos android.permission.ACCESS_FINE_LOCATION
-            adb shell pm grant com.excellentmindblow.navos android.permission.ACCESS_COARSE_LOCATION
-            adb shell monkey -p com.excellentmindblow.navos -c android.intent.category.LAUNCHER 1
+            SUMMARY=/tmp/crash-summary.txt
+            : > "$SUMMARY"
+            log_step() {
+              echo "## $1" >> "$SUMMARY"
+              shift
+              "$@" >> "$SUMMARY" 2>&1
+              echo "(exit code: $?)" >> "$SUMMARY"
+              echo >> "$SUMMARY"
+            }
+
+            log_step "adb devices" adb devices
+            log_step "clear logcat" adb logcat -c
+            log_step "install APK" adb install -r /tmp/app.apk
+            log_step "grant fine location" adb shell pm grant com.excellentmindblow.navos android.permission.ACCESS_FINE_LOCATION
+            log_step "grant coarse location" adb shell pm grant com.excellentmindblow.navos android.permission.ACCESS_COARSE_LOCATION
+            log_step "list installed package" adb shell pm list packages -3
+            log_step "launch via monkey" adb shell monkey -p com.excellentmindblow.navos -c android.intent.category.LAUNCHER 1
             sleep 15
-            adb logcat -d > /tmp/full-logcat.txt
-            {
-              echo "## adb install output / app state"
-              adb shell pm list packages | grep navos
-              echo
-              echo "## Crash-relevant logcat (AndroidRuntime, FATAL, navos pid, native crash tombstones)"
-              grep -iE "AndroidRuntime|FATAL EXCEPTION|com.excellentmindblow.navos|libc |DEBUG.*pid|signal [0-9]+|SIGSEGV|SIGABRT|backtrace" /tmp/full-logcat.txt | tail -c 55000
-            } > /tmp/crash-summary.txt
-            cat /tmp/crash-summary.txt
+            log_step "ps of app process (empty = already dead/crashed)" adb shell ps -A | grep navos
+            adb logcat -d > /tmp/full-logcat.txt 2>&1
+            echo "## full logcat line count: $(wc -l < /tmp/full-logcat.txt)" >> "$SUMMARY"
+            echo >> "$SUMMARY"
+            echo "## Crash-relevant logcat lines" >> "$SUMMARY"
+            grep -iE "AndroidRuntime|FATAL EXCEPTION|com.excellentmindblow.navos|libc |DEBUG.*pid|signal [0-9]+|SIGSEGV|SIGABRT|backtrace|tombstone|crash" /tmp/full-logcat.txt | tail -c 50000 >> "$SUMMARY"
+            echo >> "$SUMMARY"
+            echo "## last 150 lines of raw logcat (fallback, in case nothing matched above)" >> "$SUMMARY"
+            tail -n 150 /tmp/full-logcat.txt >> "$SUMMARY"
+            cat "$SUMMARY"
+            exit 0
 
       - name: Post crash log to tracking issue
         if: always()
