@@ -17,7 +17,9 @@
 
         <!-- Idle/free-roam top bar: search + settings. Hidden once a route
              is being previewed or driven, same as Waze/Google Maps hide
-             their search bar during navigation. -->
+             their search bar during navigation - and, now there's a bottom
+             tab bar, also hidden on the plain Map tab until Search is
+             tapped. -->
         <LinearLayout
             android:id="@+id/topBar"
             android:layout_width="match_parent"
@@ -25,7 +27,8 @@
             android:orientation="vertical"
             android:paddingTop="40dp"
             android:paddingStart="12dp"
-            android:paddingEnd="12dp">
+            android:paddingEnd="12dp"
+            android:visibility="gone">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -77,84 +80,6 @@
                     android:elevation="4dp"
                     android:padding="12dp"
                     android:src="@drawable/ic_settings" />
-
-            </LinearLayout>
-
-            <!-- Saved-place shortcuts, same as Waze's Home/Work buttons.
-                 Tapping an unset one starts a search and saves whatever
-                 destination you pick next under that label. -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:orientation="horizontal">
-
-                <LinearLayout
-                    android:id="@+id/homeButton"
-                    android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="6dp"
-                    android:background="@drawable/search_bar_bg"
-                    android:backgroundTint="@color/navos_navy"
-                    android:elevation="4dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:paddingStart="12dp"
-                    android:paddingEnd="8dp">
-
-                    <ImageView
-                        android:layout_width="18dp"
-                        android:layout_height="18dp"
-                        android:layout_marginEnd="6dp"
-                        android:contentDescription="Home"
-                        android:src="@drawable/ic_home" />
-
-                    <TextView
-                        android:id="@+id/homeButtonLabel"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        android:textColor="@color/white"
-                        android:textSize="13sp"
-                        tools:text="Home" />
-
-                </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/workButton"
-                    android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/search_bar_bg"
-                    android:backgroundTint="@color/navos_navy"
-                    android:elevation="4dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:paddingStart="12dp"
-                    android:paddingEnd="8dp">
-
-                    <ImageView
-                        android:layout_width="18dp"
-                        android:layout_height="18dp"
-                        android:layout_marginEnd="6dp"
-                        android:contentDescription="Work"
-                        android:src="@drawable/ic_work" />
-
-                    <TextView
-                        android:id="@+id/workButtonLabel"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        android:textColor="@color/white"
-                        android:textSize="13sp"
-                        tools:text="Work" />
-
-                </LinearLayout>
 
             </LinearLayout>
 
@@ -490,6 +415,353 @@
                 android:contentDescription="Switch route"
                 android:padding="8dp"
                 android:src="@drawable/ic_alt_route" />
+
+        </LinearLayout>
+
+        <!-- Saved places panel - Home/Work (and room to grow) as a proper
+             list instead of small pills, reached via the bottom tab bar's
+             Saved tab. Same bottom-sheet look as the route preview card. -->
+        <LinearLayout
+            android:id="@+id/savedPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_marginBottom="76dp"
+            android:background="@drawable/bg_bottom_sheet"
+            android:elevation="8dp"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingTop="16dp"
+            android:paddingBottom="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:text="Saved places"
+                android:textColor="@color/navos_navy"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/homeButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginBottom="8dp"
+                android:background="@drawable/search_bar_bg"
+                android:backgroundTint="@color/navos_navy"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_marginEnd="12dp"
+                    android:contentDescription="Home"
+                    android:src="@drawable/ic_home" />
+
+                <TextView
+                    android:id="@+id/homeButtonLabel"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@color/white"
+                    android:textSize="15sp"
+                    tools:text="Home" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/workButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:background="@drawable/search_bar_bg"
+                android:backgroundTint="@color/navos_navy"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_marginEnd="12dp"
+                    android:contentDescription="Work"
+                    android:src="@drawable/ic_work" />
+
+                <TextView
+                    android:id="@+id/workButtonLabel"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@color/white"
+                    android:textSize="15sp"
+                    tools:text="Work" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- Bottom tab bar - Map/Search/Saved/Settings, replacing the old
+             always-open search bar as the free-roam home screen's entry
+             point. Hidden during route preview/active navigation, which
+             have their own bottom sheets. -->
+
+        <!-- Required OpenStreetMap/OpenFreeMap attribution - was missing
+             entirely before, which is a real ToS compliance gap, not just
+             a nice-to-have. Sits just above the tab bar on the clean map;
+             the full data-source note also lives in Settings. -->
+        <TextView
+            android:id="@+id/mapAttribution"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="8dp"
+            android:layout_marginBottom="80dp"
+            android:background="#99FFFFFF"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:text="© OpenStreetMap contributors"
+            android:textColor="@color/navos_navy"
+            android:textSize="10sp" />
+
+        <LinearLayout
+            android:id="@+id/bottomTabBar"
+            android:layout_width="match_parent"
+            android:layout_height="76dp"
+            android:layout_gravity="bottom"
+            android:background="@color/white"
+            android:elevation="8dp"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:id="@+id/tabMapButton"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:contentDescription="Map"
+                    android:src="@drawable/ic_tab_map"
+                    android:tint="@color/navos_navy" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Map"
+                    android:textColor="@color/navos_navy"
+                    android:textSize="11sp" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/tabSearchButton"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:contentDescription="Search"
+                    android:src="@drawable/ic_search"
+                    android:tint="#80142A4B" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Search"
+                    android:textColor="#80142A4B"
+                    android:textSize="11sp" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/tabSavedButton"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:contentDescription="Saved"
+                    android:src="@drawable/ic_tab_saved"
+                    android:tint="#80142A4B" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Saved"
+                    android:textColor="#80142A4B"
+                    android:textSize="11sp" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/tabSettingsButton"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:contentDescription="Settings"
+                    android:src="@drawable/ic_settings"
+                    android:tint="#80142A4B" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Settings"
+                    android:textColor="#80142A4B"
+                    android:textSize="11sp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- Full-screen state: location permission was denied. Added
+             because the app previously just showed a blank, unexplained
+             map with no way forward - a real dead end, not a cosmetic
+             gap. -->
+        <LinearLayout
+            android:id="@+id/permissionDeniedOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#D90E1B33"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="32dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="Location permission needed"
+                android:textColor="@color/white"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="24dp"
+                android:gravity="center"
+                android:text="NavOS can't show your position or navigate without it."
+                android:textColor="#B8C4D9"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/permissionRetryButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_gravity="center_horizontal"
+                android:background="@drawable/bg_pill_blue"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:paddingStart="28dp"
+                android:paddingEnd="28dp"
+                android:text="Try again"
+                android:textColor="@color/white"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/permissionSettingsButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="16dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:text="Open app settings"
+                android:textColor="@color/navos_blue"
+                android:textSize="14sp" />
+
+        </LinearLayout>
+
+        <!-- Full-screen state: permission is granted but the phone's GPS
+             toggle is off - previously also a silent dead end (location
+             never arrives, nothing tells you why). -->
+        <LinearLayout
+            android:id="@+id/gpsDisabledOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#D90E1B33"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="32dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="Location services are off"
+                android:textColor="@color/white"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="24dp"
+                android:gravity="center"
+                android:text="Turn on GPS in your phone's settings to see your position and navigate."
+                android:textColor="#B8C4D9"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/gpsSettingsButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_gravity="center_horizontal"
+                android:background="@drawable/bg_pill_blue"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:paddingStart="28dp"
+                android:paddingEnd="28dp"
+                android:text="Open location settings"
+                android:textColor="@color/white"
+                android:textStyle="bold" />
 
         </LinearLayout>
 

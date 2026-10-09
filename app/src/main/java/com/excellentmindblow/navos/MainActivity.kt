@@ -13,11 +13,13 @@ import android.location.LocationManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.content.res.ColorStateList
 import android.widget.ArrayAdapter
@@ -60,6 +62,7 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.FillExtrusionLayer
 import org.maplibre.android.style.layers.Layer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
@@ -107,6 +110,11 @@ private const val PREFS_NAME = "navos_prefs"
 /** Where the app currently is in the search -> preview -> drive flow. */
 private enum class NavMode { IDLE, PREVIEW, ACTIVE }
 
+/** Which bottom tab is showing on the free-roam home screen. Settings
+ * isn't included - it opens the side drawer as an overlay rather than
+ * taking over this panel, so it doesn't have a "selected" state here. */
+private enum class HomeTab { MAP, SEARCH, SAVED }
+
 /**
  * Native Android entry point. MapView lifecycle forwarding below:
  * MapLibre's MapView needs every Activity lifecycle callback forwarded to
@@ -137,6 +145,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
     private lateinit var nextTurnStrip: View
     private lateinit var laneContainer: LinearLayout
+    private lateinit var savedPanel: View
+    private lateinit var bottomTabBar: View
+    private lateinit var tabMapButton: LinearLayout
+    private lateinit var tabSearchButton: LinearLayout
+    private lateinit var tabSavedButton: LinearLayout
+    private lateinit var tabSettingsButton: LinearLayout
+    private var activeTab = HomeTab.MAP
+    private lateinit var permissionDeniedOverlay: View
+    private lateinit var gpsDisabledOverlay: View
     private lateinit var nextTurnIcon: ImageView
     private lateinit var searchBackButton: ImageButton
 
@@ -186,12 +203,15 @@ class MainActivity : AppCompatActivity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val searchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    private var pendingSearch: Runnable? = null
     private var currentResults: List<GeocodeResult> = emptyList()
 
     private val requestLocationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) startLocationTracking()
+            if (granted) {
+                startLocationTracking()
+            } else {
+                permissionDeniedOverlay.visibility = View.VISIBLE
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -311,17 +331,38 @@ class MainActivity : AppCompatActivity() {
         searchInput = findViewById(R.id.searchInput)
         searchResultsList = findViewById(R.id.searchResultsList)
 
+        // Nominatim's usage policy rules out hitting the public endpoint as
+        // autocomplete-on-every-keystroke (that reads as systematic/bulk
+        // querying to them). So typing itself never calls the network here
+        // - it only clears stale results once the box empties out. The
+        // actual search fires once, on explicit submit (search/enter/go on
+        // the keyboard), via the editor-action listener below.
         searchInput.addTextChangedListener(
             object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
 
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                    scheduleSearch(s?.toString().orEmpty())
+                    if (s?.toString().orEmpty().trim().length < 3) {
+                        currentResults = emptyList()
+                        searchResultsList.visibility = View.GONE
+                    }
                 }
 
                 override fun afterTextChanged(s: Editable?) {}
             },
         )
+
+        searchInput.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH ||
+                actionId == EditorInfo.IME_ACTION_DONE ||
+                actionId == EditorInfo.IME_ACTION_GO
+            ) {
+                runSearch(searchInput.text?.toString().orEmpty())
+                true
+            } else {
+                false
+            }
+        }
 
         searchResultsList.setOnItemClickListener { _, _, position, _ ->
             val result = currentResults.getOrNull(position) ?: return@setOnItemClickListener
@@ -347,6 +388,31 @@ class MainActivity : AppCompatActivity() {
         laneContainer = findViewById(R.id.laneContainer)
         nextTurnIcon = findViewById(R.id.nextTurnIcon)
         searchBackButton = findViewById(R.id.searchBackButton)
+        savedPanel = findViewById(R.id.savedPanel)
+        bottomTabBar = findViewById(R.id.bottomTabBar)
+        tabMapButton = findViewById(R.id.tabMapButton)
+        tabSearchButton = findViewById(R.id.tabSearchButton)
+        tabSavedButton = findViewById(R.id.tabSavedButton)
+        tabSettingsButton = findViewById(R.id.tabSettingsButton)
+
+        tabMapButton.setOnClickListener { selectTab(HomeTab.MAP) }
+        tabSearchButton.setOnClickListener { selectTab(HomeTab.SEARCH) }
+        tabSavedButton.setOnClickListener { selectTab(HomeTab.SAVED) }
+        tabSettingsButton.setOnClickListener { drawerLayout.openDrawer(GravityCompat.END) }
+
+        permissionDeniedOverlay = findViewById(R.id.permissionDeniedOverlay)
+        gpsDisabledOverlay = findViewById(R.id.gpsDisabledOverlay)
+        findViewById<View>(R.id.permissionRetryButton).setOnClickListener {
+            ensureLocationPermissionThenTrack()
+        }
+        findViewById<View>(R.id.permissionSettingsButton).setOnClickListener {
+            startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)),
+            )
+        }
+        findViewById<View>(R.id.gpsSettingsButton).setOnClickListener {
+            startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+        }
 
         findViewById<View>(R.id.startNavigationButton).setOnClickListener {
             beginActiveNavigation()
@@ -376,6 +442,39 @@ class MainActivity : AppCompatActivity() {
         searchBackButton.setOnClickListener {
             exitSearchFromNav()
         }
+    }
+
+    /** Switches the free-roam home screen between its three tabs. Only
+     * meaningful while idle - PREVIEW/ACTIVE hide the whole tab bar and
+     * drive their own bottom sheets instead. */
+    private fun selectTab(tab: HomeTab) {
+        activeTab = tab
+        topBar.visibility = if (tab == HomeTab.SEARCH) View.VISIBLE else View.GONE
+        savedPanel.visibility = if (tab == HomeTab.SAVED) View.VISIBLE else View.GONE
+
+        if (tab == HomeTab.SEARCH) {
+            searchInput.requestFocus()
+        } else {
+            searchInput.clearFocus()
+            searchResultsList.visibility = View.GONE
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.hideSoftInputFromWindow(searchInput.windowToken, 0)
+        }
+
+        val activeColor = ContextCompat.getColor(this, R.color.navos_navy)
+        val inactiveColor = 0x80142A4B.toInt()
+        tabMapButton.setTabTint(if (tab == HomeTab.MAP) activeColor else inactiveColor)
+        tabSearchButton.setTabTint(if (tab == HomeTab.SEARCH) activeColor else inactiveColor)
+        tabSavedButton.setTabTint(if (tab == HomeTab.SAVED) activeColor else inactiveColor)
+    }
+
+    /** Tints a tab's icon + label to show selection state - both children
+     * are always an ImageView then a TextView, per the tab layout. */
+    private fun LinearLayout.setTabTint(color: Int) {
+        val icon = getChildAt(0) as? ImageView
+        val label = getChildAt(1) as? TextView
+        icon?.setColorFilter(color)
+        label?.setTextColor(color)
     }
 
     /** Opens the search bar over the drive view without stopping the
@@ -501,7 +600,7 @@ class MainActivity : AppCompatActivity() {
         pendingSavedPlaceLabel = key
         val name = if (key == "home") "home" else "work"
         Toast.makeText(this, "Search your $name address - we'll save it", Toast.LENGTH_LONG).show()
-        searchInput.requestFocus()
+        selectTab(HomeTab.SEARCH)
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.showSoftInput(searchInput, InputMethodManager.SHOW_IMPLICIT)
     }
@@ -518,23 +617,12 @@ class MainActivity : AppCompatActivity() {
         refreshSavedPlaceLabels()
     }
 
-    private fun scheduleSearch(query: String) {
-        pendingSearch?.let { mainHandler.removeCallbacks(it) }
-
+    private fun runSearch(query: String) {
         if (query.trim().length < 3) {
             currentResults = emptyList()
             searchResultsList.visibility = View.GONE
             return
         }
-
-        val runnable = Runnable { runSearch(query) }
-        pendingSearch = runnable
-        // Debounce so we don't hammer Nominatim's free, rate-limited
-        // (~1 req/sec) endpoint on every keystroke.
-        mainHandler.postDelayed(runnable, 400)
-    }
-
-    private fun runSearch(query: String) {
         val bias = lastKnownLocation
         searchExecutor.execute {
             val results =
@@ -575,6 +663,8 @@ class MainActivity : AppCompatActivity() {
         maybeSaveAsPendingPlace(result)
 
         topBar.visibility = View.GONE
+        bottomTabBar.visibility = View.GONE
+        savedPanel.visibility = View.GONE
         recenterButton.visibility = View.GONE
 
         val destinationLatLng = LatLng(result.latitude, result.longitude)
@@ -610,6 +700,38 @@ class MainActivity : AppCompatActivity() {
             } else {
                 style.addLayer(layer)
             }
+        }
+
+        // 3D buildings - the liberty style's vector tiles already carry
+        // building height data (OpenMapTiles schema: source-layer
+        // "building", render_height/render_min_height in metres), the
+        // style just never had a layer drawing them as extrusions. Only
+        // visible once the camera is tilted (active nav, or a two-finger
+        // tilt gesture while browsing) - flat top-down looks the same
+        // either way, which is correct, not a sign this isn't working.
+        // Wrapped defensively: if OpenFreeMap ever renames the source or
+        // the fields are absent, this silently draws nothing rather than
+        // crash.
+        try {
+            val buildingsLayer =
+                FillExtrusionLayer("navos-3d-buildings", "openmaptiles")
+                    .withSourceLayer("building")
+                    .withProperties(
+                        PropertyFactory.fillExtrusionColor("#D6D9E0"),
+                        PropertyFactory.fillExtrusionOpacity(0.85f),
+                        PropertyFactory.fillExtrusionHeight(Expression.get("render_height")),
+                        PropertyFactory.fillExtrusionBase(
+                            Expression.switchCase(
+                                Expression.has("render_min_height"),
+                                Expression.toNumber(Expression.get("render_min_height")),
+                                Expression.literal(0f),
+                            ),
+                        ),
+                    )
+            addBelowLabels(buildingsLayer)
+        } catch (e: Exception) {
+            // Missing source/source-layer on whatever style version is
+            // live - buildings just stay flat, nothing else breaks.
         }
 
         // Alternates first so the selected route's layers (added next) end
@@ -735,7 +857,8 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     clearDestinationMarker()
                     followingUser = true
-                    topBar.visibility = View.VISIBLE
+                    bottomTabBar.visibility = View.VISIBLE
+                    selectTab(HomeTab.SEARCH)
                     Toast.makeText(this, "Couldn't calculate a route to that destination", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -783,6 +906,8 @@ class MainActivity : AppCompatActivity() {
         topBar.visibility = View.GONE
         topNavBar.visibility = View.GONE
         bottomNavBar.visibility = View.GONE
+        bottomTabBar.visibility = View.GONE
+        savedPanel.visibility = View.GONE
         recenterButton.visibility = View.GONE
         // Also reachable mid-drive via the drive bar's alt-route icon, so
         // clear the ACTIVE-only chrome too (harmless no-ops if already gone).
@@ -877,7 +1002,8 @@ class MainActivity : AppCompatActivity() {
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         clearDestinationMarker()
         followingUser = true
-        topBar.visibility = View.VISIBLE
+        bottomTabBar.visibility = View.VISIBLE
+        selectTab(HomeTab.MAP)
     }
 
     // ---- Active (driving) navigation ------------------------------------
@@ -980,7 +1106,8 @@ class MainActivity : AppCompatActivity() {
         reportButton.visibility = View.GONE
         nextTurnStrip.visibility = View.GONE
         laneContainer.visibility = View.GONE
-        topBar.visibility = View.VISIBLE
+        bottomTabBar.visibility = View.VISIBLE
+        selectTab(HomeTab.MAP)
         routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         routeOptions = emptyList()
@@ -1148,14 +1275,33 @@ class MainActivity : AppCompatActivity() {
             ) == PackageManager.PERMISSION_GRANTED
 
         if (granted) {
+            permissionDeniedOverlay.visibility = View.GONE
             startLocationTracking()
         } else {
             requestLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         }
     }
 
+    /** Only reached once permission is confirmed granted - still checks
+     * the phone's GPS toggle separately, since that can be off (or get
+     * turned off later) independent of app permission, and silently never
+     * getting a location fix looked exactly like a frozen app. */
     private fun startLocationTracking() {
         val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val gpsEnabled =
+            try {
+                locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+            } catch (e: Exception) {
+                false
+            }
+        if (!gpsEnabled) {
+            gpsDisabledOverlay.visibility = View.VISIBLE
+            return
+        }
+        gpsDisabledOverlay.visibility = View.GONE
+
+        if (locationTracker != null) return // already tracking (e.g. a repeat onResume check)
+
         val tracker =
             LiveLocationTracker(locationManager) { location ->
                 onLocationUpdate(location)
@@ -1243,6 +1389,12 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         mapView.onResume()
+        // Covers coming back from the "Open location settings" button -
+        // re-check rather than leave the GPS-disabled overlay stuck up
+        // after the driver actually turned GPS back on.
+        if (::gpsDisabledOverlay.isInitialized && gpsDisabledOverlay.visibility == View.VISIBLE) {
+            startLocationTracking()
+        }
     }
 
     override fun onPause() {
