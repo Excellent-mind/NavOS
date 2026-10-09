@@ -149,6 +149,7 @@ class MainActivity : AppCompatActivity() {
      * driver as they move (Waze-style), turned off the moment they drag
      * the map themselves so we don't fight their pan. */
     private var followingUser = true
+    private var smoothedBearing: Double? = null
 
     private var routeSource: GeoJsonSource? = null
     private var altRouteSource: GeoJsonSource? = null
@@ -322,10 +323,10 @@ class MainActivity : AppCompatActivity() {
         recenterButton = findViewById(R.id.recenterButton)
         reportButton = findViewById(R.id.reportButton)
 
-        findViewById<android.widget.Button>(R.id.startNavigationButton).setOnClickListener {
+        findViewById<View>(R.id.startNavigationButton).setOnClickListener {
             beginActiveNavigation()
         }
-        findViewById<android.widget.Button>(R.id.cancelRouteButton).setOnClickListener {
+        findViewById<View>(R.id.cancelRouteButton).setOnClickListener {
             cancelRoutePreview()
         }
         findViewById<ImageButton>(R.id.stopNavigationButton).setOnClickListener {
@@ -769,6 +770,7 @@ class MainActivity : AppCompatActivity() {
         val route = routeOptions.getOrNull(selectedRouteIndex) ?: return
 
         navMode = NavMode.ACTIVE
+        smoothedBearing = null
         topBar.visibility = View.GONE
         recenterButton.visibility = View.GONE
         routePreviewCard.visibility = View.GONE
@@ -809,12 +811,8 @@ class MainActivity : AppCompatActivity() {
      * driver's position during active navigation. Called on every GPS fix
      * instead of leaning on LocationComponent's own camera tracking. */
     private fun updateNavCamera(location: Location) {
-        val bearing =
-            if (location.hasBearing()) {
-                location.bearing.toDouble()
-            } else {
-                map?.cameraPosition?.bearing ?: 0.0
-            }
+        val rawBearing = if (location.hasBearing()) location.bearing.toDouble() else null
+        val bearing = smoothedNavBearing(rawBearing, location)
         map?.easeCamera(
             CameraUpdateFactory.newCameraPosition(
                 CameraPosition
@@ -827,6 +825,30 @@ class MainActivity : AppCompatActivity() {
             ),
             1000,
         )
+    }
+
+    /** Softens the nav camera's heading so it eases into turns instead of
+     * snapping. Raw GPS bearing is noisy (especially near-stationary) and,
+     * fed straight into the camera, can also spin the "long way round"
+     * whenever it crosses the 0/360 wrap (e.g. 350 -> 10). We keep an
+     * unwrapped running bearing, always step toward the new reading via the
+     * shortest signed angle, and only take a fraction of that step per
+     * update so the turn reads as a smooth ease rather than a jump. */
+    private fun smoothedNavBearing(rawBearing: Double?, location: Location): Double {
+        val current = smoothedBearing ?: map?.cameraPosition?.bearing ?: 0.0
+        // GPS heading is unreliable while nearly stationary - ignore it
+        // rather than let the camera jitter in place at a red light.
+        val reliable = rawBearing != null && (!location.hasSpeed() || location.speed > 1.0f)
+        if (!reliable) return current
+
+        val currentHeading = ((current % 360.0) + 360.0) % 360.0
+        var delta = rawBearing!! - currentHeading
+        if (delta > 180.0) delta -= 360.0
+        if (delta < -180.0) delta += 360.0
+
+        val next = current + delta * 0.35
+        smoothedBearing = next
+        return next
     }
 
     private fun endActiveNavigation() {
