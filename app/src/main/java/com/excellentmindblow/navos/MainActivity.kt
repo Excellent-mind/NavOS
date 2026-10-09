@@ -22,24 +22,39 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.excellentmindblow.navos.location.LiveLocationTracker
+import com.excellentmindblow.navos.routing.Route
+import com.excellentmindblow.navos.routing.RoutePoint
+import com.excellentmindblow.navos.routing.RoutingService
 import com.excellentmindblow.navos.search.GeocodeResult
 import com.excellentmindblow.navos.search.GeocodingService
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.location.LocationComponentActivationOptions
 import org.maplibre.android.location.modes.CameraMode
 import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.LineString
+import org.maplibre.geojson.Point
+import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 // Same free, no-API-key, production-safe tile style used by the earlier
 // React Native build. https://openfreemap.org
 private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
+
+private const val ROUTE_SOURCE_ID = "navos-route-source"
+private const val ROUTE_LAYER_ID = "navos-route-layer"
 
 /**
  * Native Android entry point. MapView lifecycle forwarding below:
@@ -54,6 +69,7 @@ class MainActivity : AppCompatActivity() {
     private var locationTracker: LiveLocationTracker? = null
     private var hasCenteredOnFirstFix = false
     private var lastKnownLocation: Location? = null
+    private var routeSource: GeoJsonSource? = null
 
     /** The destination the user last picked from search results - routing
      * (next port) will read this to calculate a route from the current GPS
@@ -105,6 +121,7 @@ class MainActivity : AppCompatActivity() {
 
             loadedMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
                 enableLocationComponent(loadedMap, style)
+                setUpRouteLayer(style)
                 ensureLocationPermissionThenTrack()
             }
         }
@@ -184,8 +201,6 @@ class MainActivity : AppCompatActivity() {
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(searchInput.windowToken, 0)
 
-        Toast.makeText(this, "Destination set: ${result.label}", Toast.LENGTH_SHORT).show()
-
         map?.easeCamera(
             CameraUpdateFactory.newCameraPosition(
                 CameraPosition
@@ -196,6 +211,70 @@ class MainActivity : AppCompatActivity() {
             ),
             600,
         )
+
+        fetchRoute(result)
+    }
+
+    private fun setUpRouteLayer(style: Style) {
+        val source = GeoJsonSource(ROUTE_SOURCE_ID)
+        style.addSource(source)
+        routeSource = source
+
+        val layer =
+            LineLayer(ROUTE_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
+                PropertyFactory.lineColor(Color.parseColor("#1CB0F6")),
+                PropertyFactory.lineWidth(5f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            )
+        style.addLayer(layer)
+    }
+
+    private fun fetchRoute(destination: GeocodeResult) {
+        val origin = lastKnownLocation
+        if (origin == null) {
+            Toast.makeText(this, "Still waiting for a GPS fix - can't calculate a route yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val originPoint = RoutePoint(origin.latitude, origin.longitude)
+        val destinationPoint = RoutePoint(destination.latitude, destination.longitude)
+
+        searchExecutor.execute {
+            val route =
+                try {
+                    RoutingService.calculateRoute(originPoint, destinationPoint)
+                } catch (e: Exception) {
+                    null
+                }
+            mainHandler.post {
+                if (route == null) {
+                    Toast.makeText(this, "Couldn't calculate a route to that destination", Toast.LENGTH_SHORT).show()
+                } else {
+                    showRoute(route)
+                }
+            }
+        }
+    }
+
+    private fun showRoute(route: Route) {
+        val points = route.geometry.map { Point.fromLngLat(it.longitude, it.latitude) }
+        if (points.size >= 2) {
+            routeSource?.setGeoJson(Feature.fromGeometry(LineString.fromLngLats(points)))
+
+            val bounds = LatLngBounds.Builder()
+            route.geometry.forEach { bounds.include(LatLng(it.latitude, it.longitude)) }
+            map?.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 120, 120, 120, 420), 800)
+        }
+
+        val km = route.distanceMeters / 1000.0
+        val minutes = route.durationSeconds / 60.0
+        Toast
+            .makeText(
+                this,
+                String.format(Locale.US, "Route: %.1f km, about %.0f min", km, minutes),
+                Toast.LENGTH_LONG,
+            ).show()
     }
 
     private fun ensureLocationPermissionThenTrack() {
