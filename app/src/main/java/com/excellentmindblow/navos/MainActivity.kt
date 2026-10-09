@@ -94,6 +94,15 @@ class MainActivity : AppCompatActivity() {
 
         mapView.getMapAsync { loadedMap ->
             map = loadedMap
+
+            // MapLibre draws a rotation compass top-right by default, right
+            // where our search bar sits, so it ends up half-hidden behind
+            // it. We don't track map bearing yet (cameraMode is NONE), so
+            // the compass has nothing useful to show right now anyway -
+            // drop it. (Waze-style rotating-map + its own compass can come
+            // back once turn-by-turn drives the camera.)
+            loadedMap.uiSettings.isCompassEnabled = false
+
             loadedMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
                 enableLocationComponent(loadedMap, style)
                 ensureLocationPermissionThenTrack()
