@@ -1,0 +1,29 @@
+name: EAS Build (Android APK)
+
+# Trigger this manually from the GitHub app: Actions tab -> "EAS Build
+# (Android APK)" -> Run workflow. Builds happen on Expo's own cloud servers,
+# so no computer is needed - just a phone with the GitHub app.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+
+      - name: EAS build (preview APK)
+        run: eas build --platform android --profile preview --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
