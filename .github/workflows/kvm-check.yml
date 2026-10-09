@@ -1,19 +1,31 @@
 name: KVM check
 on:
   workflow_dispatch: {}
+permissions:
+  issues: write
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - name: Check KVM availability
+      - name: Check KVM availability and report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "--- /dev/kvm ---"
-          ls -la /dev/kvm 2>&1 || echo "NO /dev/kvm"
-          echo "--- kvm-ok (if present) ---"
-          which kvm-ok 2>&1 && kvm-ok 2>&1 || echo "kvm-ok not installed"
-          echo "--- cpuinfo virtualization flags ---"
-          grep -E "vmx|svm" /proc/cpuinfo | head -1 || echo "no vmx/svm flags"
-          echo "--- groups ---"
-          groups
-          echo "--- disk space ---"
-          df -h /
+          {
+            echo "## /dev/kvm"
+            ls -la /dev/kvm 2>&1 || echo "NO /dev/kvm"
+            echo
+            echo "## kvm-ok"
+            (which kvm-ok && kvm-ok) 2>&1 || echo "kvm-ok not installed"
+            echo
+            echo "## cpuinfo virtualization flags"
+            grep -oE "vmx|svm" /proc/cpuinfo | sort -u || echo "no vmx/svm flags"
+            echo
+            echo "## groups"
+            groups
+            echo
+            echo "## disk space"
+            df -h /
+          } > /tmp/kvm-report.txt
+          cat /tmp/kvm-report.txt
+          jq -Rs '{body: .}' /tmp/kvm-report.txt | gh api repos/${GITHUB_REPOSITORY}/issues/1/comments --input -
