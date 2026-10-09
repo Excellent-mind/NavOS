@@ -1,8 +1,9 @@
 package com.excellentmindblow.navos
 
+import android.graphics.Color
 import android.os.Bundle
-import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
 import org.maplibre.android.MapLibre
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
@@ -21,23 +22,29 @@ private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
  */
 class MainActivity : AppCompatActivity() {
     private lateinit var mapView: MapView
-    private lateinit var statusText: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must happen before any MapView touches its native state.
         MapLibre.getInstance(applicationContext)
 
         super.onCreate(savedInstanceState)
+
+        // Classic, opt-in "draw behind the status bar" (available since API
+        // 21, fully under our control) for a true full-screen map - NOT the
+        // same thing as Android 15+'s mandatory edge-to-edge enforcement
+        // that caused the real crash in the old React Native build. We
+        // deliberately target SDK 34 so that enforcement never applies;
+        // this is just making the status bar transparent on purpose.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+
         setContentView(R.layout.activity_main)
 
-        statusText = findViewById(R.id.statusText)
         mapView = findViewById(R.id.mapView)
         mapView.onCreate(savedInstanceState)
 
         mapView.getMapAsync { map ->
-            map.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { _ ->
-                statusText.text = "NavOS (native) — map loaded OK"
-            }
+            map.setStyle(Style.Builder().fromUri(MAP_STYLE_URL))
         }
     }
 
