@@ -16,12 +16,16 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.ListView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.excellentmindblow.navos.location.LiveLocationTracker
+import com.excellentmindblow.navos.navigation.NavigationEngine
+import com.excellentmindblow.navos.navigation.NavigationState
+import com.excellentmindblow.navos.navigation.VoiceNarrator
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.routing.RoutingService
@@ -65,11 +69,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mapView: MapView
     private lateinit var searchInput: EditText
     private lateinit var searchResultsList: ListView
+    private lateinit var turnBanner: TextView
     private var map: MapLibreMap? = null
     private var locationTracker: LiveLocationTracker? = null
     private var hasCenteredOnFirstFix = false
     private var lastKnownLocation: Location? = null
     private var routeSource: GeoJsonSource? = null
+    private var activeRoute: Route? = null
+
+    private lateinit var navigationEngine: NavigationEngine
+    private lateinit var voiceNarrator: VoiceNarrator
 
     /** The destination the user last picked from search results - routing
      * (next port) will read this to calculate a route from the current GPS
@@ -105,6 +114,13 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_main)
 
+        voiceNarrator = VoiceNarrator(this)
+        navigationEngine =
+            NavigationEngine(
+                onState = { state -> onNavigationState(state) },
+                onAnnounce = { key, text -> voiceNarrator.speak(key, text) },
+            )
+
         mapView = findViewById(R.id.mapView)
         mapView.onCreate(savedInstanceState)
 
@@ -132,6 +148,7 @@ class MainActivity : AppCompatActivity() {
     private fun setUpSearch() {
         searchInput = findViewById(R.id.searchInput)
         searchResultsList = findViewById(R.id.searchResultsList)
+        turnBanner = findViewById(R.id.turnBanner)
 
         searchInput.addTextChangedListener(
             object : TextWatcher {
@@ -252,10 +269,7 @@ class MainActivity : AppCompatActivity() {
                 if (route != null) {
                     showRoute(route)
                 } else {
-                    // TEMP: surfacing the real error (instead of a generic
-                    // message) while we track down why routing is failing
-                    // on-device.
-                    Toast.makeText(this, "Route failed: $error", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Couldn't calculate a route to that destination", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -271,14 +285,25 @@ class MainActivity : AppCompatActivity() {
             map?.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 120, 120, 120, 420), 800)
         }
 
+        activeRoute = route
+        navigationEngine.setRoute(route)
+        voiceNarrator.resetGuard()
+        turnBanner.visibility = android.view.View.VISIBLE
+
         val km = route.distanceMeters / 1000.0
         val minutes = route.durationSeconds / 60.0
-        Toast
-            .makeText(
-                this,
-                String.format(Locale.US, "Route: %.1f km, about %.0f min", km, minutes),
-                Toast.LENGTH_LONG,
-            ).show()
+        turnBanner.text = String.format(Locale.US, "Route set: %.1f km, about %.0f min", km, minutes)
+    }
+
+    private fun onNavigationState(state: NavigationState) {
+        val distanceLabel =
+            if (state.distanceToNextTurnMeters >= 1000) {
+                String.format(Locale.US, "%.1f km", state.distanceToNextTurnMeters / 1000)
+            } else {
+                "${state.distanceToNextTurnMeters.toInt()} m"
+            }
+        val suffix = if (state.offRoute) " (off route - recalculating soon)" else ""
+        turnBanner.text = "${state.instruction} • $distanceLabel$suffix"
     }
 
     private fun ensureLocationPermissionThenTrack() {
@@ -309,6 +334,10 @@ class MainActivity : AppCompatActivity() {
     private fun onLocationUpdate(location: Location) {
         lastKnownLocation = location
         map?.locationComponent?.forceLocationUpdate(location)
+
+        if (activeRoute != null) {
+            navigationEngine.onLocation(RoutePoint(location.latitude, location.longitude))
+        }
 
         if (!hasCenteredOnFirstFix) {
             hasCenteredOnFirstFix = true
@@ -371,6 +400,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         mapView.onDestroy()
         searchExecutor.shutdownNow()
+        voiceNarrator.shutdown()
         super.onDestroy()
     }
 

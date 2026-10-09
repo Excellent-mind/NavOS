@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -45,5 +46,22 @@
             android:visibility="gone" />
 
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/turnBanner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="32dp"
+        android:background="@drawable/search_bar_bg"
+        android:backgroundTint="@color/navos_navy"
+        android:elevation="4dp"
+        android:padding="16dp"
+        android:textColor="@color/white"
+        android:textSize="16sp"
+        android:visibility="gone"
+        tools:text="Turn right onto Jalan Example • 120 m" />
 
 </FrameLayout>
