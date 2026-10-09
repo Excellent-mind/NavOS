@@ -174,7 +174,10 @@
 
         <!-- Active-nav turn instruction banner, pinned to the top like
              Waze/Google Maps' direction banner - stands in for topBar
-             (hidden) while a route is being previewed or driven. -->
+             (hidden) while a route is being previewed or driven. One
+             vertical card so the optional lane-guidance and "and then"
+             rows grow the card instead of needing separate floating
+             cards with fragile fixed offsets. -->
         <LinearLayout
             android:id="@+id/topNavBar"
             android:layout_width="match_parent"
@@ -185,82 +188,99 @@
             android:background="@drawable/search_bar_bg"
             android:backgroundTint="@color/navos_navy"
             android:elevation="4dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:padding="16dp"
+            android:orientation="vertical"
             android:visibility="gone">
 
-            <ImageView
-                android:id="@+id/turnIcon"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:layout_marginEnd="14dp"
-                android:contentDescription="Next turn"
-                android:src="@drawable/ic_nav_arrow" />
-
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="16dp">
 
-                <TextView
-                    android:id="@+id/turnDistanceText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textColor="@color/white"
-                    android:textSize="24sp"
-                    android:textStyle="bold"
-                    tools:text="90 m" />
+                <ImageView
+                    android:id="@+id/turnIcon"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_marginEnd="14dp"
+                    android:contentDescription="Next turn"
+                    android:src="@drawable/ic_nav_arrow" />
 
-                <TextView
-                    android:id="@+id/turnStreetText"
-                    android:layout_width="match_parent"
+                <LinearLayout
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:textColor="@color/navos_blue"
-                    android:textSize="16sp"
-                    tools:text="Lorong Sabudin" />
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/turnDistanceText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/white"
+                        android:textSize="24sp"
+                        android:textStyle="bold"
+                        tools:text="90 m" />
+
+                    <TextView
+                        android:id="@+id/turnStreetText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/navos_blue"
+                        android:textSize="16sp"
+                        tools:text="Lorong Sabudin" />
+
+                </LinearLayout>
 
             </LinearLayout>
 
-        </LinearLayout>
-
-        <!-- "and then" secondary preview strip, directly under the main
-             turn banner once the step after this one is known - same
-             look-ahead Waze/Google Maps show so the driver isn't surprised
-             by a turn coming right after this one. -->
-        <LinearLayout
-            android:id="@+id/nextTurnStrip"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="128dp"
-            android:layout_marginStart="12dp"
-            android:layout_marginEnd="12dp"
-            android:background="@drawable/search_bar_bg"
-            android:backgroundTint="#2A3F63"
-            android:elevation="3dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:visibility="gone">
-
-            <TextView
-                android:layout_width="wrap_content"
+            <!-- Lane guidance for the upcoming turn - populated
+                 programmatically (one icon per lane) since the lane count
+                 varies per junction, and only shown when OSRM actually
+                 returned lane-tagged data for this turn. -->
+            <LinearLayout
+                android:id="@+id/laneContainer"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginEnd="10dp"
-                android:text="and then"
-                android:textColor="#B8C4D9"
-                android:textSize="13sp" />
+                android:gravity="center"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="12dp"
+                android:visibility="gone" />
 
-            <ImageView
-                android:id="@+id/nextTurnIcon"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:contentDescription="Then"
-                android:src="@drawable/ic_nav_arrow" />
+            <!-- "and then" secondary preview strip, once the step after
+                 this one is known - same look-ahead Waze/Google Maps show
+                 so the driver isn't surprised by a turn right after this
+                 one. -->
+            <LinearLayout
+                android:id="@+id/nextTurnStrip"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#2A3F63"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="10dp"
+                    android:text="and then"
+                    android:textColor="#B8C4D9"
+                    android:textSize="13sp" />
+
+                <ImageView
+                    android:id="@+id/nextTurnIcon"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:contentDescription="Then"
+                    android:src="@drawable/ic_nav_arrow" />
+
+            </LinearLayout>
 
         </LinearLayout>
 

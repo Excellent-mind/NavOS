@@ -5,6 +5,17 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 
+/** One lane at the intersection where this step's maneuver happens.
+ * indications are OSRM's turn-direction vocabulary (e.g. "left",
+ * "straight", "slight right" - same words as RouteStep.modifier), valid
+ * is whether taking this lane keeps you on the route. Comes from OSM's
+ * turn:lanes tagging, which isn't present on every road - null/empty
+ * just means no lane data for this turn. */
+data class LaneInfo(
+    val indications: List<String>,
+    val valid: Boolean,
+)
+
 data class RouteStep(
     val instruction: String,
     val distanceMeters: Double,
@@ -13,6 +24,7 @@ data class RouteStep(
     val modifier: String?,
     val roadName: String,
     val point: RoutePoint,
+    val lanes: List<LaneInfo>? = null,
 )
 
 data class Route(
@@ -122,6 +134,7 @@ object RoutingService {
                         modifier = modifier,
                         roadName = roadName,
                         point = RoutePoint(latitude = location.getDouble(1), longitude = location.getDouble(0)),
+                        lanes = parseLanes(step),
                     ),
                 )
             }
@@ -133,6 +146,27 @@ object RoutingService {
             durationSeconds = route.optDouble("duration", 0.0),
             steps = steps,
         )
+    }
+
+    /** A step's maneuver happens at its first intersection (OSRM: "the
+     * very first [intersection] belonging to the StepManeuver"), so that
+     * intersection's lanes are the ones to show before taking this turn.
+     * Returns null when the underlying OSM way isn't lane-tagged - most
+     * roads aren't, so this is the common case, not an error. */
+    private fun parseLanes(step: JSONObject): List<LaneInfo>? {
+        val intersections = step.optJSONArray("intersections") ?: return null
+        if (intersections.length() == 0) return null
+        val lanesJson = intersections.getJSONObject(0).optJSONArray("lanes") ?: return null
+        if (lanesJson.length() == 0) return null
+
+        val lanes = mutableListOf<LaneInfo>()
+        for (i in 0 until lanesJson.length()) {
+            val lane = lanesJson.getJSONObject(i)
+            val indicationsJson = lane.optJSONArray("indications") ?: continue
+            val indications = (0 until indicationsJson.length()).map { indicationsJson.getString(it) }
+            lanes.add(LaneInfo(indications = indications, valid = lane.optBoolean("valid", false)))
+        }
+        return lanes.ifEmpty { null }
     }
 
     private fun buildInstruction(

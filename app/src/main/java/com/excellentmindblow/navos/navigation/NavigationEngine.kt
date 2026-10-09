@@ -1,5 +1,6 @@
 package com.excellentmindblow.navos.navigation
 
+import com.excellentmindblow.navos.routing.LaneInfo
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
 
@@ -19,6 +20,9 @@ data class NavigationState(
     val nextInstruction: String? = null,
     val nextManeuverType: String? = null,
     val nextModifier: String? = null,
+    // Lane guidance for the upcoming turn - null/empty when the road isn't
+    // lane-tagged in OSM, which is most roads, so this is routinely absent.
+    val lanes: List<LaneInfo>? = null,
 )
 
 /**
@@ -112,6 +116,7 @@ class NavigationEngine(
                 nextInstruction = nextStep?.instruction,
                 nextManeuverType = nextStep?.maneuverType,
                 nextModifier = nextStep?.modifier,
+                lanes = steps[idx].lanes,
             ),
         )
 

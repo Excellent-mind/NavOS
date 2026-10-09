@@ -19,10 +19,12 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.inputmethod.InputMethodManager
+import android.content.res.ColorStateList
 import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.Switch
 import android.widget.TextView
@@ -39,6 +41,7 @@ import com.excellentmindblow.navos.location.LiveLocationTracker
 import com.excellentmindblow.navos.navigation.NavigationEngine
 import com.excellentmindblow.navos.navigation.NavigationState
 import com.excellentmindblow.navos.navigation.VoiceNarrator
+import com.excellentmindblow.navos.routing.LaneInfo
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.routing.RoutingService
@@ -133,6 +136,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var workButtonLabel: TextView
     private lateinit var prefs: SharedPreferences
     private lateinit var nextTurnStrip: View
+    private lateinit var laneContainer: LinearLayout
     private lateinit var nextTurnIcon: ImageView
     private lateinit var searchBackButton: ImageButton
 
@@ -340,6 +344,7 @@ class MainActivity : AppCompatActivity() {
         recenterButton = findViewById(R.id.recenterButton)
         reportButton = findViewById(R.id.reportButton)
         nextTurnStrip = findViewById(R.id.nextTurnStrip)
+        laneContainer = findViewById(R.id.laneContainer)
         nextTurnIcon = findViewById(R.id.nextTurnIcon)
         searchBackButton = findViewById(R.id.searchBackButton)
 
@@ -386,6 +391,7 @@ class MainActivity : AppCompatActivity() {
         speedBadge.visibility = View.GONE
         reportButton.visibility = View.GONE
         nextTurnStrip.visibility = View.GONE
+        laneContainer.visibility = View.GONE
         searchBackButton.visibility = View.VISIBLE
         topBar.visibility = View.VISIBLE
         searchInput.requestFocus()
@@ -783,6 +789,7 @@ class MainActivity : AppCompatActivity() {
         speedBadge.visibility = View.GONE
         reportButton.visibility = View.GONE
         nextTurnStrip.visibility = View.GONE
+        laneContainer.visibility = View.GONE
         redrawRouteLines()
 
         val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
@@ -972,6 +979,7 @@ class MainActivity : AppCompatActivity() {
         speedBadge.visibility = View.GONE
         reportButton.visibility = View.GONE
         nextTurnStrip.visibility = View.GONE
+        laneContainer.visibility = View.GONE
         topBar.visibility = View.VISIBLE
         routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
@@ -1034,6 +1042,15 @@ class MainActivity : AppCompatActivity() {
             nextTurnStrip.visibility = View.GONE
         }
 
+        // Lane guidance - needs to show earlier than "and then" since the
+        // driver has to physically move lanes before the junction, not
+        // just know it's coming.
+        if (state.distanceToNextTurnMeters <= 600 && !state.isArrival) {
+            updateLaneGuidance(state.lanes)
+        } else {
+            laneContainer.visibility = View.GONE
+        }
+
         if (state.isArrival && state.distanceToNextTurnMeters <= 30) {
             endActiveNavigation()
         }
@@ -1068,6 +1085,58 @@ class MainActivity : AppCompatActivity() {
             }
         return R.drawable.ic_nav_arrow to rotation
     }
+
+    /** Rebuilds the lane-guidance row from scratch each call - the lane
+     * count varies per junction, so there's no fixed set of views to just
+     * update. Valid lanes (the ones that keep you on the route) are drawn
+     * bright/blue, the rest dim - same convention Waze/Google Maps use. */
+    private fun updateLaneGuidance(lanes: List<LaneInfo>?) {
+        if (lanes.isNullOrEmpty()) {
+            laneContainer.visibility = View.GONE
+            return
+        }
+        laneContainer.removeAllViews()
+        val density = resources.displayMetrics.density
+        val size = (34 * density).toInt()
+        val margin = (4 * density).toInt()
+        val iconPadding = (7 * density).toInt()
+        val validColor = ContextCompat.getColor(this, R.color.navos_blue)
+        val validTint = ContextCompat.getColor(this, R.color.navos_navy)
+        val dimBackground = ColorStateList.valueOf(0x33FFFFFF)
+        val dimTint = 0x80FFFFFF.toInt()
+
+        lanes.forEach { lane ->
+            val indication = lane.indications.firstOrNull() ?: "straight"
+            val icon =
+                ImageView(this).apply {
+                    layoutParams =
+                        LinearLayout.LayoutParams(size, size).apply {
+                            marginStart = margin
+                            marginEnd = margin
+                        }
+                    setBackgroundResource(R.drawable.bg_lane_pill)
+                    backgroundTintList = if (lane.valid) ColorStateList.valueOf(validColor) else dimBackground
+                    setImageResource(R.drawable.ic_nav_arrow)
+                    setColorFilter(if (lane.valid) validTint else dimTint)
+                    setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
+                    rotation = rotationForIndication(indication)
+                }
+            laneContainer.addView(icon)
+        }
+        laneContainer.visibility = View.VISIBLE
+    }
+
+    private fun rotationForIndication(indication: String): Float =
+        when (indication) {
+            "sharp right" -> 135f
+            "right" -> 90f
+            "slight right" -> 45f
+            "slight left" -> -45f
+            "left" -> -90f
+            "sharp left" -> -135f
+            "uturn" -> 180f
+            else -> 0f // straight / none
+        }
 
     // ---- Location / map plumbing ----------------------------------------
 
