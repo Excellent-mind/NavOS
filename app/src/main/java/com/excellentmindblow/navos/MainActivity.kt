@@ -465,23 +465,45 @@ class MainActivity : AppCompatActivity() {
         activeNavBar.visibility = View.VISIBLE
         turnBanner.text = "Starting navigation..."
 
-        // Waze-style 3D follow camera: tilted, zoomed in, and (via
-        // CameraMode.TRACKING_GPS below) rotated so the direction you're
-        // driving always points up the screen.
-        map?.easeCamera(
-            CameraUpdateFactory.newCameraPosition(
-                CameraPosition.Builder().tilt(NAV_TILT_DEGREES).zoom(NAV_ZOOM).build(),
-            ),
-            600,
-        )
+        // Waze-style 3D follow camera. NOTE: we deliberately do NOT use
+        // LocationComponent's CameraMode.TRACKING_GPS here - it resets
+        // tilt back to flat on every GPS update (confirmed on-device: the
+        // map never actually tilted with it on), so instead we drive the
+        // camera ourselves on every location update below, which lets us
+        // hold tilt/zoom/bearing exactly where we want them.
         map?.locationComponent?.apply {
             renderMode = RenderMode.GPS
-            cameraMode = CameraMode.TRACKING_GPS
+            cameraMode = CameraMode.NONE
         }
 
         lastKnownLocation?.let { location ->
+            updateNavCamera(location)
             navigationEngine.onLocation(RoutePoint(location.latitude, location.longitude))
         }
+    }
+
+    /** Keeps the 3D follow camera (tilt + zoom + heading) locked on the
+     * driver's position during active navigation. Called on every GPS fix
+     * instead of leaning on LocationComponent's own camera tracking. */
+    private fun updateNavCamera(location: Location) {
+        val bearing =
+            if (location.hasBearing()) {
+                location.bearing.toDouble()
+            } else {
+                map?.cameraPosition?.bearing ?: 0.0
+            }
+        map?.easeCamera(
+            CameraUpdateFactory.newCameraPosition(
+                CameraPosition
+                    .Builder()
+                    .target(LatLng(location.latitude, location.longitude))
+                    .tilt(NAV_TILT_DEGREES)
+                    .zoom(NAV_ZOOM)
+                    .bearing(bearing)
+                    .build(),
+            ),
+            1000,
+        )
     }
 
     private fun endActiveNavigation() {
@@ -594,6 +616,7 @@ class MainActivity : AppCompatActivity() {
         map?.locationComponent?.forceLocationUpdate(location)
 
         if (activeRoute != null) {
+            updateNavCamera(location)
             navigationEngine.onLocation(RoutePoint(location.latitude, location.longitude))
         }
 
