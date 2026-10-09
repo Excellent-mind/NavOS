@@ -18,6 +18,17 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
+
+        // The unrestricted APK bundles all 4 ABIs' libmaplibre.so (arm64,
+        // armv7, x86, x86_64 - including two desktop/emulator-only
+        // architectures no real phone uses), which blew past the 30MB
+        // chat upload limit. The test device (Snapdragon 6 Gen 3) is
+        // arm64-v8a, so that's the only one needed for now - this cuts
+        // the APK from ~46MB to a fraction of that. Re-widen before any
+        // real release to support older 32-bit devices too.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {
