@@ -31,6 +31,11 @@ data class Route(
  * thread (see MainActivity's background executor).
  */
 object RoutingService {
+    // Same reason geocoding.ts needs one: OSRM's public demo server
+    // 403s requests that carry Java's generic default User-Agent
+    // (looks bot-like with no app identity behind it).
+    private const val USER_AGENT = "NavOS/0.1 (navigation app; contact: excellentmindblow@gmail.com)"
+
     private val MODIFIER_TEXT =
         mapOf(
             "uturn" to "make a U-turn",
@@ -63,6 +68,7 @@ object RoutingService {
                     "?overview=full&geometries=polyline&steps=true&annotations=false",
             )
         val connection = url.openConnection() as HttpURLConnection
+        connection.setRequestProperty("User-Agent", USER_AGENT)
         connection.connectTimeout = 15_000
         connection.readTimeout = 15_000
 
