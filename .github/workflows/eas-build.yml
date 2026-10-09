@@ -6,6 +6,9 @@ name: EAS Build (Android APK)
 on:
   workflow_dispatch: {}
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,6 +24,23 @@ jobs:
 
       - name: Install EAS CLI
         run: npm install -g eas-cli
+
+      - name: Link EAS project (creates it on first run, no-op after)
+        run: eas init --account excellent-mindblow --non-interactive --force
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Save project link back to the repo
+        run: |
+          if ! git diff --quiet -- app.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add app.json
+            git commit -m "Link EAS project id in app.json [skip ci]"
+            git push
+          else
+            echo "app.json already up to date, nothing to commit."
+          fi
 
       - name: EAS build (preview APK)
         run: eas build --platform android --profile preview --non-interactive
