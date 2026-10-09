@@ -98,32 +98,68 @@
 
             <ImageView
                 android:id="@+id/turnIcon"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_marginEnd="12dp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginEnd="14dp"
                 android:contentDescription="Next turn"
                 android:src="@drawable/ic_nav_arrow" />
 
-            <TextView
-                android:id="@+id/turnInstructionText"
+            <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:textColor="@color/white"
-                android:textSize="16sp"
-                tools:text="Turn right onto Jalan Example • 120 m" />
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/turnDistanceText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/white"
+                    android:textSize="24sp"
+                    android:textStyle="bold"
+                    tools:text="90 m" />
+
+                <TextView
+                    android:id="@+id/turnStreetText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/navos_blue"
+                    android:textSize="16sp"
+                    tools:text="Lorong Sabudin" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
+        <!-- Live speed badge, shown only during active navigation - same
+             bottom-left circular readout Waze shows. -->
+        <TextView
+            android:id="@+id/speedBadge"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="12dp"
+            android:layout_marginBottom="32dp"
+            android:background="@drawable/bg_circle_navy"
+            android:elevation="4dp"
+            android:gravity="center"
+            android:textColor="@color/white"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:text="0\nkm/h" />
+
         <!-- Re-centre, shown only once the driver pans the free-roam map
-             away from their own position - tap to resume following. -->
+             away from their own position - tap to resume following. Kept
+             on the right, clear of the bottom sheet/preview card, same as
+             the equivalent control in Waze/Google Maps. -->
         <ImageButton
             android:id="@+id/recenterButton"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:layout_gravity="bottom|start"
-            android:layout_marginStart="12dp"
-            android:layout_marginBottom="32dp"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="120dp"
             android:background="@drawable/search_bar_bg"
             android:backgroundTint="@color/navos_navy"
             android:contentDescription="Re-centre on my location"

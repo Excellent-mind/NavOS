@@ -104,9 +104,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var routePreviewHint: TextView
     private lateinit var topNavBar: View
     private lateinit var bottomNavBar: View
-    private lateinit var turnInstructionText: TextView
+    private lateinit var turnDistanceText: TextView
+    private lateinit var turnStreetText: TextView
     private lateinit var etaSummaryText: TextView
     private lateinit var turnIcon: ImageView
+    private lateinit var speedBadge: TextView
     private lateinit var recenterButton: ImageButton
 
     private var map: MapLibreMap? = null
@@ -254,9 +256,11 @@ class MainActivity : AppCompatActivity() {
         routePreviewHint = findViewById(R.id.routePreviewHint)
         topNavBar = findViewById(R.id.topNavBar)
         bottomNavBar = findViewById(R.id.bottomNavBar)
-        turnInstructionText = findViewById(R.id.turnInstructionText)
+        turnDistanceText = findViewById(R.id.turnDistanceText)
+        turnStreetText = findViewById(R.id.turnStreetText)
         etaSummaryText = findViewById(R.id.etaSummaryText)
         turnIcon = findViewById(R.id.turnIcon)
+        speedBadge = findViewById(R.id.speedBadge)
         recenterButton = findViewById(R.id.recenterButton)
 
         findViewById<android.widget.Button>(R.id.startNavigationButton).setOnClickListener {
@@ -582,7 +586,9 @@ class MainActivity : AppCompatActivity() {
         voiceNarrator.resetGuard()
         topNavBar.visibility = View.VISIBLE
         bottomNavBar.visibility = View.VISIBLE
-        turnInstructionText.text = "Starting navigation..."
+        speedBadge.visibility = View.VISIBLE
+        turnDistanceText.text = ""
+        turnStreetText.text = "Starting navigation..."
         etaSummaryText.text =
             String.format(Locale.US, "%.0f min • %.1f km", route.durationSeconds / 60.0, route.distanceMeters / 1000.0)
 
@@ -632,6 +638,7 @@ class MainActivity : AppCompatActivity() {
         activeRoute = null
         topNavBar.visibility = View.GONE
         bottomNavBar.visibility = View.GONE
+        speedBadge.visibility = View.GONE
         topBar.visibility = View.VISIBLE
         routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
@@ -669,8 +676,9 @@ class MainActivity : AppCompatActivity() {
             }
         val remainingKm = state.distanceRemainingMeters / 1000.0
         val remainingMin = state.durationRemainingSeconds / 60.0
-        val suffix = if (state.offRoute) " (off route - recalculating soon)" else ""
-        turnInstructionText.text = "${state.instruction} • $distanceLabel$suffix"
+        val suffix = if (state.offRoute) " (off route)" else ""
+        turnDistanceText.text = "$distanceLabel$suffix"
+        turnStreetText.text = state.instruction
 
         val arrivalTime = Date(System.currentTimeMillis() + (state.durationRemainingSeconds * 1000).toLong())
         val arrivalLabel = SimpleDateFormat("h:mm a", Locale.US).format(arrivalTime)
@@ -747,6 +755,8 @@ class MainActivity : AppCompatActivity() {
             // Active navigation drives its own 3D follow camera every fix.
             updateNavCamera(location)
             navigationEngine.onLocation(RoutePoint(location.latitude, location.longitude))
+            val kmh = if (location.hasSpeed()) (location.speed * 3.6).toInt() else 0
+            speedBadge.text = "$kmh\nkm/h"
             return
         }
 
