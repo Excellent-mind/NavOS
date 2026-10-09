@@ -7,25 +7,44 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - name: Check KVM availability and report
+      - name: Before - permissions and groups
+        run: |
+          echo "## BEFORE: /dev/kvm"
+          ls -la /dev/kvm 2>&1 || echo "NO /dev/kvm"
+          echo "## BEFORE: groups"
+          groups
+
+      - name: Apply the udev KVM-for-all rule
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sleep 2
+
+      - name: After - permissions and groups, report to issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           {
-            echo "## /dev/kvm"
+            echo "## AFTER udev rule: /dev/kvm"
             ls -la /dev/kvm 2>&1 || echo "NO /dev/kvm"
             echo
-            echo "## kvm-ok"
-            (which kvm-ok && kvm-ok) 2>&1 || echo "kvm-ok not installed"
+            echo "## AFTER udev rule: can current user read+write it directly?"
+            test -r /dev/kvm && echo "readable: yes" || echo "readable: NO"
+            test -w /dev/kvm && echo "writable: yes" || echo "writable: NO"
             echo
-            echo "## cpuinfo virtualization flags"
-            grep -oE "vmx|svm" /proc/cpuinfo | sort -u || echo "no vmx/svm flags"
-            echo
-            echo "## groups"
+            echo "## groups (unchanged within same job - group membership needs new login)"
             groups
             echo
-            echo "## disk space"
-            df -h /
-          } > /tmp/kvm-report.txt
-          cat /tmp/kvm-report.txt
-          jq -Rs '{body: .}' /tmp/kvm-report.txt | gh api repos/${GITHUB_REPOSITORY}/issues/1/comments --input -
+            echo "## Try opening /dev/kvm directly with python"
+            python3 -c "
+try:
+    f = open('/dev/kvm', 'r+b')
+    print('OPENED /dev/kvm successfully')
+    f.close()
+except Exception as e:
+    print('FAILED to open /dev/kvm:', e)
+"
+          } > /tmp/kvm-report2.txt
+          cat /tmp/kvm-report2.txt
+          jq -Rs '{body: .}' /tmp/kvm-report2.txt | gh api repos/${GITHUB_REPOSITORY}/issues/1/comments --input -
