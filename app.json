@@ -30,22 +30,8 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#14284B"
-      },
-      "permissions": [
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
-      ]
+      }
     },
-    "plugins": [
-      [
-        "expo-location",
-        {
-          "locationWhenInUsePermission": "NavOS needs your location to show turn-by-turn directions."
-        }
-      ]
-    ],
     "extra": {
       "eas": {
         "projectId": "f9a442bf-dbcf-421a-8857-b42f511ca75d"

@@ -11,13 +11,8 @@
   },
   "dependencies": {
     "expo": "55.0.25",
-    "expo-dev-client": "*",
-    "expo-location": "*",
-    "expo-speech": "*",
-    "expo-status-bar": "*",
     "react": "19.2.0",
-    "react-native": "0.83.6",
-    "react-native-safe-area-context": "5.8.0"
+    "react-native": "0.83.6"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
