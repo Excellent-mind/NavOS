@@ -2,5 +2,5 @@
 <!-- Plain navy circle, used for the speed badge during active navigation. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
-    <solid android:color="@color/navos_navy" />
+    <solid android:color="@color/navos_button_fill" />
 </shape>

@@ -2,7 +2,7 @@
 <!-- "and then" strip along the bottom of the white turn banner: light grey,
      with the bottom corners matching the card's so it doesn't poke out. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#F0F2F6" />
+    <solid android:color="@color/navos_surface_variant" />
     <corners
         android:topLeftRadius="0dp"
         android:topRightRadius="0dp"

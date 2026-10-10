@@ -3,7 +3,7 @@
      it reads as anchored to the screen edge, same as Waze's route-preview
      and drive bars. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#FFFFFF" />
+    <solid android:color="@color/navos_surface" />
     <corners
         android:topLeftRadius="24dp"
         android:topRightRadius="24dp"
