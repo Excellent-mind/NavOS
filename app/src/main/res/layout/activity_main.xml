@@ -203,21 +203,17 @@
 
         </LinearLayout>
 
-        <!-- Always-visible compass: rotates with the map, tap to face north. -->
-        <ImageView
+        <!-- Always-visible compass: the needle rotates with the map, tap to face north. -->
+        <com.excellentmindblow.navos.CompassView
             android:id="@+id/compassButton"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
             android:layout_gravity="top|end"
-            android:layout_marginTop="100dp"
-            android:layout_marginEnd="12dp"
-            android:background="@drawable/bg_circle_white"
+            android:layout_marginTop="92dp"
+            android:layout_marginEnd="8dp"
             android:clickable="true"
             android:contentDescription="Compass - tap to face north"
-            android:elevation="4dp"
-            android:focusable="true"
-            android:padding="8dp"
-            android:src="@drawable/ic_compass" />
+            android:focusable="true" />
 
         <!-- Live speed badge, shown only during active navigation - same
              bottom-left circular readout Waze shows. -->
@@ -978,6 +974,50 @@
                         android:textColor="@color/navos_text"
                         android:textSize="15sp"
                         tools:text="Work" />
+
+                </LinearLayout>
+
+                <!-- Recent searches: shown under Home/Work while the box is empty.
+                     Rows are added from code (MainActivity.renderRecents). -->
+                <LinearLayout
+                    android:id="@+id/homeRecentsContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="8dp"
+                        android:paddingTop="8dp"
+                        android:paddingEnd="8dp"
+                        android:paddingBottom="4dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Recent"
+                            android:textColor="@color/navos_text_secondary"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/homeRecentsClear"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:padding="6dp"
+                            android:text="Clear"
+                            android:textColor="@color/navos_blue"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                    </LinearLayout>
 
                 </LinearLayout>
 
