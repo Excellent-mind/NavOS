@@ -229,7 +229,7 @@
             android:layout_height="56dp"
             android:layout_gravity="bottom|start"
             android:layout_marginStart="12dp"
-            android:layout_marginBottom="32dp"
+            android:layout_marginBottom="120dp"
             android:background="@drawable/bg_circle_white"
             android:elevation="4dp"
             android:gravity="center"
@@ -267,7 +267,7 @@
             android:layout_height="48dp"
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="12dp"
-            android:layout_marginBottom="120dp"
+            android:layout_marginBottom="136dp"
             android:background="@drawable/bg_circle_white"
             android:contentDescription="Report what you see"
             android:elevation="4dp"
@@ -284,7 +284,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="12dp"
-            android:layout_marginBottom="176dp"
+            android:layout_marginBottom="192dp"
             android:orientation="vertical"
             android:visibility="gone">
 
@@ -311,10 +311,10 @@
 
         </LinearLayout>
 
-        <!-- Route preview: shown after a destination is picked, before the
-             user commits to navigating. Lets them see distance/time (and
-             switch between alternative routes drawn on the map) before
-             tapping Start. -->
+        <!-- Route preview, Waze-style: big arrival time with "duration •
+             distance" under it, a grey section holding a white card for the
+             route ("Via ...", alternatives hint), then a red Stop and a blue
+             Go now pill along the bottom. -->
         <LinearLayout
             android:id="@+id/routePreviewCard"
             android:layout_width="match_parent"
@@ -323,83 +323,147 @@
             android:background="@drawable/bg_bottom_sheet"
             android:elevation="8dp"
             android:orientation="vertical"
-            android:paddingStart="20dp"
-            android:paddingEnd="20dp"
-            android:paddingTop="10dp"
-            android:paddingBottom="28dp"
             android:visibility="gone">
 
-            <View
-                android:layout_width="36dp"
-                android:layout_height="4dp"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginBottom="14dp"
-                android:background="@drawable/bg_drag_handle" />
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="24dp">
+
+                <View
+                    android:layout_width="40dp"
+                    android:layout_height="4dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_drag_handle" />
+
+            </FrameLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:paddingBottom="14dp">
+
+                <TextView
+                    android:id="@+id/routePreviewEta"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/navos_navy"
+                    android:textSize="28sp"
+                    android:textStyle="bold"
+                    tools:text="3:38 PM" />
+
+                <TextView
+                    android:id="@+id/routePreviewSummary"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#5F6B7A"
+                    android:textSize="18sp"
+                    tools:text="1:11 h • 61 km" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#F2F4F7"
+                android:orientation="vertical"
+                android:padding="12dp">
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
+                    android:background="@drawable/bg_card_white"
+                    android:elevation="1dp"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical"
+                    android:padding="16dp">
 
                     <TextView
-                        android:id="@+id/routePreviewSummary"
+                        android:id="@+id/routePreviewDestination"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:maxLines="1"
+                        android:textColor="#5F6B7A"
+                        android:textSize="16sp"
+                        tools:text="Lorong Latif, Kajang, Selangor" />
+
+                    <TextView
+                        android:id="@+id/routePreviewVia"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:gravity="center"
+                        android:maxLines="2"
                         android:textColor="@color/navos_navy"
-                        android:textSize="22sp"
+                        android:textSize="20sp"
                         android:textStyle="bold"
-                        tools:text="50 min • 49.9 km" />
+                        tools:text="Via E26 Lebuhraya SKVE" />
 
                     <TextView
                         android:id="@+id/routePreviewHint"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:textColor="#80142A4B"
+                        android:layout_marginTop="8dp"
+                        android:gravity="center"
+                        android:textColor="#5F6B7A"
                         android:textSize="13sp"
                         tools:text="2 routes found - tap a grey route to switch" />
 
                 </LinearLayout>
 
-                <ImageButton
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:color/white"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingTop="12dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="28dp">
+
+                <TextView
                     android:id="@+id/cancelRouteButton"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:background="@drawable/bg_circle_navy"
-                    android:backgroundTint="#E3E7EC"
-                    android:contentDescription="Cancel route preview"
-                    android:padding="8dp"
-                    android:src="@drawable/ic_close"
-                    android:tint="@color/navos_navy" />
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_pill_red"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:text="Stop"
+                    android:textColor="@color/white"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/startNavigationButton"
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1.7"
+                    android:background="@drawable/bg_pill_blue"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:text="Go now"
+                    android:textColor="@color/white"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
 
             </LinearLayout>
 
-            <TextView
-                android:id="@+id/startNavigationButton"
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:layout_marginTop="16dp"
-                android:background="@drawable/bg_pill_blue"
-                android:clickable="true"
-                android:focusable="true"
-                android:gravity="center"
-                android:text="GO"
-                android:textColor="@color/white"
-                android:textSize="18sp"
-                android:textStyle="bold" />
-
         </LinearLayout>
 
-        <!-- Bottom ETA/stop bar, shown during active navigation - same
-             bottom-sheet-style layout as Waze's "X · time · distance · ETA"
-             bar, with the stop control on the left. -->
+        <!-- Drive bar, Waze-style: round search button, big arrival time with
+             "duration • distance" under it, round switch-route button. Tap or
+             swipe up on the handle / time to reveal the red Stop pill. -->
         <LinearLayout
             android:id="@+id/bottomNavBar"
             android:layout_width="match_parent"
@@ -407,63 +471,100 @@
             android:layout_gravity="bottom"
             android:background="@drawable/bg_bottom_sheet"
             android:elevation="8dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
+            android:orientation="vertical"
             android:paddingStart="20dp"
             android:paddingEnd="20dp"
-            android:paddingTop="16dp"
             android:paddingBottom="28dp"
             android:visibility="gone">
 
-            <ImageButton
-                android:id="@+id/stopNavigationButton"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="@android:color/transparent"
-                android:contentDescription="Stop navigation"
-                android:padding="8dp"
-                android:src="@drawable/ic_close"
-                android:tint="@color/navos_navy" />
+            <FrameLayout
+                android:id="@+id/navSheetHandle"
+                android:layout_width="match_parent"
+                android:layout_height="24dp">
+
+                <View
+                    android:layout_width="40dp"
+                    android:layout_height="4dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_drag_handle" />
+
+            </FrameLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <!-- Search for a new destination without fully stopping the
+                     current drive. -->
+                <ImageButton
+                    android:id="@+id/bottomSearchButton"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
+                    android:background="@drawable/bg_circle_light"
+                    android:contentDescription="Search for a new destination"
+                    android:padding="14dp"
+                    android:src="@drawable/ic_search"
+                    android:tint="#4A5568" />
+
+                <LinearLayout
+                    android:id="@+id/navEtaCenter"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/etaClockText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/navos_navy"
+                        android:textSize="28sp"
+                        android:textStyle="bold"
+                        tools:text="3:38 PM" />
+
+                    <TextView
+                        android:id="@+id/etaDetailText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="#5F6B7A"
+                        android:textSize="18sp"
+                        tools:text="1:11 h • 61 km" />
+
+                </LinearLayout>
+
+                <!-- Re-opens the route preview (with alternates redrawn) so
+                     the driver can switch routes mid-drive. -->
+                <ImageButton
+                    android:id="@+id/bottomAltRouteButton"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
+                    android:background="@drawable/bg_circle_light"
+                    android:contentDescription="Switch route"
+                    android:padding="14dp"
+                    android:src="@drawable/ic_alt_route"
+                    android:tint="#4A5568" />
+
+            </LinearLayout>
 
             <TextView
-                android:id="@+id/etaSummaryText"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
+                android:id="@+id/stopNavigationButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="14dp"
+                android:background="@drawable/bg_pill_red"
+                android:clickable="true"
+                android:focusable="true"
                 android:gravity="center"
-                android:textColor="@color/navos_navy"
-                android:textSize="15sp"
+                android:text="Stop"
+                android:textColor="@color/white"
+                android:textSize="18sp"
                 android:textStyle="bold"
-                tools:text="50 min • 49.9 km • 12:10 am" />
-
-            <!-- Search for a new destination without fully stopping the
-                 current drive - opens the search bar, same spot Waze keeps
-                 its magnifier icon in the drive bar. -->
-            <ImageButton
-                android:id="@+id/bottomSearchButton"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:layout_marginStart="4dp"
-                android:background="@android:color/transparent"
-                android:contentDescription="Search for a new destination"
-                android:padding="8dp"
-                android:src="@drawable/ic_search"
-                android:tint="@color/navos_navy" />
-
-            <!-- Re-opens the route preview (with alternates redrawn) so the
-                 driver can switch routes mid-drive, same spot Waze's fork
-                 icon sits in the drive bar. -->
-            <ImageButton
-                android:id="@+id/bottomAltRouteButton"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:layout_marginStart="4dp"
-                android:background="@android:color/transparent"
-                android:contentDescription="Switch route"
-                android:padding="8dp"
-                android:src="@drawable/ic_alt_route"
-                android:tint="@color/navos_navy" />
+                android:visibility="gone" />
 
         </LinearLayout>
 
@@ -477,7 +578,7 @@
             android:layout_gravity="bottom"
             android:layout_marginStart="10dp"
             android:layout_marginEnd="10dp"
-            android:layout_marginBottom="96dp"
+            android:layout_marginBottom="120dp"
             android:background="@drawable/bg_poi_card"
             android:clickable="true"
             android:elevation="12dp"
