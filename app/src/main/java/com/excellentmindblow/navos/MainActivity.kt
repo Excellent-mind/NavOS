@@ -15,11 +15,13 @@ import android.os.Build
 import android.os.IBinder
 import android.net.Uri
 import android.graphics.Color
+import android.graphics.RectF
 import android.location.Location
 import android.location.LocationManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
@@ -51,9 +53,14 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
 import com.excellentmindblow.navos.location.LiveLocationTracker
 import com.excellentmindblow.navos.navigation.NavigationService
 import com.excellentmindblow.navos.navigation.NavigationState
+import com.excellentmindblow.navos.poi.Poi
+import com.excellentmindblow.navos.poi.PoiKind
+import com.excellentmindblow.navos.poi.PoiService
 import com.excellentmindblow.navos.routing.LaneInfo
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
@@ -138,6 +145,26 @@ private const val KEY_DARK_MODE_ENABLED = "dark_mode_enabled"
 /** Pause after the last keystroke before a live search fires - long
  * enough not to query on every letter, short enough to feel instant. */
 private const val LIVE_SEARCH_DEBOUNCE_MS = 350L
+
+// Petrol station / EV charger pins during a drive.
+private const val POI_SOURCE_ID = "navos-poi-source"
+private const val POI_LAYER_ID = "navos-poi-layer"
+private const val POI_ICON_PROPERTY = "poiIcon"
+private const val POI_ID_PROPERTY = "poiId"
+private const val FUEL_PIN_ICON_ID = "navos-icon-fuel-pin"
+private const val EV_PIN_ICON_ID = "navos-icon-ev-pin"
+private const val KEY_SHOW_FUEL = "show_fuel_pins"
+private const val KEY_SHOW_EV = "show_ev_pins"
+private const val FUEL_COLOR = "#E8710A"
+private const val EV_COLOR = "#12A150"
+
+/** Look stations up again once the driver has moved this far from the
+ * last lookup (keeps the 5 km ring roughly centred on them)... */
+private const val POI_REFETCH_DISTANCE_M = 2000f
+
+/** ...but never more often than this - Overpass is a free shared server,
+ * and a failed lookup also waits this long before retrying. */
+private const val POI_MIN_REFETCH_MS = 60_000L
 
 /** Where the app currently is in the search -> preview -> drive flow. */
 private enum class NavMode { IDLE, PREVIEW, ACTIVE }
@@ -237,6 +264,26 @@ class MainActivity : AppCompatActivity() {
     private var statusBarTop = 0
     private var homeSheetBasePaddingBottom = 0
 
+    // ---- Petrol / EV pins (active drive only) ----
+    private lateinit var poiToggleColumn: View
+    private lateinit var fuelToggleButton: ImageButton
+    private lateinit var evToggleButton: ImageButton
+    private lateinit var poiCard: View
+    private lateinit var poiLogo: View
+    private lateinit var poiLogoIcon: ImageView
+    private lateinit var poiName: TextView
+    private lateinit var poiMeta: TextView
+    private lateinit var poiSpec: TextView
+    private lateinit var poiChips: ChipGroup
+    private var poiSource: GeoJsonSource? = null
+    private var nearbyPois: List<Poi> = emptyList()
+    private var selectedPoi: Poi? = null
+    private var lastPoiFetchLocation: Location? = null
+    private var lastPoiFetchAtMs = 0L
+    private var poiFetchInFlight = false
+    private var showFuelPins = true
+    private var showEvPins = true
+
     /** Set while waiting for the user to pick a destination to save under
      * "home" or "work" - cleared once that pick is saved. */
     private var pendingSavedPlaceLabel: String? = null
@@ -305,6 +352,7 @@ class MainActivity : AppCompatActivity() {
                 // jitter during a drive.
                 map?.locationComponent?.forceLocationUpdate(listOf(location), false)
                 updateNavCamera(location)
+                maybeFetchPois(location)
                 val kmh = if (location.hasSpeed()) (location.speed * 3.6).toInt() else 0
                 speedBadge.text = "$kmh\nkm/h"
             }
@@ -351,6 +399,10 @@ class MainActivity : AppCompatActivity() {
     // Place search gets its own thread so a burst of as-you-type lookups
     // never queues up in front of a route calculation (searchExecutor).
     private val placeSearchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+    // Station lookups can take several seconds - own thread, so they never
+    // hold up a place search or a route calculation.
+    private val poiExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var currentResults: List<GeocodeResult> = emptyList()
 
     private val requestLocationPermission =
@@ -646,6 +698,7 @@ class MainActivity : AppCompatActivity() {
         laneContainer = findViewById(R.id.laneContainer)
         nextTurnIcon = findViewById(R.id.nextTurnIcon)
         searchBackButton = findViewById(R.id.searchBackButton)
+        setUpPoiControls()
 
         homeSheet = findViewById(R.id.homeSheet)
         homeSheetBasePaddingBottom = homeSheet.paddingBottom
@@ -865,6 +918,8 @@ class MainActivity : AppCompatActivity() {
         bottomNavBar.visibility = View.GONE
         speedBadge.visibility = View.GONE
         reportButton.visibility = View.GONE
+        poiToggleColumn.visibility = View.GONE
+        hidePoiCard()
         nextTurnStrip.visibility = View.GONE
         laneContainer.visibility = View.GONE
         searchBackButton.visibility = View.VISIBLE
@@ -892,6 +947,7 @@ class MainActivity : AppCompatActivity() {
             bottomNavBar.visibility = View.VISIBLE
             speedBadge.visibility = View.VISIBLE
             reportButton.visibility = View.VISIBLE
+            poiToggleColumn.visibility = View.VISIBLE
         }
     }
 
@@ -938,6 +994,197 @@ class MainActivity : AppCompatActivity() {
         incidentFeatures.add(feature)
         incidentsSource?.setGeoJson(FeatureCollection.fromFeatures(incidentFeatures))
         Toast.makeText(this, "$type reported - thanks!", Toast.LENGTH_SHORT).show()
+    }
+
+    // ---- Petrol / EV charging pins (active drive) ---------------------------
+
+    private fun setUpPoiControls() {
+        poiToggleColumn = findViewById(R.id.poiToggleColumn)
+        fuelToggleButton = findViewById(R.id.fuelToggleButton)
+        evToggleButton = findViewById(R.id.evToggleButton)
+        poiCard = findViewById(R.id.poiCard)
+        poiLogo = findViewById(R.id.poiLogo)
+        poiLogoIcon = findViewById(R.id.poiLogoIcon)
+        poiName = findViewById(R.id.poiName)
+        poiMeta = findViewById(R.id.poiMeta)
+        poiSpec = findViewById(R.id.poiSpec)
+        poiChips = findViewById(R.id.poiChips)
+
+        showFuelPins = prefs.getBoolean(KEY_SHOW_FUEL, true)
+        showEvPins = prefs.getBoolean(KEY_SHOW_EV, true)
+        stylePoiToggles()
+
+        fuelToggleButton.setOnClickListener {
+            showFuelPins = !showFuelPins
+            prefs.edit().putBoolean(KEY_SHOW_FUEL, showFuelPins).apply()
+            onPoiTogglesChanged(if (showFuelPins) "Petrol stations shown" else "Petrol stations hidden")
+        }
+        evToggleButton.setOnClickListener {
+            showEvPins = !showEvPins
+            prefs.edit().putBoolean(KEY_SHOW_EV, showEvPins).apply()
+            onPoiTogglesChanged(if (showEvPins) "EV charging shown" else "EV charging hidden")
+        }
+
+        findViewById<View>(R.id.poiCloseButton).setOnClickListener { hidePoiCard() }
+        findViewById<View>(R.id.poiGoButton).setOnClickListener {
+            val poi = selectedPoi ?: return@setOnClickListener
+            hidePoiCard()
+            // Same path as picking a search result: ends this drive and
+            // previews a route to the station.
+            onDestinationSelected(GeocodeResult(poi.name, poi.latitude, poi.longitude))
+        }
+    }
+
+    private fun onPoiTogglesChanged(message: String) {
+        stylePoiToggles()
+        val selected = selectedPoi
+        if (selected != null && !isPoiKindShown(selected.kind)) hidePoiCard()
+        renderPoiPins()
+        lastKnownLocation?.let { maybeFetchPois(it) }
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun isPoiKindShown(kind: PoiKind): Boolean = if (kind == PoiKind.FUEL) showFuelPins else showEvPins
+
+    /** On = filled orange/green with a white icon; off = plain white with
+     * a navy icon. */
+    private fun stylePoiToggles() {
+        val navy = ContextCompat.getColor(this, R.color.navos_navy)
+        fun style(
+            button: ImageButton,
+            on: Boolean,
+            color: String,
+        ) {
+            button.backgroundTintList = ColorStateList.valueOf(if (on) Color.parseColor(color) else Color.WHITE)
+            button.imageTintList = ColorStateList.valueOf(if (on) Color.WHITE else navy)
+        }
+        style(fuelToggleButton, showFuelPins, FUEL_COLOR)
+        style(evToggleButton, showEvPins, EV_COLOR)
+    }
+
+    /** Draws the current station list - only during an active drive, and
+     * only the kinds the driver hasn't toggled off. */
+    private fun renderPoiPins() {
+        val src = poiSource ?: return
+        val features =
+            if (navMode != NavMode.ACTIVE) {
+                emptyList()
+            } else {
+                nearbyPois.filter { isPoiKindShown(it.kind) }.map { poi ->
+                    Feature.fromGeometry(Point.fromLngLat(poi.longitude, poi.latitude)).also {
+                        it.addStringProperty(POI_ICON_PROPERTY, if (poi.kind == PoiKind.FUEL) FUEL_PIN_ICON_ID else EV_PIN_ICON_ID)
+                        it.addStringProperty(POI_ID_PROPERTY, poi.id)
+                    }
+                }
+            }
+        src.setGeoJson(FeatureCollection.fromFeatures(features))
+    }
+
+    /** Looks up stations within 5 km on the first fix of a drive, then
+     * again each time the driver has moved 2 km - at most once a minute,
+     * and a failed lookup quietly retries a minute later. */
+    private fun maybeFetchPois(location: Location) {
+        if (navMode != NavMode.ACTIVE || poiFetchInFlight) return
+        if (!showFuelPins && !showEvPins) return
+        val now = SystemClock.elapsedRealtime()
+        if (lastPoiFetchAtMs != 0L && now - lastPoiFetchAtMs < POI_MIN_REFETCH_MS) return
+        val last = lastPoiFetchLocation
+        if (last != null && last.distanceTo(location) < POI_REFETCH_DISTANCE_M) return
+
+        poiFetchInFlight = true
+        lastPoiFetchAtMs = now
+        val fetchAt = Location(location)
+        poiExecutor.execute {
+            val pois =
+                try {
+                    PoiService.fetchNearby(fetchAt.latitude, fetchAt.longitude)
+                } catch (e: Exception) {
+                    null
+                }
+            mainHandler.post {
+                poiFetchInFlight = false
+                if (isDestroyed || navMode != NavMode.ACTIVE || pois == null) return@post
+                lastPoiFetchLocation = fetchAt
+                nearbyPois = pois
+                val selected = selectedPoi
+                if (selected != null && pois.none { it.id == selected.id }) hidePoiCard()
+                renderPoiPins()
+            }
+        }
+    }
+
+    /** During a drive, a tap on a pin opens its card; a tap anywhere else
+     * on the map closes an open card. */
+    private fun onDriveMapTapped(
+        map: MapLibreMap,
+        latLng: LatLng,
+    ): Boolean {
+        val point = map.projection.toScreenLocation(latLng)
+        val slop = dp(14).toFloat()
+        val hits =
+            try {
+                map.queryRenderedFeatures(RectF(point.x - slop, point.y - slop, point.x + slop, point.y + slop), POI_LAYER_ID)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        val id = hits.firstNotNullOfOrNull { feature -> feature.getStringProperty(POI_ID_PROPERTY) }
+        val poi = id?.let { poiId -> nearbyPois.firstOrNull { it.id == poiId } }
+        if (poi == null) {
+            if (poiCard.visibility == View.VISIBLE) {
+                hidePoiCard()
+                return true
+            }
+            return false
+        }
+        showPoiCard(poi)
+        return true
+    }
+
+    private fun showPoiCard(poi: Poi) {
+        selectedPoi = poi
+        val isFuel = poi.kind == PoiKind.FUEL
+        poiLogo.backgroundTintList = ColorStateList.valueOf(Color.parseColor(if (isFuel) FUEL_COLOR else EV_COLOR))
+        poiLogoIcon.setImageResource(if (isFuel) R.drawable.ic_fuel else R.drawable.ic_ev)
+        poiName.text = poi.name
+
+        val kindLabel = if (isFuel) "Petrol station" else "EV charging"
+        val here = lastKnownLocation
+        poiMeta.text =
+            if (here != null) {
+                val meters = GeocodingService.distanceMeters(here.latitude, here.longitude, poi.latitude, poi.longitude)
+                "$kindLabel · ${formatDistance(meters)} away"
+            } else {
+                kindLabel
+            }
+
+        val spec = poi.spec
+        poiSpec.text = spec ?: ""
+        poiSpec.visibility = if (spec.isNullOrBlank()) View.GONE else View.VISIBLE
+
+        poiChips.removeAllViews()
+        poi.facilities.forEach { facility ->
+            val chip =
+                Chip(this).apply {
+                    text = if (facility.listed) "\u2713 ${facility.label}" else "${facility.label}: not listed"
+                    isClickable = false
+                    isCheckable = false
+                    isFocusable = false
+                    setEnsureMinTouchTargetSize(false)
+                    chipStrokeWidth = 0f
+                    chipBackgroundColor =
+                        ColorStateList.valueOf(Color.parseColor(if (facility.listed) "#EAF7EF" else "#F1F3F6"))
+                    setTextColor(Color.parseColor(if (facility.listed) "#1F9D55" else "#9AA4B5"))
+                    textSize = 12.5f
+                }
+            poiChips.addView(chip)
+        }
+
+        poiCard.visibility = View.VISIBLE
+    }
+
+    private fun hidePoiCard() {
+        selectedPoi = null
+        poiCard.visibility = View.GONE
     }
 
     // ---- Saved places (Home/Work) -----------------------------------------
@@ -1165,6 +1412,7 @@ class MainActivity : AppCompatActivity() {
             if (isRestyle) {
                 redrawRouteLines()
                 destinationLatLng?.let { showDestinationMarker(it) }
+                renderPoiPins()
                 if (incidentFeatures.isNotEmpty()) {
                     incidentsSource?.setGeoJson(FeatureCollection.fromFeatures(incidentFeatures))
                 }
@@ -1301,6 +1549,28 @@ class MainActivity : AppCompatActivity() {
                 PropertyFactory.iconAllowOverlap(true),
             )
         style.addLayer(incidentsLayer)
+
+        setUpPoiLayer(style)
+    }
+
+    /** Petrol (orange) and EV (green) pins - above street labels but below
+     * the destination pin, so the destination always stays on top. */
+    private fun setUpPoiLayer(style: Style) {
+        registerIncidentIcon(style, FUEL_PIN_ICON_ID, R.drawable.ic_poi_fuel_pin)
+        registerIncidentIcon(style, EV_PIN_ICON_ID, R.drawable.ic_poi_ev_pin)
+
+        val src = GeoJsonSource(POI_SOURCE_ID)
+        style.addSource(src)
+        poiSource = src
+
+        val layer =
+            SymbolLayer(POI_LAYER_ID, POI_SOURCE_ID).withProperties(
+                PropertyFactory.iconImage(Expression.get(POI_ICON_PROPERTY)),
+                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
+                PropertyFactory.iconAllowOverlap(true),
+            )
+        style.addLayerBelow(layer, DESTINATION_LAYER_ID)
+        renderPoiPins()
     }
 
     private fun registerIncidentIcon(
@@ -1380,8 +1650,11 @@ class MainActivity : AppCompatActivity() {
         // clear the ACTIVE-only chrome too (harmless no-ops if already gone).
         speedBadge.visibility = View.GONE
         reportButton.visibility = View.GONE
+        poiToggleColumn.visibility = View.GONE
+        hidePoiCard()
         nextTurnStrip.visibility = View.GONE
         laneContainer.visibility = View.GONE
+        renderPoiPins() // pins are drive-only
         redrawRouteLines()
 
         val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
@@ -1440,6 +1713,7 @@ class MainActivity : AppCompatActivity() {
         map: MapLibreMap,
         latLng: LatLng,
     ): Boolean {
+        if (navMode == NavMode.ACTIVE) return onDriveMapTapped(map, latLng)
         if (navMode != NavMode.PREVIEW) return false
         val screenPoint = map.projection.toScreenLocation(latLng)
         val tapped =
@@ -1493,6 +1767,7 @@ class MainActivity : AppCompatActivity() {
         bottomNavBar.visibility = View.VISIBLE
         speedBadge.visibility = View.VISIBLE
         reportButton.visibility = View.VISIBLE
+        poiToggleColumn.visibility = View.VISIBLE
         turnDistanceText.text = ""
         turnStreetText.text = "Starting navigation..."
         etaSummaryText.text =
@@ -1510,6 +1785,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         lastKnownLocation?.let { location -> updateNavCamera(location, durationMs = NAV_RECENTER_EASE_MS) }
+        renderPoiPins()
+        lastKnownLocation?.let { maybeFetchPois(it) }
 
         // The actual GPS subscription + NavigationEngine + voice guidance
         // move to NavigationService for the duration of the drive, so they
@@ -1663,6 +1940,8 @@ class MainActivity : AppCompatActivity() {
         bottomNavBar.visibility = View.GONE
         speedBadge.visibility = View.GONE
         reportButton.visibility = View.GONE
+        poiToggleColumn.visibility = View.GONE
+        hidePoiCard()
         nextTurnStrip.visibility = View.GONE
         laneContainer.visibility = View.GONE
         recenterButton.visibility = View.GONE
@@ -1672,6 +1951,10 @@ class MainActivity : AppCompatActivity() {
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         routeOptions = emptyList()
         clearDestinationMarker()
+        nearbyPois = emptyList()
+        lastPoiFetchLocation = null
+        lastPoiFetchAtMs = 0L
+        renderPoiPins()
 
         // Idempotent - safe to call whether this end was user-initiated
         // (which still needs to tell the service to stop) or reported by
@@ -2005,6 +2288,7 @@ class MainActivity : AppCompatActivity() {
         mapView.onDestroy()
         searchExecutor.shutdownNow()
         placeSearchExecutor.shutdownNow()
+        poiExecutor.shutdownNow()
         liveSearchRunnable?.let { mainHandler.removeCallbacks(it) }
         unbindNavigationService()
         super.onDestroy()

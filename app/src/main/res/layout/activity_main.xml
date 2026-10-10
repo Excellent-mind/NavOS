@@ -275,6 +275,42 @@
             android:src="@drawable/ic_report_button"
             android:visibility="gone" />
 
+        <!-- Show/hide the petrol (pump) and EV charging (lightning) pins
+             during a drive - stacked just above the report button. Colours
+             (on = orange/green, off = white) are set in code. -->
+        <LinearLayout
+            android:id="@+id/poiToggleColumn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="176dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <ImageButton
+                android:id="@+id/evToggleButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginBottom="8dp"
+                android:background="@drawable/search_bar_bg"
+                android:contentDescription="Show or hide EV charging"
+                android:elevation="4dp"
+                android:padding="12dp"
+                android:src="@drawable/ic_ev" />
+
+            <ImageButton
+                android:id="@+id/fuelToggleButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@drawable/search_bar_bg"
+                android:contentDescription="Show or hide petrol stations"
+                android:elevation="4dp"
+                android:padding="12dp"
+                android:src="@drawable/ic_fuel" />
+
+        </LinearLayout>
+
         <!-- Route preview: shown after a destination is picked, before the
              user commits to navigating. Lets them see distance/time (and
              switch between alternative routes drawn on the map) before
@@ -426,6 +462,128 @@
                 android:contentDescription="Switch route"
                 android:padding="8dp"
                 android:src="@drawable/ic_alt_route" />
+
+        </LinearLayout>
+
+        <!-- Petrol station / EV charger details, shown when a pin is tapped
+             during a drive. Sits above the drive bar. clickable so taps on
+             the card don't fall through to the map (which would close it). -->
+        <LinearLayout
+            android:id="@+id/poiCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:layout_marginBottom="96dp"
+            android:background="@drawable/bg_poi_card"
+            android:clickable="true"
+            android:elevation="12dp"
+            android:focusable="true"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <FrameLayout
+                    android:id="@+id/poiLogo"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:background="@drawable/bg_poi_logo">
+
+                    <ImageView
+                        android:id="@+id/poiLogoIcon"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_gravity="center"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_fuel" />
+
+                </FrameLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/poiName"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="2"
+                        android:textColor="@color/navos_navy"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/poiMeta"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:textColor="#7A869A"
+                        android:textSize="13sp" />
+
+                </LinearLayout>
+
+                <ImageButton
+                    android:id="@+id/poiCloseButton"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_circle_navy"
+                    android:backgroundTint="#E3E7EC"
+                    android:contentDescription="Close"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_close"
+                    android:tint="@color/navos_navy" />
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/poiSpec"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:lineSpacingExtra="2dp"
+                android:textColor="@color/navos_navy"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/poiChips"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Facilities from OpenStreetMap - may be incomplete"
+                android:textColor="#9AA4B5"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/poiGoButton"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_pill_blue"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:text="Go here"
+                android:textColor="@color/white"
+                android:textSize="17sp"
+                android:textStyle="bold" />
 
         </LinearLayout>
 
