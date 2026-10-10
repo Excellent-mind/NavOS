@@ -132,7 +132,13 @@ private const val HAZARD_ICON_ID = "navos-icon-hazard"
 private const val CRASH_ICON_ID = "navos-icon-crash"
 
 private const val NAV_TILT_DEGREES = 55.0
-private const val NAV_ZOOM = 18.0
+private const val NAV_ZOOM = 18.4 // cruising zoom; a bit closer than before
+
+// Smart zoom: pull in as a turn / U-turn / roundabout gets close, ease back
+// out on straights, and open up a little at highway speed.
+private const val NAV_ZOOM_SLOW_BONUS = 0.25 // crawling in town
+private const val NAV_ZOOM_FAST_PENALTY = 0.7 // 120 km/h and up
+private const val NAV_ZOOM_SMOOTHING = 0.3 // share of the gap closed per GPS fix
 
 // Position-button / nav-follow camera tuning. Two different ease
 // durations on purpose: a short one for the continuous per-GPS-fix follow
@@ -325,6 +331,8 @@ class MainActivity : AppCompatActivity() {
      * cameras (flat pan vs. tilted follow) and shouldn't share one state. */
     private var navFollowing = true
     private var smoothedBearing: Double? = null
+    private var smoothedNavZoom: Double? = null
+    private var lastNavState: NavigationState? = null
 
     private var routeSource: GeoJsonSource? = null
     private var altRouteSource: GeoJsonSource? = null
@@ -1982,6 +1990,8 @@ class MainActivity : AppCompatActivity() {
 
         navMode = NavMode.ACTIVE
         smoothedBearing = null
+        smoothedNavZoom = null
+        lastNavState = null
         navFollowing = true
         topBar.visibility = View.GONE
         recenterButton.visibility = View.GONE
@@ -2094,12 +2104,58 @@ class MainActivity : AppCompatActivity() {
                     .Builder()
                     .target(LatLng(location.latitude, location.longitude))
                     .tilt(NAV_TILT_DEGREES)
-                    .zoom(NAV_ZOOM)
+                    .zoom(smartNavZoom(location))
                     .bearing(bearing)
                     .build(),
             ),
             durationMs,
         )
+    }
+
+    /** Zoom for the follow camera: cruising zoom, nudged by speed (a little
+     * closer when crawling, wider at highway speed) and pulled in as the
+     * next turn / U-turn / roundabout approaches so the junction is easy to
+     * read, then eased back out once it's behind. Smoothed across GPS fixes
+     * so it glides instead of stepping. */
+    private fun smartNavZoom(location: Location): Double {
+        val speedKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
+        val speedAdjust =
+            when {
+                speedKmh < 25.0 -> NAV_ZOOM_SLOW_BONUS * (1.0 - speedKmh / 25.0)
+                speedKmh > 70.0 -> -NAV_ZOOM_FAST_PENALTY * ((speedKmh - 70.0) / 50.0).coerceAtMost(1.0)
+                else -> 0.0
+            }
+        val target = NAV_ZOOM + speedAdjust + turnZoomBoost(lastNavState, speedKmh)
+        val previous = smoothedNavZoom
+        val next = if (previous == null) target else previous + (target - previous) * NAV_ZOOM_SMOOTHING
+        smoothedNavZoom = next
+        return next
+    }
+
+    /** How much closer to zoom for the upcoming maneuver: 0 on straights and
+     * far from the turn, rising smoothly to a maximum right at the junction.
+     * Sharper maneuvers get more (U-turn most), and the lead distance grows
+     * with speed so a fast driver gets the zoom in time. */
+    private fun turnZoomBoost(
+        state: NavigationState?,
+        speedKmh: Double,
+    ): Double {
+        if (state == null || state.isArrival || state.offRoute) return 0.0
+        val maxBoost =
+            when {
+                state.modifier == "uturn" -> 1.6
+                state.maneuverType == "roundabout" || state.maneuverType == "rotary" -> 1.0
+                state.modifier == "left" || state.modifier == "right" ||
+                    state.modifier == "sharp left" || state.modifier == "sharp right" -> 1.2
+                state.modifier == "slight left" || state.modifier == "slight right" -> 0.6
+                else -> 0.0 // straight / continue / merge / depart
+            }
+        if (maxBoost == 0.0) return 0.0
+        val leadMeters = (speedKmh * 4.0).coerceIn(200.0, 450.0)
+        val distance = state.distanceToNextTurnMeters
+        if (distance >= leadMeters) return 0.0
+        val t = 1.0 - distance / leadMeters
+        return maxBoost * t * t * (3.0 - 2.0 * t) // smoothstep
     }
 
     /** Positions the recenter button for the current screen. During a drive
@@ -2132,6 +2188,7 @@ class MainActivity : AppCompatActivity() {
         val location = lastKnownLocation
         if (navMode == NavMode.ACTIVE) {
             navFollowing = true
+            smoothedNavZoom = null
             recenterButton.visibility = View.GONE
             if (location != null) {
                 updateNavCamera(location, durationMs = NAV_RECENTER_EASE_MS)
@@ -2241,6 +2298,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onNavigationState(state: NavigationState) {
+        lastNavState = state
         val distanceLabel =
             if (state.distanceToNextTurnMeters >= 1000) {
                 String.format(Locale.US, "%.1f km", state.distanceToNextTurnMeters / 1000)
