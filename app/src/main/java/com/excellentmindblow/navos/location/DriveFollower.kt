@@ -14,6 +14,7 @@ import org.maplibre.geojson.Feature
 import org.maplibre.geojson.Point
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.pow
 import kotlin.math.sqrt
 
 /**
@@ -83,6 +84,12 @@ class DriveFollower(
                 it.cancel()
             }
             render()
+            // A camera glide is in progress: keep frames running until it ends.
+            val remaining = blendStartMs + blendDurationMs - now
+            if (blendFrom != null && remaining > 16) {
+                holdTarget()
+                start(remaining)
+            }
             return
         }
         val interval = (now - lastFixAtMs).coerceIn(MIN_ANIM_MS, MAX_ANIM_MS)
@@ -211,7 +218,7 @@ class DriveFollower(
                     if (raw >= 1.0) {
                         blendFrom = null
                     } else {
-                        val e = raw * raw * (3.0 - 2.0 * raw) // smoothstep
+                        val e = 1.0 - (1.0 - raw).pow(3) // ease-out: moves fast right away, then settles softly
                         val fromLat = from.target?.latitude ?: lat
                         val fromLng = from.target?.longitude ?: lng
                         tLat = fromLat + (lat - fromLat) * e
