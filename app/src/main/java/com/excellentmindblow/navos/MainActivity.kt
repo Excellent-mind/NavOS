@@ -48,7 +48,9 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import com.excellentmindblow.navos.location.LiveLocationTracker
 import com.excellentmindblow.navos.navigation.NavigationService
 import com.excellentmindblow.navos.navigation.NavigationState
@@ -406,6 +408,22 @@ class MainActivity : AppCompatActivity() {
         setUpSettings()
         setUpSavedPlaces()
         setUpSettingsExtras()
+        setUpImeInsetHandling()
+    }
+
+    /** Pushes the home sheet up above the on-screen keyboard while it's
+     * open. Needed because onCreate() turns off automatic window
+     * fit/resize (WindowCompat.setDecorFitsSystemWindows(window, false),
+     * above) to get a transparent status bar - that same opt-out also
+     * stops the keyboard from pushing bottom-anchored content out of its
+     * way on its own, so without this the sheet (and the search box inside
+     * it) ends up rendered underneath the keyboard instead of above it. */
+    private fun setUpImeInsetHandling() {
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { _, insets ->
+            val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            homeSheet.translationY = -imeBottom.toFloat()
+            insets
+        }
     }
 
     private fun setUpSettings() {
