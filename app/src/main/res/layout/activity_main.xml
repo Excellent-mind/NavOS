@@ -203,6 +203,22 @@
 
         </LinearLayout>
 
+        <!-- Always-visible compass: rotates with the map, tap to face north. -->
+        <ImageView
+            android:id="@+id/compassButton"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="100dp"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/bg_circle_white"
+            android:clickable="true"
+            android:contentDescription="Compass - tap to face north"
+            android:elevation="4dp"
+            android:focusable="true"
+            android:padding="8dp"
+            android:src="@drawable/ic_compass" />
+
         <!-- Live speed badge, shown only during active navigation - same
              bottom-left circular readout Waze shows. -->
         <TextView
