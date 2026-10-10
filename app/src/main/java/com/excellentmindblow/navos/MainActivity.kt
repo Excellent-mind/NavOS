@@ -272,7 +272,12 @@ class MainActivity : AppCompatActivity() {
         object : NavigationService.Listener {
             override fun onNavLocation(location: Location) {
                 lastKnownLocation = location
-                map?.locationComponent?.forceLocationUpdate(location)
+                // Feeding a single-element list (vs. the plain-Location
+                // overload) makes the location component ease the puck
+                // from its last rendered spot to this one instead of
+                // snapping - that snap-per-fix was the "map not smooth"
+                // jitter during a drive.
+                map?.locationComponent?.forceLocationUpdate(listOf(location), false)
                 updateNavCamera(location)
                 val kmh = if (location.hasSpeed()) (location.speed * 3.6).toInt() else 0
                 speedBadge.text = "$kmh\nkm/h"
@@ -626,8 +631,14 @@ class MainActivity : AppCompatActivity() {
             homeSearchInput.requestFocus()
             imm.showSoftInput(homeSearchInput, InputMethodManager.SHOW_IMPLICIT)
         } else {
+            // Leaving search (back to COLLAPSED, or into SETTINGS) clears
+            // whatever was typed - otherwise the next time the sheet opens
+            // in search mode it still shows the last destination typed,
+            // instead of the empty "Search destination in Malaysia" hint.
+            homeSearchInput.setText("")
             homeSearchInput.clearFocus()
             homeSearchResultsList.visibility = View.GONE
+            currentResults = emptyList()
             imm.hideSoftInputFromWindow(homeSearchInput.windowToken, 0)
         }
     }
@@ -913,7 +924,12 @@ class MainActivity : AppCompatActivity() {
     private fun onDestinationSelected(result: GeocodeResult) {
         activeSearchResultsList?.visibility = View.GONE
         currentResults = emptyList()
-        activeSearchInput?.setText(result.label)
+        // Clear rather than fill with the picked destination's label - the
+        // search box is about to be hidden (route preview/active nav takes
+        // over), and leaving the full address in it meant the next time
+        // search opened, it still showed the old destination instead of
+        // the empty hint.
+        activeSearchInput?.setText("")
         activeSearchInput?.clearFocus()
 
         val activeInput = activeSearchInput
@@ -1694,7 +1710,9 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("MissingPermission") // permission is confirmed before startLocationTracking() runs
     private fun onLocationUpdate(location: Location) {
         lastKnownLocation = location
-        map?.locationComponent?.forceLocationUpdate(location)
+        // Same fix as the active-nav listener above - animate the puck
+        // between fixes instead of snapping it.
+        map?.locationComponent?.forceLocationUpdate(listOf(location), false)
 
         if (!hasCenteredOnFirstFix) {
             hasCenteredOnFirstFix = true
