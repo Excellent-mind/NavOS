@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Arrive at destination. Waze-style: thick rounded stroke + solid arrowhead. Drawn white;
+     tinted by the ImageView so it follows the light/dark theme. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,6 L12,44 L16.5,44 L16.5,32 L38,32 L33.5,19 L38,6 Z" />
+    <path
+        android:fillColor="#000000"
+        android:fillAlpha="0.28"
+        android:pathData="M16.5,10 L24,10 L24,19 L16.5,19 Z M31,10 L36,10 L33.5,19 L31,19 L31,10 Z M24,19 L31,19 L31,28 L24,28 Z M16.5,28 L24,28 L24,32 L16.5,32 Z" />
+</vector>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Rounded pill in the theme's surface colour (Re-center button). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/navos_surface" />
+    <corners android:radius="24dp" />
+</shape>

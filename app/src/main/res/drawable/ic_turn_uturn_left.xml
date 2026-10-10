@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- U-turn (left). Waze-style: thick rounded stroke + solid arrowhead. Drawn white;
+     tinted by the ImageView so it follows the light/dark theme. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M34.00,43.00 L34.00,29.00 Q34.00,19.00 24.00,19.00 L20.15,19.00 Q14.00,19.00 14.00,25.15 L14.00,31.30" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.4"
+        android:strokeLineJoin="round"
+        android:pathData="M8.11,27.50 L14.00,37.00 L19.89,27.50 Z" />
+</vector>
