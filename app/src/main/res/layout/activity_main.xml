@@ -638,7 +638,7 @@
                 android:layout_height="24dp">
 
                 <View
-                    android:layout_width="36dp"
+                    android:layout_width="40dp"
                     android:layout_height="4dp"
                     android:layout_gravity="center"
                     android:background="@drawable/bg_drag_handle" />
@@ -656,28 +656,31 @@
                 <TextView
                     android:id="@+id/homeSearchPill"
                     android:layout_width="0dp"
-                    android:layout_height="48dp"
+                    android:layout_height="52dp"
                     android:layout_weight="1"
-                    android:background="@drawable/search_bar_bg"
+                    android:background="@drawable/bg_search_pill"
                     android:clickable="true"
+                    android:drawablePadding="12dp"
+                    android:drawableStart="@drawable/ic_search"
+                    android:drawableTint="#5F6B7A"
                     android:focusable="true"
                     android:gravity="center_vertical"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
-                    android:text="Search destination in Malaysia"
-                    android:textColor="#80142A4B"
-                    android:textSize="15sp" />
+                    android:text="Where to?"
+                    android:textColor="#5F6B7A"
+                    android:textSize="17sp" />
 
                 <ImageButton
                     android:id="@+id/homeSettingsButton"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_marginStart="8dp"
-                    android:background="@drawable/search_bar_bg"
-                    android:backgroundTint="@color/navos_navy"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
+                    android:layout_marginStart="10dp"
+                    android:background="@drawable/bg_circle_light"
                     android:contentDescription="Settings"
-                    android:padding="12dp"
-                    android:src="@drawable/ic_settings" />
+                    android:padding="14dp"
+                    android:src="@drawable/ic_settings"
+                    android:tint="@color/navos_navy" />
 
             </LinearLayout>
 
@@ -693,21 +696,21 @@
 
                 <ImageButton
                     android:id="@+id/homeSheetBackButton"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
                     android:layout_marginEnd="8dp"
-                    android:background="@drawable/search_bar_bg"
-                    android:backgroundTint="@color/navos_navy"
+                    android:background="@drawable/bg_circle_light"
                     android:contentDescription="Back"
-                    android:padding="12dp"
-                    android:src="@drawable/ic_arrow_back" />
+                    android:padding="14dp"
+                    android:src="@drawable/ic_arrow_back"
+                    android:tint="@color/navos_navy" />
 
                 <!-- Search pill: the input plus the circled-X clear button
                      inside it (shown only once something is typed). -->
                 <LinearLayout
                     android:id="@+id/homeSearchInputContainer"
                     android:layout_width="0dp"
-                    android:layout_height="48dp"
+                    android:layout_height="52dp"
                     android:layout_weight="1"
                     android:background="@drawable/bg_search_pill"
                     android:gravity="center_vertical"
@@ -721,14 +724,15 @@
                         android:layout_weight="1"
                         android:autofillHints=""
                         android:background="@android:color/transparent"
-                        android:hint="Search destination in Malaysia"
+                        android:hint="Where to?"
                         android:imeOptions="actionSearch"
                         android:inputType="text"
                         android:maxLines="1"
                         android:paddingStart="16dp"
                         android:paddingEnd="4dp"
                         android:textColor="@color/navos_navy"
-                        android:textColorHint="#80142A4B" />
+                        android:textColorHint="#5F6B7A"
+                        android:textSize="17sp" />
 
                     <ImageButton
                         android:id="@+id/homeSearchClearButton"
@@ -771,10 +775,9 @@
                 <LinearLayout
                     android:id="@+id/homeButton"
                     android:layout_width="match_parent"
-                    android:layout_height="52dp"
+                    android:layout_height="56dp"
                     android:layout_marginBottom="8dp"
-                    android:background="@drawable/search_bar_bg"
-                    android:backgroundTint="@color/navos_navy"
+                    android:background="@drawable/bg_chip_light"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingStart="14dp"
@@ -785,6 +788,7 @@
                         android:layout_height="20dp"
                         android:layout_marginEnd="12dp"
                         android:contentDescription="Home"
+                        android:tint="@color/navos_navy"
                         android:src="@drawable/ic_home" />
 
                     <TextView
@@ -794,7 +798,7 @@
                         android:layout_weight="1"
                         android:ellipsize="end"
                         android:maxLines="1"
-                        android:textColor="@color/white"
+                        android:textColor="@color/navos_navy"
                         android:textSize="15sp"
                         tools:text="Home" />
 
@@ -803,10 +807,9 @@
                 <LinearLayout
                     android:id="@+id/workButton"
                     android:layout_width="match_parent"
-                    android:layout_height="52dp"
+                    android:layout_height="56dp"
                     android:layout_marginBottom="4dp"
-                    android:background="@drawable/search_bar_bg"
-                    android:backgroundTint="@color/navos_navy"
+                    android:background="@drawable/bg_chip_light"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingStart="14dp"
@@ -817,6 +820,7 @@
                         android:layout_height="20dp"
                         android:layout_marginEnd="12dp"
                         android:contentDescription="Work"
+                        android:tint="@color/navos_navy"
                         android:src="@drawable/ic_work" />
 
                     <TextView
@@ -826,7 +830,7 @@
                         android:layout_weight="1"
                         android:ellipsize="end"
                         android:maxLines="1"
-                        android:textColor="@color/white"
+                        android:textColor="@color/navos_navy"
                         android:textSize="15sp"
                         tools:text="Work" />
 

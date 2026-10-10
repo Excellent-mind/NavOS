@@ -559,9 +559,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** The sheet's height when collapsed: padding + drag handle (24dp) + the
-     * 48dp search-pill row, with the body hidden. */
+     * 52dp search-pill row, with the body hidden. */
     private fun sheetCollapsedHeight(): Int =
-        homeSheet.paddingTop + dp(24) + dp(48) + homeSheetBasePaddingBottom
+        homeSheet.paddingTop + dp(24) + dp(52) + homeSheetBasePaddingBottom
 
     private fun setUpSettings() {
         findViewById<Switch>(R.id.voiceGuidanceSwitch).apply {
