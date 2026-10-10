@@ -53,6 +53,8 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.graphics.ColorUtils
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.ViewCompat
@@ -60,7 +62,10 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
+import com.excellentmindblow.navos.location.DriveFollower
 import com.excellentmindblow.navos.location.LiveLocationTracker
+import com.excellentmindblow.navos.location.PuckIcon
+import com.excellentmindblow.navos.navigation.GeoUtils
 import com.excellentmindblow.navos.navigation.NavigationService
 import com.excellentmindblow.navos.navigation.NavigationState
 import com.excellentmindblow.navos.poi.Poi
@@ -77,10 +82,6 @@ import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
-import org.maplibre.android.location.LocationComponentActivationOptions
-import org.maplibre.android.location.LocationComponentOptions
-import org.maplibre.android.location.modes.CameraMode
-import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
@@ -146,6 +147,12 @@ private const val NAV_ZOOM_SMOOTHING = 0.3 // share of the gap closed per GPS fi
 // second) and a longer one only for the deliberate "snap into place"
 // moment - the Position button tap or entering active navigation.
 private const val NAV_FOLLOW_EASE_MS = 350
+private const val SNAP_MAX_METERS = 35.0 // beyond this the fix isn't "on" the route
+private const val SNAP_LOOKAHEAD_SEGMENTS = 150
+private const val SNAP_LOOKBACK_SEGMENTS = 5
+private const val PUCK_SOURCE_ID = "navos-puck-source"
+private const val PUCK_LAYER_ID = "navos-puck-layer"
+private const val PUCK_ICON_ID = "navos-puck-icon"
 private const val NAV_RECENTER_EASE_MS = 700
 private const val IDLE_RECENTER_ZOOM = 16.5
 
@@ -332,6 +339,23 @@ class MainActivity : AppCompatActivity() {
      * cameras (flat pan vs. tilted follow) and shouldn't share one state. */
     private var navFollowing = true
     private var smoothedBearing: Double? = null
+
+    /** Index of the route segment the arrow was last snapped to, so the
+     * next fix only searches around it. */
+    private var snapSegmentIndex = 0
+
+    /** Drives the arrow AND the camera from one animation (see class doc). */
+    private val driveFollower =
+        DriveFollower(
+            mapProvider = { map },
+            followProvider = {
+                when (navMode) {
+                    NavMode.ACTIVE -> if (navFollowing) DriveFollower.Follow.DRIVE_3D else DriveFollower.Follow.OFF
+                    NavMode.IDLE -> if (followingUser) DriveFollower.Follow.CENTER else DriveFollower.Follow.OFF
+                    NavMode.PREVIEW -> DriveFollower.Follow.OFF
+                }
+            },
+        ).also { it.driveTilt = NAV_TILT_DEGREES }
     private var smoothedNavZoom: Double? = null
     private var lastNavState: NavigationState? = null
 
@@ -368,12 +392,7 @@ class MainActivity : AppCompatActivity() {
         object : NavigationService.Listener {
             override fun onNavLocation(location: Location) {
                 lastKnownLocation = location
-                // Feeding a single-element list (vs. the plain-Location
-                // overload) makes the location component ease the puck
-                // from its last rendered spot to this one instead of
-                // snapping - that snap-per-fix was the "map not smooth"
-                // jitter during a drive.
-                map?.locationComponent?.forceLocationUpdate(listOf(location), false)
+                // Arrow + camera are animated together by driveFollower.
                 updateNavCamera(location)
                 maybeFetchPois(location)
                 val kmh = if (location.hasSpeed()) (location.speed * 3.6).toInt() else 0
@@ -390,6 +409,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun onRerouted(route: Route) {
                 activeRoute = route
+                snapSegmentIndex = 0
                 routeOptions = listOf(route)
                 selectedRouteIndex = 0
                 redrawRouteLines()
@@ -448,7 +468,14 @@ class MainActivity : AppCompatActivity() {
         // Must happen before any MapView touches its native state.
         MapLibre.getInstance(applicationContext)
 
+        // The Map style setting (Follow system / Light / Dark) drives the
+        // WHOLE app's day/night theme, not just the map tiles. Must run
+        // before super.onCreate so the first inflate already uses it.
+        prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        applyAppNightMode()
+
         super.onCreate(savedInstanceState)
+        uiDarkApplied = isNightConfig(resources.configuration)
 
         // Classic, opt-in "draw behind the status bar" (available since API
         // 21, fully under our control) for a true full-screen map - NOT the
@@ -461,8 +488,6 @@ class MainActivity : AppCompatActivity() {
         window.navigationBarColor = Color.TRANSPARENT
 
         setContentView(R.layout.activity_main)
-
-        prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
         mapView = findViewById(R.id.mapView)
         mapView.onCreate(savedInstanceState)
@@ -612,6 +637,8 @@ class MainActivity : AppCompatActivity() {
                 }
             if (mode == mapStyleMode()) return@setOnCheckedChangeListener
             prefs.edit().putString(KEY_MAP_STYLE_MODE, mode).apply()
+            // Re-theme the whole UI too (see onConfigurationChanged).
+            applyAppNightMode()
             val loadedMap = map ?: return@setOnCheckedChangeListener
             // e.g. Follow system -> Light while the phone is already light:
             // same map either way, so don't reload the style for nothing.
@@ -636,6 +663,42 @@ class MainActivity : AppCompatActivity() {
 
     private fun mapStyleUrl(): String = if (wantsDarkMap()) MAP_STYLE_URL_DARK else MAP_STYLE_URL
 
+    /** Whether the UI currently on screen was inflated in dark mode. */
+    private var uiDarkApplied = false
+
+    /** A day/night change arrived mid-trip; rebuild once back at idle. */
+    private var pendingUiRecreate = false
+
+    private fun isNightConfig(config: Configuration): Boolean =
+        (config.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
+    /** Follow system -> follow the phone; Light / Dark -> force it. */
+    private fun applyAppNightMode() {
+        AppCompatDelegate.setDefaultNightMode(
+            when (mapStyleMode()) {
+                MAP_STYLE_DARK -> AppCompatDelegate.MODE_NIGHT_YES
+                MAP_STYLE_LIGHT -> AppCompatDelegate.MODE_NIGHT_NO
+                else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+            },
+        )
+    }
+
+    /** Rebuilds the screen for the new theme - but only when idle, so a
+     * route preview or an active drive is never thrown away. Otherwise it
+     * waits until the trip ends (see applyPendingUiRecreate). */
+    private fun requestUiRecreate() {
+        if (navMode == NavMode.IDLE) {
+            pendingUiRecreate = false
+            recreate()
+        } else {
+            pendingUiRecreate = true
+        }
+    }
+
+    private fun applyPendingUiRecreate() {
+        if (pendingUiRecreate && navMode == NavMode.IDLE) requestUiRecreate()
+    }
+
     /** Whether the map style currently loaded (or loading) is the dark one. */
     private var appliedMapDark: Boolean? = null
 
@@ -645,6 +708,10 @@ class MainActivity : AppCompatActivity() {
      * so this can't interrupt a drive. */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        // The app's own day/night changed (setting changed, or the phone
+        // switched while on Follow system): the sheets, cards and text are
+        // inflated once, so rebuild the screen to pick up the new colours.
+        if (isNightConfig(newConfig) != uiDarkApplied) requestUiRecreate()
         if (mapStyleMode() != MAP_STYLE_SYSTEM) return
         val loadedMap = map ?: return
         if (wantsDarkMap() == appliedMapDark) return
@@ -1215,14 +1282,15 @@ class MainActivity : AppCompatActivity() {
     /** On = filled orange/green with a white icon; off = plain white with
      * a navy icon. */
     private fun stylePoiToggles() {
-        val navy = ContextCompat.getColor(this, R.color.navos_navy)
+        val offIcon = ContextCompat.getColor(this, R.color.navos_text)
+        val offFill = ContextCompat.getColor(this, R.color.navos_surface)
         fun style(
             button: ImageButton,
             on: Boolean,
             color: String,
         ) {
-            button.backgroundTintList = ColorStateList.valueOf(if (on) Color.parseColor(color) else Color.WHITE)
-            button.imageTintList = ColorStateList.valueOf(if (on) Color.WHITE else navy)
+            button.backgroundTintList = ColorStateList.valueOf(if (on) Color.parseColor(color) else offFill)
+            button.imageTintList = ColorStateList.valueOf(if (on) Color.WHITE else offIcon)
         }
         style(fuelToggleButton, showFuelPins, FUEL_COLOR)
         style(evToggleButton, showEvPins, EV_COLOR)
@@ -1338,8 +1406,18 @@ class MainActivity : AppCompatActivity() {
                     setEnsureMinTouchTargetSize(false)
                     chipStrokeWidth = 0f
                     chipBackgroundColor =
-                        ColorStateList.valueOf(Color.parseColor(if (facility.listed) "#EAF7EF" else "#F1F3F6"))
-                    setTextColor(Color.parseColor(if (facility.listed) "#1F9D55" else "#9AA4B5"))
+                        ColorStateList.valueOf(
+                            ContextCompat.getColor(
+                                context,
+                                if (facility.listed) R.color.navos_chip_ok_bg else R.color.navos_chip_off_bg,
+                            ),
+                        )
+                    setTextColor(
+                        ContextCompat.getColor(
+                            context,
+                            if (facility.listed) R.color.navos_chip_ok_text else R.color.navos_chip_off_text,
+                        ),
+                    )
                     textSize = 12.5f
                 }
             poiChips.addView(chip)
@@ -1575,7 +1653,6 @@ class MainActivity : AppCompatActivity() {
     ) {
         appliedMapDark = styleUrl == MAP_STYLE_URL_DARK
         loadedMap.setStyle(Style.Builder().fromUri(styleUrl)) { style ->
-            enableLocationComponent(loadedMap, style)
             setUpRouteLayers(style)
             if (isRestyle) {
                 redrawRouteLines()
@@ -1589,6 +1666,23 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+    /** Line width that grows with zoom (z10 / z14 / z18 / z20), so the
+     * route stays thick and easy to follow when driving close-in. */
+    private fun routeWidthByZoom(
+        z10: Float,
+        z14: Float,
+        z18: Float,
+        z20: Float,
+    ): Expression =
+        Expression.interpolate(
+            Expression.exponential(1.5f),
+            Expression.zoom(),
+            Expression.stop(10, z10),
+            Expression.stop(14, z14),
+            Expression.stop(18, z18),
+            Expression.stop(20, z20),
+        )
 
     private fun setUpRouteLayers(style: Style) {
         // The base style's own road/POI name labels are symbol layers
@@ -1664,7 +1758,7 @@ class MainActivity : AppCompatActivity() {
         val routeCasingLayer =
             LineLayer(ROUTE_CASING_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
                 PropertyFactory.lineColor(Color.WHITE),
-                PropertyFactory.lineWidth(10f),
+                PropertyFactory.lineWidth(routeWidthByZoom(6.5f, 10.5f, 16f, 22f)),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
@@ -1673,7 +1767,7 @@ class MainActivity : AppCompatActivity() {
         val layer =
             LineLayer(ROUTE_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
                 PropertyFactory.lineColor(Color.parseColor("#1CB0F6")),
-                PropertyFactory.lineWidth(6f),
+                PropertyFactory.lineWidth(routeWidthByZoom(4f, 7f, 11f, 16f)),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
@@ -1697,6 +1791,23 @@ class MainActivity : AppCompatActivity() {
                 PropertyFactory.iconAllowOverlap(true),
             )
         style.addLayer(destLayer)
+
+        // The driver's 3D arrow - drawn above everything (labels, pin),
+        // upright to the screen like Waze's, rotated to the heading.
+        style.addImage(PUCK_ICON_ID, PuckIcon.create(this))
+        val puckSrc = GeoJsonSource(PUCK_SOURCE_ID)
+        style.addSource(puckSrc)
+        val puckLayer =
+            SymbolLayer(PUCK_LAYER_ID, PUCK_SOURCE_ID).withProperties(
+                PropertyFactory.iconImage(PUCK_ICON_ID),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconRotate(Expression.get("bearing")),
+                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
+                PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_VIEWPORT),
+            )
+        style.addLayer(puckLayer)
+        driveFollower.puckSource = puckSrc // also redraws it after a restyle
 
         // Incident reports ("What do you see?") - also on top of labels,
         // same as the destination pin. One source holds every reported
@@ -1997,6 +2108,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun cancelRoutePreview() {
         navMode = NavMode.IDLE
+        applyPendingUiRecreate()
         routeOptions = emptyList()
         routePreviewCard.visibility = View.GONE
         routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
@@ -2017,6 +2129,7 @@ class MainActivity : AppCompatActivity() {
         smoothedNavZoom = null
         lastNavState = null
         navFollowing = true
+        snapSegmentIndex = 0
         topBar.visibility = View.GONE
         recenterButton.visibility = View.GONE
         routePreviewCard.visibility = View.GONE
@@ -2036,17 +2149,9 @@ class MainActivity : AppCompatActivity() {
         navSheetExpanded = false
         navStopButton.visibility = View.GONE
 
-        // Waze-style 3D follow camera. NOTE: we deliberately do NOT use
-        // LocationComponent's CameraMode.TRACKING_GPS here - it resets
-        // tilt back to flat on every GPS update (confirmed on-device: the
-        // map never actually tilted with it on), so instead we drive the
-        // camera ourselves on every location update below, which lets us
-        // hold tilt/zoom/bearing exactly where we want them.
-        map?.locationComponent?.apply {
-            renderMode = RenderMode.GPS
-            cameraMode = CameraMode.NONE
-        }
-
+        // Waze-style 3D follow camera, driven by driveFollower on every
+        // display frame together with the arrow (not by LocationComponent's
+        // own camera tracking, which resets tilt on every GPS update).
         lastKnownLocation?.let { location -> updateNavCamera(location, durationMs = NAV_RECENTER_EASE_MS) }
         renderPoiPins()
         lastKnownLocation?.let { maybeFetchPois(it) }
@@ -2119,21 +2224,35 @@ class MainActivity : AppCompatActivity() {
         location: Location,
         durationMs: Int = NAV_FOLLOW_EASE_MS,
     ) {
-        if (!navFollowing) return
-        val rawBearing = if (location.hasBearing()) location.bearing.toDouble() else null
+        var lat = location.latitude
+        var lng = location.longitude
+        var rawBearing = if (location.hasBearing()) location.bearing.toDouble() else null
+
+        // Snap the arrow onto the blue line (GPS drifts a few metres off
+        // the road, which is why it sat beside the line) and take the
+        // heading from the line itself so the arrow points along it.
+        val geometry = activeRoute?.geometry
+        if (geometry != null) {
+            val snap =
+                GeoUtils.snapToPolyline(
+                    RoutePoint(lat, lng),
+                    geometry,
+                    snapSegmentIndex - SNAP_LOOKBACK_SEGMENTS,
+                    SNAP_LOOKAHEAD_SEGMENTS,
+                )
+            if (snap != null && snap.distanceMeters <= SNAP_MAX_METERS) {
+                lat = snap.point.latitude
+                lng = snap.point.longitude
+                snapSegmentIndex = snap.segmentIndex
+                rawBearing = snap.bearing
+                // Start already facing along the route, not north.
+                if (smoothedBearing == null) smoothedBearing = snap.bearing
+            }
+        }
+
         val bearing = smoothedNavBearing(rawBearing, location)
-        map?.easeCamera(
-            CameraUpdateFactory.newCameraPosition(
-                CameraPosition
-                    .Builder()
-                    .target(LatLng(location.latitude, location.longitude))
-                    .tilt(NAV_TILT_DEGREES)
-                    .zoom(smartNavZoom(location))
-                    .bearing(bearing)
-                    .build(),
-            ),
-            durationMs,
-        )
+        driveFollower.pushFix(lat, lng, bearing, smartNavZoom(location))
+        if (durationMs > NAV_FOLLOW_EASE_MS) driveFollower.beginCameraBlend(durationMs.toLong())
     }
 
     /** Zoom for the follow camera: cruising zoom, nudged by speed (a little
@@ -2228,6 +2347,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Waiting for GPS...", Toast.LENGTH_SHORT).show()
             return
         }
+        driveFollower.holdCamera(NAV_RECENTER_EASE_MS + 50L)
         map?.easeCamera(
             CameraUpdateFactory.newCameraPosition(
                 CameraPosition
@@ -2267,6 +2387,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun endActiveNavigation() {
         navMode = NavMode.IDLE
+        applyPendingUiRecreate()
         activeRoute = null
         topNavBar.visibility = View.GONE
         bottomNavBar.visibility = View.GONE
@@ -2298,15 +2419,12 @@ class MainActivity : AppCompatActivity() {
         // resume this Activity's idle one for free-roam map following.
         startLocationTracking()
 
-        map?.locationComponent?.apply {
-            cameraMode = CameraMode.NONE
-            renderMode = RenderMode.GPS
-        }
         followingUser = true
         navFollowing = true
 
         val location = lastKnownLocation
         if (location != null) {
+            driveFollower.holdCamera(650L)
             map?.easeCamera(
                 CameraUpdateFactory.newCameraPosition(
                     CameraPosition
@@ -2413,9 +2531,13 @@ class MainActivity : AppCompatActivity() {
         val margin = (4 * density).toInt()
         val iconPadding = (7 * density).toInt()
         val validColor = ContextCompat.getColor(this, R.color.navos_blue)
+        // Valid lane: blue pill with a dark arrow in both themes.
         val validTint = ContextCompat.getColor(this, R.color.navos_navy)
-        val dimBackground = ColorStateList.valueOf(0x1F14284B)
-        val dimTint = 0x6614284B
+        // Other lanes: the theme's text colour, faded, so they read on
+        // both the light and the dark card.
+        val textColor = ContextCompat.getColor(this, R.color.navos_text)
+        val dimBackground = ColorStateList.valueOf(ColorUtils.setAlphaComponent(textColor, 0x1F))
+        val dimTint = ColorUtils.setAlphaComponent(textColor, 0x66)
 
         lanes.forEach { lane ->
             val indication = lane.indications.firstOrNull() ?: "straight"
@@ -2504,12 +2626,17 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("MissingPermission") // permission is confirmed before startLocationTracking() runs
     private fun onLocationUpdate(location: Location) {
         lastKnownLocation = location
-        // Same fix as the active-nav listener above - animate the puck
-        // between fixes instead of snapping it.
-        map?.locationComponent?.forceLocationUpdate(listOf(location), false)
+        val bearing =
+            if (location.hasBearing() && (!location.hasSpeed() || location.speed > 1f)) {
+                location.bearing.toDouble()
+            } else {
+                Double.NaN // standing still: keep the arrow's last heading
+            }
 
         if (!hasCenteredOnFirstFix) {
             hasCenteredOnFirstFix = true
+            driveFollower.holdCamera(650L)
+            driveFollower.pushFix(location.latitude, location.longitude, bearing, Double.NaN)
             map?.easeCamera(
                 CameraUpdateFactory.newCameraPosition(
                     CameraPosition
@@ -2520,46 +2647,11 @@ class MainActivity : AppCompatActivity() {
                 ),
                 600,
             )
-        } else if (followingUser && navMode == NavMode.IDLE) {
-            // Free-roam following, like Waze does before you've even
-            // picked a destination - just re-centers, leaves the user's
-            // current zoom/tilt/bearing alone. Route preview intentionally
-            // skips this since it frames the whole route instead.
-            map?.easeCamera(CameraUpdateFactory.newLatLng(LatLng(location.latitude, location.longitude)), 800)
+        } else {
+            // Arrow and (when following) the camera glide together, driven
+            // by driveFollower - no separate camera ease here any more.
+            driveFollower.pushFix(location.latitude, location.longitude, bearing, Double.NaN)
         }
-    }
-
-    @SuppressLint("MissingPermission") // activation itself needs no permission; display does, gated by ensureLocationPermissionThenTrack()
-    private fun enableLocationComponent(
-        map: MapLibreMap,
-        style: Style,
-    ) {
-        val locationComponent = map.locationComponent
-
-        // Our own pro-designed arrow puck instead of MapLibre's default
-        // plain dot, used both for the stationary icon and the heading
-        // (bearing) icon - same drawable, it already points up.
-        val componentOptions =
-            LocationComponentOptions
-                .builder(this)
-                .foregroundDrawable(R.drawable.ic_location_puck)
-                .bearingDrawable(R.drawable.ic_location_puck)
-                .enableStaleState(false)
-                .build()
-
-        locationComponent.activateLocationComponent(
-            LocationComponentActivationOptions
-                .builder(this, style)
-                .locationComponentOptions(componentOptions)
-                .useDefaultLocationEngine(false) // we feed it ourselves via LiveLocationTracker
-                .build(),
-        )
-        locationComponent.isLocationComponentEnabled = true
-        locationComponent.cameraMode = CameraMode.NONE // we drive the camera ourselves on first fix
-        // GPS mode rotates the puck using the Location.bearing we already
-        // feed it from LiveLocationTracker - more reliable than COMPASS
-        // mode, which depends on the device's magnetometer instead.
-        locationComponent.renderMode = RenderMode.GPS
     }
 
     override fun onStart() {
@@ -2615,6 +2707,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        driveFollower.stop()
         mapView.onDestroy()
         searchExecutor.shutdownNow()
         placeSearchExecutor.shutdownNow()
