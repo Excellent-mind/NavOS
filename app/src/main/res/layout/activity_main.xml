@@ -139,7 +139,7 @@
                     android:layout_height="44dp"
                     android:layout_marginEnd="14dp"
                     android:contentDescription="Next turn"
-                    android:src="@drawable/ic_nav_arrow"
+                    android:src="@drawable/ic_turn_straight"
                     android:tint="@color/navos_text" />
 
                 <LinearLayout
@@ -214,7 +214,7 @@
                     android:layout_width="22dp"
                     android:layout_height="22dp"
                     android:contentDescription="Then"
-                    android:src="@drawable/ic_nav_arrow"
+                    android:src="@drawable/ic_turn_straight"
                     android:tint="@color/navos_text" />
 
             </LinearLayout>
@@ -243,20 +243,41 @@
              away from their own position - tap to resume following. Kept
              on the right, clear of the bottom sheet/preview card, same as
              the equivalent control in Waze/Google Maps. -->
-        <ImageButton
+        <LinearLayout
             android:id="@+id/recenterButton"
-            android:layout_width="48dp"
+            android:layout_width="wrap_content"
             android:layout_height="48dp"
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="12dp"
             android:layout_marginBottom="120dp"
-            android:background="@drawable/bg_circle_white"
+            android:background="@drawable/bg_pill_surface"
+            android:clickable="true"
             android:contentDescription="Re-centre on my location"
-            android:elevation="4dp"
-            android:padding="11dp"
-            android:src="@drawable/ic_recenter"
-            android:tint="@color/navos_text"
-            android:visibility="gone" />
+            android:elevation="6dp"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="14dp"
+            android:paddingEnd="18dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_recenter"
+                android:tint="@color/navos_blue" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Re-center"
+                android:textColor="@color/navos_text"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+        </LinearLayout>
 
         <!-- "What do you see?" incident report button, shown only during
              active navigation. The re-centre button moves to the bottom-left
@@ -538,16 +559,17 @@
 
                 </LinearLayout>
 
-                <!-- Re-opens the route preview (with alternates redrawn) so
-                     the driver can switch routes mid-drive. -->
+                <!-- Opens the "Next turns" list (every upcoming turn with its
+                     arrow, distance and street). Switching route lives in
+                     that sheet's header. -->
                 <ImageButton
                     android:id="@+id/bottomAltRouteButton"
                     android:layout_width="52dp"
                     android:layout_height="52dp"
                     android:background="@drawable/bg_circle_light"
-                    android:contentDescription="Switch route"
-                    android:padding="14dp"
-                    android:src="@drawable/ic_alt_route"
+                    android:contentDescription="Next turns"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_turn_list"
                     android:tint="@color/navos_text_secondary" />
 
             </LinearLayout>
@@ -1192,6 +1214,93 @@
                 android:text="Open location settings"
                 android:textColor="@color/white"
                 android:textStyle="bold" />
+
+        </LinearLayout>
+
+
+        <!-- "Next turns" sheet (Waze-style): every upcoming maneuver with
+             its arrow, distance and street. Opened from the drive bar's
+             round button; covers the drive UI until closed. -->
+        <LinearLayout
+            android:id="@+id/nextTurnsSheet"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_marginTop="48dp"
+            android:background="@drawable/bg_bottom_sheet"
+            android:clickable="true"
+            android:elevation="12dp"
+            android:focusable="true"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <View
+                android:layout_width="40dp"
+                android:layout_height="4dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_drag_handle" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="20dp"
+                android:paddingTop="10dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Next turns"
+                    android:textColor="@color/navos_text"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/nextTurnsSwitchRoute"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:background="@drawable/bg_chip_light"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:text="Switch route"
+                    android:textColor="@color/navos_text"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <ImageButton
+                    android:id="@+id/nextTurnsClose"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_circle_light"
+                    android:contentDescription="Close"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_close"
+                    android:tint="@color/navos_text" />
+
+            </LinearLayout>
+
+            <ScrollView
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:overScrollMode="ifContentScrolls">
+
+                <LinearLayout
+                    android:id="@+id/nextTurnsList"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingBottom="28dp" />
+
+            </ScrollView>
 
         </LinearLayout>
 
