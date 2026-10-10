@@ -133,29 +133,11 @@
                 android:orientation="horizontal"
                 android:padding="16dp">
 
-                <ImageView
-                    android:id="@+id/turnIcon"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:layout_marginEnd="14dp"
-                    android:contentDescription="Next turn"
-                    android:src="@drawable/ic_turn_straight"
-                    android:tint="@color/navos_text" />
-
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical">
-
-                    <TextView
-                        android:id="@+id/turnDistanceText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:textColor="@color/navos_text"
-                        android:textSize="24sp"
-                        android:textStyle="bold"
-                        tools:text="90 m" />
 
                     <TextView
                         android:id="@+id/turnStreetText"
@@ -229,7 +211,7 @@
             android:layout_height="56dp"
             android:layout_gravity="bottom|start"
             android:layout_marginStart="12dp"
-            android:layout_marginBottom="120dp"
+            android:layout_marginBottom="140dp"
             android:background="@drawable/bg_circle_white"
             android:elevation="4dp"
             android:gravity="center"
@@ -249,7 +231,7 @@
             android:layout_height="48dp"
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="12dp"
-            android:layout_marginBottom="120dp"
+            android:layout_marginBottom="140dp"
             android:background="@drawable/bg_pill_surface"
             android:clickable="true"
             android:contentDescription="Re-centre on my location"
@@ -288,7 +270,7 @@
             android:layout_height="48dp"
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="12dp"
-            android:layout_marginBottom="136dp"
+            android:layout_marginBottom="156dp"
             android:background="@drawable/bg_circle_white"
             android:contentDescription="Report what you see"
             android:elevation="4dp"
@@ -305,7 +287,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="12dp"
-            android:layout_marginBottom="192dp"
+            android:layout_marginBottom="212dp"
             android:orientation="vertical"
             android:visibility="gone">
 
@@ -442,7 +424,7 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@android:color/white"
+                android:background="@color/navos_surface"
                 android:orientation="horizontal"
                 android:paddingStart="16dp"
                 android:paddingTop="12dp"
@@ -562,15 +544,36 @@
                 <!-- Opens the "Next turns" list (every upcoming turn with its
                      arrow, distance and street). Switching route lives in
                      that sheet's header. -->
-                <ImageButton
+                <LinearLayout
                     android:id="@+id/bottomAltRouteButton"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
+                    android:layout_width="72dp"
+                    android:layout_height="72dp"
                     android:background="@drawable/bg_circle_light"
+                    android:clickable="true"
                     android:contentDescription="Next turns"
-                    android:padding="12dp"
-                    android:src="@drawable/ic_turn_list"
-                    android:tint="@color/navos_text_secondary" />
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <ImageView
+                        android:id="@+id/turnIcon"
+                        android:layout_width="34dp"
+                        android:layout_height="34dp"
+                        android:contentDescription="Next turn"
+                        android:src="@drawable/ic_turn_straight"
+                        android:tint="@color/navos_text" />
+
+                    <TextView
+                        android:id="@+id/turnDistanceText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:maxLines="1"
+                        android:textColor="@color/navos_text"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        tools:text="550 m" />
+
+                </LinearLayout>
 
             </LinearLayout>
 
@@ -601,7 +604,7 @@
             android:layout_gravity="bottom"
             android:layout_marginStart="10dp"
             android:layout_marginEnd="10dp"
-            android:layout_marginBottom="120dp"
+            android:layout_marginBottom="140dp"
             android:background="@drawable/bg_poi_card"
             android:clickable="true"
             android:elevation="12dp"
