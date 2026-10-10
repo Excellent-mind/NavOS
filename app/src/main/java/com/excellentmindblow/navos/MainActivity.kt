@@ -28,6 +28,8 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import android.transition.AutoTransition
+import android.transition.TransitionManager
 import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
@@ -130,7 +132,13 @@ private const val HAZARD_ICON_ID = "navos-icon-hazard"
 private const val CRASH_ICON_ID = "navos-icon-crash"
 
 private const val NAV_TILT_DEGREES = 55.0
-private const val NAV_ZOOM = 18.0
+private const val NAV_ZOOM = 18.4 // cruising zoom; a bit closer than before
+
+// Smart zoom: pull in as a turn / U-turn / roundabout gets close, ease back
+// out on straights, and open up a little at highway speed.
+private const val NAV_ZOOM_SLOW_BONUS = 0.25 // crawling in town
+private const val NAV_ZOOM_FAST_PENALTY = 0.7 // 120 km/h and up
+private const val NAV_ZOOM_SMOOTHING = 0.3 // share of the gap closed per GPS fix
 
 // Position-button / nav-follow camera tuning. Two different ease
 // durations on purpose: a short one for the continuous per-GPS-fix follow
@@ -198,7 +206,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bottomNavBar: View
     private lateinit var turnDistanceText: TextView
     private lateinit var turnStreetText: TextView
-    private lateinit var etaSummaryText: TextView
+    private lateinit var etaClockText: TextView
+    private lateinit var etaDetailText: TextView
+    private lateinit var navStopButton: View
+    private lateinit var routePreviewEta: TextView
+    private lateinit var routePreviewVia: TextView
+    private lateinit var routePreviewDestination: TextView
+    private var navSheetExpanded = false
+    private var destinationName: String? = null
     private lateinit var turnIcon: ImageView
     private lateinit var speedBadge: TextView
     private lateinit var recenterButton: ImageButton
@@ -316,6 +331,8 @@ class MainActivity : AppCompatActivity() {
      * cameras (flat pan vs. tilted follow) and shouldn't share one state. */
     private var navFollowing = true
     private var smoothedBearing: Double? = null
+    private var smoothedNavZoom: Double? = null
+    private var lastNavState: NavigationState? = null
 
     private var routeSource: GeoJsonSource? = null
     private var altRouteSource: GeoJsonSource? = null
@@ -757,7 +774,12 @@ class MainActivity : AppCompatActivity() {
         bottomNavBar = findViewById(R.id.bottomNavBar)
         turnDistanceText = findViewById(R.id.turnDistanceText)
         turnStreetText = findViewById(R.id.turnStreetText)
-        etaSummaryText = findViewById(R.id.etaSummaryText)
+        etaClockText = findViewById(R.id.etaClockText)
+        etaDetailText = findViewById(R.id.etaDetailText)
+        navStopButton = findViewById(R.id.stopNavigationButton)
+        routePreviewEta = findViewById(R.id.routePreviewEta)
+        routePreviewVia = findViewById(R.id.routePreviewVia)
+        routePreviewDestination = findViewById(R.id.routePreviewDestination)
         turnIcon = findViewById(R.id.turnIcon)
         speedBadge = findViewById(R.id.speedBadge)
         recenterButton = findViewById(R.id.recenterButton)
@@ -805,9 +827,10 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.cancelRouteButton).setOnClickListener {
             cancelRoutePreview()
         }
-        findViewById<ImageButton>(R.id.stopNavigationButton).setOnClickListener {
+        navStopButton.setOnClickListener {
             endActiveNavigation()
         }
+        setUpNavSheetToggle()
         recenterButton.setOnClickListener { recenterCamera() }
         reportButton.setOnClickListener {
             showReportDialog()
@@ -1507,6 +1530,7 @@ class MainActivity : AppCompatActivity() {
         searchBackButton.visibility = View.GONE
 
         maybeSaveAsPendingPlace(result)
+        destinationName = result.name
 
         topBar.visibility = View.GONE
         homeSheet.visibility = View.GONE
@@ -1775,6 +1799,78 @@ class MainActivity : AppCompatActivity() {
 
     // ---- Route preview (pre-navigation) --------------------------------
 
+    /** Tap, or swipe up/down, on the drive bar's handle (or tap its time) to
+     * reveal / hide the red Stop pill - Waze keeps Stop one swipe away so it
+     * isn't hit by accident on the main bar. */
+    private fun setUpNavSheetToggle() {
+        var downY = 0f
+        findViewById<View>(R.id.navSheetHandle).setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downY = event.rawY
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val dy = event.rawY - downY
+                    val threshold = dp(20)
+                    when {
+                        dy < -threshold -> setNavSheetExpanded(true)
+                        dy > threshold -> setNavSheetExpanded(false)
+                        else -> setNavSheetExpanded(!navSheetExpanded)
+                    }
+                    v.performClick()
+                    true
+                }
+                else -> true
+            }
+        }
+        findViewById<View>(R.id.navEtaCenter).setOnClickListener { setNavSheetExpanded(!navSheetExpanded) }
+    }
+
+    private fun setNavSheetExpanded(expanded: Boolean) {
+        if (expanded == navSheetExpanded) return
+        navSheetExpanded = expanded
+        TransitionManager.beginDelayedTransition(bottomNavBar as ViewGroup, AutoTransition().setDuration(220))
+        navStopButton.visibility = if (expanded) View.VISIBLE else View.GONE
+    }
+
+    /** "3:38 PM" (arrival clock time, big) and "1:11 h • 61 km" (time left
+     * and distance left, under it) - the same two-line summary Waze shows. */
+    private fun showTripSummary(
+        durationSeconds: Double,
+        distanceMeters: Double,
+        clockView: TextView,
+        detailView: TextView,
+    ) {
+        val arrival = Date(System.currentTimeMillis() + (durationSeconds * 1000).toLong())
+        clockView.text = SimpleDateFormat("h:mm a", Locale.US).format(arrival)
+        detailView.text = "${formatTripDuration(durationSeconds)} • ${formatTripDistance(distanceMeters)}"
+    }
+
+    private fun formatTripDuration(seconds: Double): String {
+        val totalMinutes = Math.round(seconds / 60.0).toInt().coerceAtLeast(1)
+        return if (totalMinutes >= 60) {
+            String.format(Locale.US, "%d:%02d h", totalMinutes / 60, totalMinutes % 60)
+        } else {
+            "$totalMinutes min"
+        }
+    }
+
+    private fun formatTripDistance(meters: Double): String =
+        when {
+            meters < 1000 -> "${meters.toInt()} m"
+            meters < 10_000 -> String.format(Locale.US, "%.1f km", meters / 1000.0)
+            else -> String.format(Locale.US, "%.0f km", meters / 1000.0)
+        }
+
+    /** The road this route spends the most distance on - the "Via ..." line. */
+    private fun viaRoadName(route: Route): String? =
+        route.steps
+            .filter { it.roadName.isNotBlank() }
+            .groupBy { it.roadName }
+            .maxByOrNull { (_, steps) -> steps.sumOf { it.distanceMeters } }
+            ?.key
+
     private fun showRoutePreview() {
         navMode = NavMode.PREVIEW
         topBar.visibility = View.GONE
@@ -1796,7 +1892,7 @@ class MainActivity : AppCompatActivity() {
         val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
         val bounds = LatLngBounds.Builder()
         selected.geometry.forEach { bounds.include(LatLng(it.latitude, it.longitude)) }
-        map?.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 120, 120, 120, 460), 800)
+        map?.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 120, 120, 120, dp(380)), 800)
 
         updateRoutePreviewSummary()
         routePreviewCard.visibility = View.VISIBLE
@@ -1804,9 +1900,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateRoutePreviewSummary() {
         val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
-        val km = selected.distanceMeters / 1000.0
-        val min = selected.durationSeconds / 60.0
-        routePreviewSummary.text = String.format(Locale.US, "%.1f km • %.0f min", km, min)
+        showTripSummary(selected.durationSeconds, selected.distanceMeters, routePreviewEta, routePreviewSummary)
+        val via = viaRoadName(selected)
+        routePreviewVia.text = if (via != null) "Via $via" else ""
+        routePreviewVia.visibility = if (via != null) View.VISIBLE else View.GONE
+        val destination = destinationName.orEmpty()
+        routePreviewDestination.text = destination
+        routePreviewDestination.visibility = if (destination.isNotBlank()) View.VISIBLE else View.GONE
         routePreviewHint.text =
             if (routeOptions.size > 1) {
                 "${routeOptions.size} routes found - tap a grey route to switch"
@@ -1890,6 +1990,8 @@ class MainActivity : AppCompatActivity() {
 
         navMode = NavMode.ACTIVE
         smoothedBearing = null
+        smoothedNavZoom = null
+        lastNavState = null
         navFollowing = true
         topBar.visibility = View.GONE
         recenterButton.visibility = View.GONE
@@ -1906,8 +2008,9 @@ class MainActivity : AppCompatActivity() {
         poiToggleColumn.visibility = View.VISIBLE
         turnDistanceText.text = ""
         turnStreetText.text = "Starting navigation..."
-        etaSummaryText.text =
-            String.format(Locale.US, "%.0f min • %.1f km", route.durationSeconds / 60.0, route.distanceMeters / 1000.0)
+        showTripSummary(route.durationSeconds, route.distanceMeters, etaClockText, etaDetailText)
+        navSheetExpanded = false
+        navStopButton.visibility = View.GONE
 
         // Waze-style 3D follow camera. NOTE: we deliberately do NOT use
         // LocationComponent's CameraMode.TRACKING_GPS here - it resets
@@ -2001,12 +2104,58 @@ class MainActivity : AppCompatActivity() {
                     .Builder()
                     .target(LatLng(location.latitude, location.longitude))
                     .tilt(NAV_TILT_DEGREES)
-                    .zoom(NAV_ZOOM)
+                    .zoom(smartNavZoom(location))
                     .bearing(bearing)
                     .build(),
             ),
             durationMs,
         )
+    }
+
+    /** Zoom for the follow camera: cruising zoom, nudged by speed (a little
+     * closer when crawling, wider at highway speed) and pulled in as the
+     * next turn / U-turn / roundabout approaches so the junction is easy to
+     * read, then eased back out once it's behind. Smoothed across GPS fixes
+     * so it glides instead of stepping. */
+    private fun smartNavZoom(location: Location): Double {
+        val speedKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
+        val speedAdjust =
+            when {
+                speedKmh < 25.0 -> NAV_ZOOM_SLOW_BONUS * (1.0 - speedKmh / 25.0)
+                speedKmh > 70.0 -> -NAV_ZOOM_FAST_PENALTY * ((speedKmh - 70.0) / 50.0).coerceAtMost(1.0)
+                else -> 0.0
+            }
+        val target = NAV_ZOOM + speedAdjust + turnZoomBoost(lastNavState, speedKmh)
+        val previous = smoothedNavZoom
+        val next = if (previous == null) target else previous + (target - previous) * NAV_ZOOM_SMOOTHING
+        smoothedNavZoom = next
+        return next
+    }
+
+    /** How much closer to zoom for the upcoming maneuver: 0 on straights and
+     * far from the turn, rising smoothly to a maximum right at the junction.
+     * Sharper maneuvers get more (U-turn most), and the lead distance grows
+     * with speed so a fast driver gets the zoom in time. */
+    private fun turnZoomBoost(
+        state: NavigationState?,
+        speedKmh: Double,
+    ): Double {
+        if (state == null || state.isArrival || state.offRoute) return 0.0
+        val maxBoost =
+            when {
+                state.modifier == "uturn" -> 1.6
+                state.maneuverType == "roundabout" || state.maneuverType == "rotary" -> 1.0
+                state.modifier == "left" || state.modifier == "right" ||
+                    state.modifier == "sharp left" || state.modifier == "sharp right" -> 1.2
+                state.modifier == "slight left" || state.modifier == "slight right" -> 0.6
+                else -> 0.0 // straight / continue / merge / depart
+            }
+        if (maxBoost == 0.0) return 0.0
+        val leadMeters = (speedKmh * 4.0).coerceIn(200.0, 450.0)
+        val distance = state.distanceToNextTurnMeters
+        if (distance >= leadMeters) return 0.0
+        val t = 1.0 - distance / leadMeters
+        return maxBoost * t * t * (3.0 - 2.0 * t) // smoothstep
     }
 
     /** Positions the recenter button for the current screen. During a drive
@@ -2021,7 +2170,7 @@ class MainActivity : AppCompatActivity() {
             params.gravity = Gravity.BOTTOM or Gravity.START
             params.marginStart = (12 * density).toInt()
             params.marginEnd = 0
-            params.bottomMargin = (100 * density).toInt()
+            params.bottomMargin = (184 * density).toInt()
         } else {
             params.gravity = Gravity.BOTTOM or Gravity.END
             params.marginStart = 0
@@ -2039,6 +2188,7 @@ class MainActivity : AppCompatActivity() {
         val location = lastKnownLocation
         if (navMode == NavMode.ACTIVE) {
             navFollowing = true
+            smoothedNavZoom = null
             recenterButton.visibility = View.GONE
             if (location != null) {
                 updateNavCamera(location, durationMs = NAV_RECENTER_EASE_MS)
@@ -2148,24 +2298,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onNavigationState(state: NavigationState) {
+        lastNavState = state
         val distanceLabel =
             if (state.distanceToNextTurnMeters >= 1000) {
                 String.format(Locale.US, "%.1f km", state.distanceToNextTurnMeters / 1000)
             } else {
                 "${state.distanceToNextTurnMeters.toInt()} m"
             }
-        val remainingKm = state.distanceRemainingMeters / 1000.0
-        val remainingMin = state.durationRemainingSeconds / 60.0
         turnDistanceText.text = if (state.offRoute) "" else distanceLabel
         // Off the planned route: NavigationService is already fetching a new
         // one (and says "Recalculating"), so show that instead of a turn
         // instruction that no longer applies.
         turnStreetText.text = if (state.offRoute) "Recalculating..." else state.instruction
 
-        val arrivalTime = Date(System.currentTimeMillis() + (state.durationRemainingSeconds * 1000).toLong())
-        val arrivalLabel = SimpleDateFormat("h:mm a", Locale.US).format(arrivalTime)
-        etaSummaryText.text =
-            String.format(Locale.US, "%.0f min • %.1f km • %s", remainingMin, remainingKm, arrivalLabel)
+        showTripSummary(state.durationRemainingSeconds, state.distanceRemainingMeters, etaClockText, etaDetailText)
 
         val (iconRes, rotation) = iconForManeuver(state.maneuverType, state.modifier)
         turnIcon.setImageResource(iconRes)
