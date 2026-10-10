@@ -134,8 +134,18 @@ private const val POLICE_ICON_ID = "navos-icon-police"
 private const val HAZARD_ICON_ID = "navos-icon-hazard"
 private const val CRASH_ICON_ID = "navos-icon-crash"
 
-private const val NAV_TILT_DEGREES = 55.0
-private const val NAV_ZOOM = 18.4 // cruising zoom; a bit closer than before
+// Waze-style drive camera: flat top-down map, heading-up, the arrow sitting
+// in the lower part of the screen so more road ahead is visible.
+private const val NAV_TILT_DEGREES = 0.0
+private const val NAV_ZOOM = 17.2 // cruising zoom
+private const val NAV_TOP_PADDING_FRACTION = 0.40 // puts the arrow ~70% down the screen
+private const val SHOW_3D_BUILDINGS = false // Waze shows a flat map; set true to bring the blocks back
+
+// Turn callouts on the route line (arrow + road name at every corner).
+private const val TURN_SOURCE_ID = "navos-turn-source"
+private const val TURN_ARROW_LAYER_ID = "navos-turn-arrow-layer"
+private const val TURN_LABEL_LAYER_ID = "navos-turn-label-layer"
+private const val MAX_TURN_CALLOUTS = 12
 
 // Smart zoom: pull in as a turn / U-turn / roundabout gets close, ease back
 // out on straights, and open up a little at highway speed.
@@ -155,7 +165,7 @@ private const val SNAP_LOOKBACK_SEGMENTS = 5
 private const val PUCK_SOURCE_ID = "navos-puck-source"
 private const val PUCK_LAYER_ID = "navos-puck-layer"
 private const val PUCK_ICON_ID = "navos-puck-icon"
-private const val NAV_RECENTER_EASE_MS = 700
+private const val NAV_RECENTER_EASE_MS = 450 // quick, soft glide back to the arrow
 private const val IDLE_RECENTER_ZOOM = 16.5
 
 private const val PREFS_NAME = "navos_prefs"
@@ -422,6 +432,8 @@ class MainActivity : AppCompatActivity() {
                 routeOptions = listOf(route)
                 selectedRouteIndex = 0
                 redrawRouteLines()
+                renderedCalloutStep = -1
+                renderTurnCallouts(1)
                 nextTurnsRenderedIndex = -1
                 if (nextTurnsSheet.visibility == View.VISIBLE) refreshNextTurns()
             }
@@ -506,17 +518,22 @@ class MainActivity : AppCompatActivity() {
         mapView.getMapAsync { loadedMap ->
             map = loadedMap
 
-            // Keep the compass, on the right below both the idle search
-            // bar+Home/Work row and the active-nav turn banner - both span
-            // the full width up top, so a left-side or shallow-margin spot
-            // ends up hidden behind them. It's most useful once the nav
-            // camera starts rotating the map, so it needs to actually be
-            // visible during ACTIVE too.
-            loadedMap.uiSettings.apply {
-                isCompassEnabled = true
-                setCompassGravity(Gravity.TOP or Gravity.END)
-                val density = resources.displayMetrics.density
-                setCompassMargins(0, (150 * density).toInt(), (16 * density).toInt(), 0)
+            // Our own always-visible compass (the built-in MapLibre one hides
+            // itself facing north and was getting clipped). Rotates with the
+            // map; tap to turn the map back to north.
+            loadedMap.uiSettings.isCompassEnabled = false
+            val compass = findViewById<View>(R.id.compassButton)
+            loadedMap.addOnCameraMoveListener {
+                compass.rotation = (-loadedMap.cameraPosition.bearing).toFloat()
+            }
+            compass.setOnClickListener {
+                if (navMode == NavMode.ACTIVE) {
+                    navFollowing = false
+                    placeRecenterButton(drivingLayout = true)
+                    recenterButton.visibility = View.VISIBLE
+                }
+                driveFollower.holdCamera(600L)
+                loadedMap.easeCamera(CameraUpdateFactory.bearingTo(0.0), 400)
             }
 
             loadedMap.addOnMapClickListener { latLng -> onMapTapped(loadedMap, latLng) }
@@ -1690,6 +1707,10 @@ class MainActivity : AppCompatActivity() {
                 redrawRouteLines()
                 destinationLatLng?.let { showDestinationMarker(it) }
                 renderPoiPins()
+                if (navMode == NavMode.ACTIVE) {
+                    renderedCalloutStep = -1
+                    renderTurnCallouts(lastNavState?.currentStepIndex ?: 1)
+                }
                 if (incidentFeatures.isNotEmpty()) {
                     incidentsSource?.setGeoJson(FeatureCollection.fromFeatures(incidentFeatures))
                 }
@@ -1715,6 +1736,66 @@ class MainActivity : AppCompatActivity() {
             Expression.stop(18, z18),
             Expression.stop(20, z20),
         )
+
+    private var turnCalloutSource: GeoJsonSource? = null
+    private var renderedCalloutStep = -1
+
+    private val TURN_ICON_RES =
+        listOf(
+            R.drawable.ic_turn_arrive,
+            R.drawable.ic_turn_roundabout_left,
+            R.drawable.ic_turn_roundabout_right,
+            R.drawable.ic_turn_roundabout_straight,
+            R.drawable.ic_turn_uturn,
+            R.drawable.ic_turn_fork_left,
+            R.drawable.ic_turn_fork_right,
+            R.drawable.ic_turn_straight,
+            R.drawable.ic_turn_sharp_right,
+            R.drawable.ic_turn_right,
+            R.drawable.ic_turn_slight_right,
+            R.drawable.ic_turn_slight_left,
+            R.drawable.ic_turn_left,
+            R.drawable.ic_turn_sharp_left,
+        )
+
+    private fun turnIconId(res: Int): String = "navos-turn-" + resources.getResourceEntryName(res)
+
+    /** Draws an arrow + road name on the route line at each upcoming turn
+     * (from [fromStep] on). Cleared whenever we're not driving. */
+    private fun renderTurnCallouts(fromStep: Int) {
+        val src = turnCalloutSource ?: return
+        val steps = activeRoute?.steps
+        if (navMode != NavMode.ACTIVE || steps == null) {
+            src.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+            return
+        }
+        val features = ArrayList<Feature>()
+        for (i in fromStep.coerceAtLeast(0) until steps.size) {
+            if (features.size >= MAX_TURN_CALLOUTS) break
+            val s = steps[i]
+            if (s.maneuverType == "depart" || s.maneuverType == "arrive") continue
+            val mod = s.modifier.orEmpty()
+            val turnLike =
+                s.maneuverType.contains("roundabout") || s.maneuverType.contains("rotary") ||
+                    s.maneuverType == "fork" || s.maneuverType.contains("ramp") ||
+                    (mod.isNotEmpty() && mod != "straight")
+            if (!turnLike) continue
+            val feature = Feature.fromGeometry(Point.fromLngLat(s.point.longitude, s.point.latitude))
+            feature.addStringProperty("icon", turnIconId(iconForManeuver(s.maneuverType, s.modifier)))
+            feature.addStringProperty("name", s.roadName)
+            feature.addNumberProperty("order", i)
+            features.add(feature)
+        }
+        src.setGeoJson(FeatureCollection.fromFeatures(features))
+    }
+
+    /** Pushes the camera's centre down the screen while driving so the
+     * arrow sits in the lower part of the view (Waze-style look-ahead). */
+    private fun applyNavPadding(on: Boolean) {
+        val m = map ?: return
+        val top = if (on) (mapView.height * NAV_TOP_PADDING_FRACTION).toInt() else 0
+        m.setPadding(0, top, 0, 0)
+    }
 
     private fun setUpRouteLayers(style: Style) {
         // The base style's own road/POI name labels are symbol layers
@@ -1760,7 +1841,7 @@ class MainActivity : AppCompatActivity() {
                             ),
                         ),
                     )
-            addBelowLabels(buildingsLayer)
+            if (SHOW_3D_BUILDINGS) addBelowLabels(buildingsLayer)
         } catch (e: Exception) {
             // Missing source/source-layer on whatever style version is
             // live - buildings just stay flat, nothing else breaks.
@@ -1804,6 +1885,40 @@ class MainActivity : AppCompatActivity() {
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
         addBelowLabels(layer)
+
+        // Turn callouts: a white arrow at every corner of the route plus a
+        // blue name bubble above it, like Waze. Above the route line, below
+        // the destination pin and the driver's arrow (added after this).
+        for (res in TURN_ICON_RES) registerIncidentIcon(style, turnIconId(res), res)
+        val turnSrc = GeoJsonSource(TURN_SOURCE_ID)
+        style.addSource(turnSrc)
+        turnCalloutSource = turnSrc
+        style.addLayer(
+            SymbolLayer(TURN_ARROW_LAYER_ID, TURN_SOURCE_ID).withProperties(
+                PropertyFactory.iconImage(Expression.get("icon")),
+                PropertyFactory.iconSize(0.7f),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
+                PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_VIEWPORT),
+            ),
+        )
+        style.addLayer(
+            SymbolLayer(TURN_LABEL_LAYER_ID, TURN_SOURCE_ID).withProperties(
+                PropertyFactory.textField(Expression.get("name")),
+                PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
+                PropertyFactory.textSize(14f),
+                PropertyFactory.textColor(Color.WHITE),
+                PropertyFactory.textHaloColor(Color.parseColor("#1B77A0")),
+                PropertyFactory.textHaloWidth(5f),
+                PropertyFactory.textMaxWidth(9f),
+                PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM),
+                PropertyFactory.textOffset(arrayOf(0f, -1.5f)),
+                PropertyFactory.textRotationAlignment(Property.TEXT_ROTATION_ALIGNMENT_VIEWPORT),
+                PropertyFactory.textPitchAlignment(Property.TEXT_PITCH_ALIGNMENT_VIEWPORT),
+                PropertyFactory.symbolSortKey(Expression.get("order")),
+            ),
+        )
 
         // Destination pin - added last, with the plain addLayer() that
         // puts it above everything (including labels), same as a real pin.
@@ -2170,6 +2285,9 @@ class MainActivity : AppCompatActivity() {
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
 
         activeRoute = route
+        applyNavPadding(true)
+        renderedCalloutStep = -1
+        renderTurnCallouts(1)
         bottomNavBar.visibility = View.VISIBLE
         speedBadge.visibility = View.VISIBLE
         reportButton.visibility = View.VISIBLE
@@ -2282,8 +2400,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         val bearing = smoothedNavBearing(rawBearing, location)
-        driveFollower.pushFix(lat, lng, bearing, smartNavZoom(location))
+        // Start the glide BEFORE the new fix is pushed, so even a big jump
+        // is eased instead of snapping the camera in one frame.
         if (durationMs > NAV_FOLLOW_EASE_MS) driveFollower.beginCameraBlend(durationMs.toLong())
+        driveFollower.pushFix(lat, lng, bearing, smartNavZoom(location))
     }
 
     /** Zoom for the follow camera: cruising zoom, nudged by speed (a little
@@ -2344,7 +2464,7 @@ class MainActivity : AppCompatActivity() {
             params.gravity = Gravity.BOTTOM or Gravity.START
             params.marginStart = (12 * density).toInt()
             params.marginEnd = 0
-            params.bottomMargin = (184 * density).toInt()
+            params.bottomMargin = (210 * density).toInt()
         } else {
             params.gravity = Gravity.BOTTOM or Gravity.END
             params.marginStart = 0
@@ -2420,6 +2540,9 @@ class MainActivity : AppCompatActivity() {
         navMode = NavMode.IDLE
         applyPendingUiRecreate()
         activeRoute = null
+        applyNavPadding(false)
+        renderedCalloutStep = -1
+        renderTurnCallouts(0)
         closeNextTurns()
         topNavBar.visibility = View.GONE
         bottomNavBar.visibility = View.GONE
@@ -2481,6 +2604,11 @@ class MainActivity : AppCompatActivity() {
         turnStreetText.text = if (state.offRoute) "Recalculating..." else state.instruction
 
         showTripSummary(state.durationRemainingSeconds, state.distanceRemainingMeters, etaClockText, etaDetailText)
+
+        if (state.currentStepIndex != renderedCalloutStep) {
+            renderedCalloutStep = state.currentStepIndex
+            renderTurnCallouts(state.currentStepIndex)
+        }
 
         turnIcon.setImageResource(iconForManeuver(state.maneuverType, state.modifier))
         turnIcon.rotation = 0f
