@@ -20,10 +20,14 @@
              sheet below instead. Settings is reachable only from the home
              sheet too (same as Saved places always was), so there's no
              gear icon here any more. -->
+        <!-- Full height (not wrap_content) so a long results list stops
+             above the keyboard and scrolls, instead of running underneath
+             it - MainActivity pads its bottom by the keyboard's height.
+             No background/click handling, so it doesn't block the map. -->
         <LinearLayout
             android:id="@+id/topBar"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:orientation="vertical"
             android:paddingTop="40dp"
             android:paddingStart="12dp"
@@ -51,22 +55,42 @@
                     android:src="@drawable/ic_close"
                     android:visibility="gone" />
 
-                <EditText
-                    android:id="@+id/searchInput"
+                <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="48dp"
                     android:layout_weight="1"
-                    android:autofillHints=""
                     android:background="@drawable/search_bar_bg"
                     android:elevation="4dp"
-                    android:hint="Search destination in Malaysia"
-                    android:imeOptions="actionSearch"
-                    android:inputType="text"
-                    android:maxLines="1"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:textColor="@color/navos_navy"
-                    android:textColorHint="#80142A4B" />
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <EditText
+                        android:id="@+id/searchInput"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:autofillHints=""
+                        android:background="@android:color/transparent"
+                        android:hint="Search destination in Malaysia"
+                        android:imeOptions="actionSearch"
+                        android:inputType="text"
+                        android:maxLines="1"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="4dp"
+                        android:textColor="@color/navos_navy"
+                        android:textColorHint="#80142A4B" />
+
+                    <ImageButton
+                        android:id="@+id/searchClearButton"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Clear search"
+                        android:padding="10dp"
+                        android:src="@drawable/ic_clear_circle"
+                        android:visibility="gone" />
+
+                </LinearLayout>
 
             </LinearLayout>
 
@@ -518,24 +542,47 @@
                     android:backgroundTint="@color/navos_navy"
                     android:contentDescription="Back"
                     android:padding="12dp"
-                    android:src="@drawable/ic_close" />
+                    android:src="@drawable/ic_arrow_back" />
 
-                <EditText
-                    android:id="@+id/homeSearchInput"
+                <!-- Search pill: the input plus the circled-X clear button
+                     inside it (shown only once something is typed). -->
+                <LinearLayout
+                    android:id="@+id/homeSearchInputContainer"
                     android:layout_width="0dp"
                     android:layout_height="48dp"
                     android:layout_weight="1"
-                    android:autofillHints=""
-                    android:background="@drawable/search_bar_bg"
-                    android:hint="Search destination in Malaysia"
-                    android:imeOptions="actionSearch"
-                    android:inputType="text"
-                    android:maxLines="1"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:textColor="@color/navos_navy"
-                    android:textColorHint="#80142A4B"
-                    android:visibility="gone" />
+                    android:background="@drawable/bg_search_pill"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <EditText
+                        android:id="@+id/homeSearchInput"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:autofillHints=""
+                        android:background="@android:color/transparent"
+                        android:hint="Search destination in Malaysia"
+                        android:imeOptions="actionSearch"
+                        android:inputType="text"
+                        android:maxLines="1"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="4dp"
+                        android:textColor="@color/navos_navy"
+                        android:textColorHint="#80142A4B" />
+
+                    <ImageButton
+                        android:id="@+id/homeSearchClearButton"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Clear search"
+                        android:padding="10dp"
+                        android:src="@drawable/ic_clear_circle"
+                        android:visibility="gone" />
+
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/homeSheetExpandedTitle"
@@ -627,15 +674,15 @@
 
                 </LinearLayout>
 
+                <!-- No fixed max height: while searching the sheet goes full
+                     height, so this list fills whatever room is left above
+                     the keyboard and scrolls. -->
                 <ListView
                     android:id="@+id/homeSearchResultsList"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:background="@drawable/search_bar_bg"
-                    android:divider="#14142A4B"
+                    android:divider="#E3E7EC"
                     android:dividerHeight="1dp"
-                    android:maxHeight="280dp"
                     android:visibility="gone" />
 
             </LinearLayout>

@@ -1,19 +1,23 @@
 package com.excellentmindblow.navos.search
 
+import android.location.Location
 import org.json.JSONArray
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-/** One Nominatim search hit. label is Nominatim's display_name, which is
- * already the full locality/district/state hierarchy (e.g. "Jalan Tun
- * Razak, Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur, Malaysia") - that
- * alone is what tells two same-named roads in different areas apart in
- * the results list, so callers don't need to build that string themselves. */
+/** One place search hit. label is the full one-line description (name plus
+ * locality/district/state), used for saved places. name/address are the
+ * same thing split for the two-line results row (bold name, grey area
+ * underneath) - they default to splitting label at its first comma, which
+ * is right for Nominatim's display_name and for saved Home/Work labels. */
 data class GeocodeResult(
     val label: String,
     val latitude: Double,
     val longitude: Double,
+    val name: String = label.substringBefore(",").trim(),
+    val address: String = label.substringAfter(",", "").trim(),
 )
 
 /**
@@ -40,6 +44,150 @@ object GeocodingService {
     private const val WIDE_RADIUS_DEGREES = 2.0 // roughly state-sized (~220km)
     private const val MIN_LOCAL_RESULTS = 3
 
+    // ---- Photon (search-as-you-type) -------------------------------------
+    //
+    // Nominatim's usage policy doesn't allow autocomplete on its public
+    // server, so live results while typing come from Photon instead - also
+    // OpenStreetMap data, but built specifically for search-as-you-type
+    // (prefix matching, e.g. "lorong" -> every Lorong nearby) with a
+    // location bias. Same "nearby first, then widen" approach as the
+    // Nominatim path below.
+    private const val PHOTON_URL = "https://photon.komoot.io/api/"
+    private const val MALAYSIA_BBOX = "99.6,0.85,119.4,7.45" // minLon,minLat,maxLon,maxLat
+    private const val LIVE_LOCAL_RADIUS_DEGREES = 0.3 // roughly city-sized (~30km)
+    private const val MIN_LIVE_LOCAL_RESULTS = 5
+    private const val LIVE_RESULT_LIMIT = 15
+    const val MIN_LIVE_QUERY_LENGTH = 2
+
+    /** Live (as-you-type) search via Photon. Local results come back sorted
+     * nearest-first; if there are too few nearby, Malaysia-wide matches are
+     * appended after them. Throws on network/HTTP failure. */
+    @Throws(Exception::class)
+    fun searchLive(
+        query: String,
+        biasLat: Double?,
+        biasLon: Double?,
+    ): List<GeocodeResult> {
+        val trimmed = query.trim()
+        if (trimmed.length < MIN_LIVE_QUERY_LENGTH) return emptyList()
+
+        if (biasLat == null || biasLon == null) {
+            return photonSearch(trimmed, null, null, MALAYSIA_BBOX)
+        }
+
+        val r = LIVE_LOCAL_RADIUS_DEGREES
+        val localBox = "${biasLon - r},${biasLat - r},${biasLon + r},${biasLat + r}"
+        val local =
+            photonSearch(trimmed, biasLat, biasLon, localBox)
+                .sortedBy { distanceMeters(biasLat, biasLon, it.latitude, it.longitude) }
+        if (local.size >= MIN_LIVE_LOCAL_RESULTS) return local.take(LIVE_RESULT_LIMIT)
+
+        val wide = photonSearch(trimmed, biasLat, biasLon, MALAYSIA_BBOX)
+        return (local + wide)
+            .distinctBy { "${it.label}|${it.latitude}|${it.longitude}" }
+            .take(LIVE_RESULT_LIMIT)
+    }
+
+    private fun photonSearch(
+        query: String,
+        biasLat: Double?,
+        biasLon: Double?,
+        bbox: String,
+    ): List<GeocodeResult> {
+        val params =
+            StringBuilder()
+                .append("q=").append(URLEncoder.encode(query, "UTF-8"))
+                .append("&limit=").append(LIVE_RESULT_LIMIT)
+                .append("&bbox=").append(bbox)
+        if (biasLat != null && biasLon != null) {
+            params.append("&lat=").append(biasLat).append("&lon=").append(biasLon)
+        }
+
+        val connection = URL("$PHOTON_URL?$params").openConnection() as HttpURLConnection
+        connection.setRequestProperty("User-Agent", USER_AGENT)
+        connection.connectTimeout = 6_000
+        connection.readTimeout = 6_000
+
+        try {
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                throw RuntimeException("Live search failed (${connection.responseCode})")
+            }
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            val features = JSONObject(body).optJSONArray("features") ?: return emptyList()
+            val results = mutableListOf<GeocodeResult>()
+            for (i in 0 until features.length()) {
+                val feature = features.optJSONObject(i) ?: continue
+                parsePhotonFeature(feature)?.let { results.add(it) }
+            }
+            return results
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun parsePhotonFeature(feature: JSONObject): GeocodeResult? {
+        val props = feature.optJSONObject("properties") ?: return null
+        // The bbox also clips bits of Singapore/Thailand/Brunei/Indonesia -
+        // keep this Malaysia-only, same as the Nominatim path.
+        val country = props.str("countrycode")
+        if (country != null && !country.equals("MY", ignoreCase = true)) return null
+
+        val coords = feature.optJSONObject("geometry")?.optJSONArray("coordinates") ?: return null
+        if (coords.length() < 2) return null
+        val lon = coords.optDouble(0)
+        val lat = coords.optDouble(1)
+        if (lat.isNaN() || lon.isNaN()) return null
+
+        val street = props.str("street")
+        val houseNumber = props.str("housenumber")
+        val placeName = props.str("name")
+        val name =
+            placeName
+                ?: street?.let { if (houseNumber != null) "$houseNumber, $it" else it }
+                ?: props.str("city")
+                ?: return null
+
+        val address =
+            listOf(
+                if (placeName != null) street else null,
+                props.str("district"),
+                props.str("locality"),
+                props.str("city"),
+                props.str("county"),
+                props.str("state"),
+            ).filterNotNull()
+                .filter { !it.equals(name, ignoreCase = true) }
+                .distinct()
+                .joinToString(", ")
+
+        val label = if (address.isEmpty()) name else "$name, $address"
+        return GeocodeResult(label, lat, lon, name, address)
+    }
+
+    /** optString() returns "" for a missing key and "null" for an explicit
+     * JSON null - treat both (and blanks) as absent. */
+    private fun JSONObject.str(key: String): String? {
+        val value = optString(key, "")
+        return if (value.isBlank() || value == "null") null else value.trim()
+    }
+
+    fun distanceMeters(
+        fromLat: Double,
+        fromLon: Double,
+        toLat: Double,
+        toLon: Double,
+    ): Float {
+        val out = FloatArray(1)
+        Location.distanceBetween(fromLat, fromLon, toLat, toLon, out)
+        return out[0]
+    }
+
+    // ---- Explicit search (keyboard Search key) ----------------------------
+
+    /** Search-key search: tries Photon first (same results the driver was
+     * already seeing while typing), and only falls back to Nominatim if
+     * Photon fails or finds nothing - so this is never worse than the
+     * Nominatim-only search it replaced. */
     @Throws(Exception::class)
     fun search(
         query: String,
@@ -49,6 +197,23 @@ object GeocodingService {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return emptyList()
 
+        val live =
+            try {
+                searchLive(trimmed, biasLat, biasLon)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        if (live.isNotEmpty()) return live
+
+        return searchNominatim(trimmed, biasLat, biasLon)
+    }
+
+    @Throws(Exception::class)
+    private fun searchNominatim(
+        trimmed: String,
+        biasLat: Double?,
+        biasLon: Double?,
+    ): List<GeocodeResult> {
         if (biasLat == null || biasLon == null) {
             // No GPS fix yet - fall back to a plain Malaysia-wide search
             // rather than failing outright.

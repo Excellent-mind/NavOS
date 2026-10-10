@@ -32,7 +32,7 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.content.res.ColorStateList
-import android.widget.ArrayAdapter
+import android.widget.BaseAdapter
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -135,6 +135,10 @@ private const val PREFS_NAME = "navos_prefs"
 private const val KEY_VOICE_ENABLED = "voice_enabled"
 private const val KEY_DARK_MODE_ENABLED = "dark_mode_enabled"
 
+/** Pause after the last keystroke before a live search fires - long
+ * enough not to query on every letter, short enough to feel instant. */
+private const val LIVE_SEARCH_DEBOUNCE_MS = 350L
+
 /** Where the app currently is in the search -> preview -> drive flow. */
 private enum class NavMode { IDLE, PREVIEW, ACTIVE }
 
@@ -186,6 +190,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var homeSettingsButton: ImageButton
     private lateinit var homeSheetBackButton: ImageButton
     private lateinit var homeSearchInput: EditText
+    private lateinit var homeSearchInputContainer: View
+    private lateinit var homeSearchClearButton: ImageButton
+    private lateinit var searchClearButton: ImageButton
     private lateinit var homeSheetExpandedTitle: TextView
     private lateinit var homeSearchBody: View
     private lateinit var homeSettingsBody: View
@@ -202,6 +209,11 @@ class MainActivity : AppCompatActivity() {
     private var searchBodyBaselineHeight = -1
     private var dragStartRawY = 0f
     private var dragging = false
+
+    /** True while the post-drag snap animation runs - keeps the sheet out
+     * of full-height mode until it settles (the keyboard closing mid-snap
+     * would otherwise re-apply full height and make it jump). */
+    private var settlingDrag = false
     private var dragBaseHeight = 0
     private var dragRangeHeight = 0
 
@@ -210,6 +222,20 @@ class MainActivity : AppCompatActivity() {
      * one, since the two are never active at the same time. */
     private var activeSearchInput: EditText? = null
     private var activeSearchResultsList: ListView? = null
+
+    /** Pending debounced live search (cancelled on every keystroke), and
+     * a counter bumped on every new search/clear - a response is only
+     * shown if no newer search started after it, so a slow reply for
+     * "lo" can never overwrite the results for "lorong". */
+    private var liveSearchRunnable: Runnable? = null
+    private var searchSeq = 0
+
+    /** Latest keyboard height / status bar height from window insets -
+     * kept so the sheet can be re-laid out when its state changes, not
+     * only when the keyboard moves. */
+    private var lastImeBottom = 0
+    private var statusBarTop = 0
+    private var homeSheetBasePaddingBottom = 0
 
     /** Set while waiting for the user to pick a destination to save under
      * "home" or "work" - cleared once that pick is saved. */
@@ -321,6 +347,10 @@ class MainActivity : AppCompatActivity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val searchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+    // Place search gets its own thread so a burst of as-you-type lookups
+    // never queues up in front of a route calculation (searchExecutor).
+    private val placeSearchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var currentResults: List<GeocodeResult> = emptyList()
 
     private val requestLocationPermission =
@@ -425,11 +455,41 @@ class MainActivity : AppCompatActivity() {
      * it) ends up rendered underneath the keyboard instead of above it. */
     private fun setUpImeInsetHandling() {
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { _, insets ->
-            val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-            homeSheet.translationY = -imeBottom.toFloat()
+            lastImeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            statusBarTop = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+            applySheetInsets()
             insets
         }
     }
+
+    /** Lays the home sheet out for its current state and the keyboard:
+     *  - SEARCH: full height (just below the status bar), like Waze's
+     *    search screen, with bottom padding equal to the keyboard height so
+     *    the results list ends right above the keyboard and scrolls.
+     *  - otherwise: normal wrap-content bottom sheet, lifted above the
+     *    keyboard if one is open.
+     * Also pads the mid-drive search bar (topBar) the same way. */
+    private fun applySheetInsets() {
+        val fullHeight = homeSheetState == HomeSheetState.SEARCH && !dragging && !settlingDrag
+        val params = homeSheet.layoutParams as? ViewGroup.MarginLayoutParams
+        if (params != null) {
+            val topGap = (if (statusBarTop > 0) statusBarTop else dp(32)) + dp(8)
+            val wantHeight = if (fullHeight) ViewGroup.LayoutParams.MATCH_PARENT else ViewGroup.LayoutParams.WRAP_CONTENT
+            val wantTop = if (fullHeight) topGap else 0
+            if (params.height != wantHeight || params.topMargin != wantTop) {
+                params.height = wantHeight
+                params.topMargin = wantTop
+                homeSheet.layoutParams = params
+            }
+        }
+        val bottomPad = homeSheetBasePaddingBottom + if (fullHeight) lastImeBottom else 0
+        homeSheet.setPadding(homeSheet.paddingLeft, homeSheet.paddingTop, homeSheet.paddingRight, bottomPad)
+        homeSheet.translationY = if (fullHeight) 0f else -lastImeBottom.toFloat()
+
+        topBar.setPadding(topBar.paddingLeft, topBar.paddingTop, topBar.paddingRight, lastImeBottom + dp(12))
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun setUpSettings() {
         findViewById<Switch>(R.id.voiceGuidanceSwitch).apply {
@@ -484,49 +544,78 @@ class MainActivity : AppCompatActivity() {
         searchResultsList = findViewById(R.id.searchResultsList)
         homeSearchInput = findViewById(R.id.homeSearchInput)
         homeSearchResultsList = findViewById(R.id.homeSearchResultsList)
+        homeSearchInputContainer = findViewById(R.id.homeSearchInputContainer)
+        homeSearchClearButton = findViewById(R.id.homeSearchClearButton)
+        searchClearButton = findViewById(R.id.searchClearButton)
 
         // Two search boxes share this wiring: the mid-drive one (topBar)
         // and the idle home sheet's own one. They're never open at the
         // same time, so both just feed the same runSearch()/currentResults
         // - showSearchResults() writes into whichever one's
         // activeSearchResultsList was set when it was opened.
-        wireSearchBox(searchInput, searchResultsList)
-        wireSearchBox(homeSearchInput, homeSearchResultsList)
+        wireSearchBox(searchInput, searchResultsList, searchClearButton)
+        wireSearchBox(homeSearchInput, homeSearchResultsList, homeSearchClearButton)
     }
 
     private fun wireSearchBox(
         input: EditText,
         resultsList: ListView,
+        clearButton: ImageButton,
     ) {
-        // Nominatim's usage policy rules out hitting the public endpoint as
-        // autocomplete-on-every-keystroke (that reads as systematic/bulk
-        // querying to them). So typing itself never calls the network here
-        // - it only clears stale results once the box empties out. The
-        // actual search fires once, on explicit submit (search/enter/go on
-        // the keyboard), via the editor-action listener below.
+        // Search-as-you-type: each keystroke (re)starts a short timer, and
+        // the live search (Photon - see GeocodingService.searchLive) fires
+        // once typing pauses. Clearing the box, or getting under 2
+        // letters, cancels anything pending and drops stale results.
         input.addTextChangedListener(
             object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
 
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                    if (s?.toString().orEmpty().trim().length < 3) {
+                    val text = s?.toString().orEmpty()
+                    clearButton.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
+
+                    liveSearchRunnable?.let { mainHandler.removeCallbacks(it) }
+                    liveSearchRunnable = null
+
+                    if (text.trim().length < GeocodingService.MIN_LIVE_QUERY_LENGTH) {
+                        searchSeq++ // any reply still in flight is now stale
                         currentResults = emptyList()
                         resultsList.visibility = View.GONE
+                        if (resultsList === homeSearchResultsList) setHomeQuickPicksVisible(true)
+                        return
                     }
+                    // Only the driver typing triggers a search - not a
+                    // programmatic setText() on a box that isn't in use.
+                    if (!input.hasFocus()) return
+
+                    activeSearchInput = input
+                    activeSearchResultsList = resultsList
+                    val pending = Runnable { runSearch(text, live = true) }
+                    liveSearchRunnable = pending
+                    mainHandler.postDelayed(pending, LIVE_SEARCH_DEBOUNCE_MS)
                 }
 
                 override fun afterTextChanged(s: Editable?) {}
             },
         )
 
+        clearButton.setOnClickListener {
+            input.setText("")
+            input.requestFocus()
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+        }
+
         input.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH ||
                 actionId == EditorInfo.IME_ACTION_DONE ||
                 actionId == EditorInfo.IME_ACTION_GO
             ) {
+                liveSearchRunnable?.let { mainHandler.removeCallbacks(it) }
+                liveSearchRunnable = null
                 activeSearchInput = input
                 activeSearchResultsList = resultsList
-                runSearch(input.text?.toString().orEmpty())
+                runSearch(input.text?.toString().orEmpty(), live = false)
                 true
             } else {
                 false
@@ -559,6 +648,7 @@ class MainActivity : AppCompatActivity() {
         searchBackButton = findViewById(R.id.searchBackButton)
 
         homeSheet = findViewById(R.id.homeSheet)
+        homeSheetBasePaddingBottom = homeSheet.paddingBottom
         homeSheetCollapsedRow = findViewById(R.id.homeSheetCollapsedRow)
         homeSheetExpandedRow = findViewById(R.id.homeSheetExpandedRow)
         homeSearchPill = findViewById(R.id.homeSearchPill)
@@ -619,7 +709,7 @@ class MainActivity : AppCompatActivity() {
         homeSheetState = state
         homeSheetCollapsedRow.visibility = if (state == HomeSheetState.COLLAPSED) View.VISIBLE else View.GONE
         homeSheetExpandedRow.visibility = if (state == HomeSheetState.COLLAPSED) View.GONE else View.VISIBLE
-        homeSearchInput.visibility = if (state == HomeSheetState.SEARCH) View.VISIBLE else View.GONE
+        homeSearchInputContainer.visibility = if (state == HomeSheetState.SEARCH) View.VISIBLE else View.GONE
         homeSheetExpandedTitle.visibility = if (state == HomeSheetState.SETTINGS) View.VISIBLE else View.GONE
         homeSearchBody.visibility = if (state == HomeSheetState.SEARCH) View.VISIBLE else View.GONE
         homeSettingsBody.visibility = if (state == HomeSheetState.SETTINGS) View.VISIBLE else View.GONE
@@ -641,6 +731,7 @@ class MainActivity : AppCompatActivity() {
             currentResults = emptyList()
             imm.hideSoftInputFromWindow(homeSearchInput.windowToken, 0)
         }
+        applySheetInsets()
     }
 
     /** Handles the home sheet's drag handle - lets the sheet be dragged
@@ -672,6 +763,14 @@ class MainActivity : AppCompatActivity() {
                         HomeSheetState.SEARCH -> {
                             dragRangeHeight = homeSearchBody.height.coerceAtLeast(1)
                             dragBaseHeight = dragRangeHeight
+                            // Shrink from full-screen back to a normal
+                            // bottom sheet so dragging down visibly pulls
+                            // the sheet's top edge down with the finger
+                            // (applySheetInsets() skips full height while
+                            // dragging is true).
+                            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                            imm.hideSoftInputFromWindow(homeSearchInput.windowToken, 0)
+                            applySheetInsets()
                         }
                         HomeSheetState.SETTINGS -> return false
                     }
@@ -713,7 +812,7 @@ class MainActivity : AppCompatActivity() {
     private fun beginDragOpenFromCollapsed() {
         homeSheetCollapsedRow.visibility = View.GONE
         homeSheetExpandedRow.visibility = View.VISIBLE
-        homeSearchInput.visibility = View.VISIBLE
+        homeSearchInputContainer.visibility = View.VISIBLE
         homeSheetExpandedTitle.visibility = View.GONE
         homeSearchBody.visibility = View.VISIBLE
         homeSearchBody.layoutParams.height = 0
@@ -730,6 +829,7 @@ class MainActivity : AppCompatActivity() {
         val current = homeSearchBody.layoutParams.height.coerceIn(0, dragRangeHeight)
         val openEnough = current > dragRangeHeight / 2
         val target = if (openEnough) dragRangeHeight else 0
+        settlingDrag = true
         ValueAnimator.ofInt(current, target).apply {
             duration = 180
             addUpdateListener { anim ->
@@ -741,6 +841,7 @@ class MainActivity : AppCompatActivity() {
             addListener(
                 object : AnimatorListenerAdapter() {
                     override fun onAnimationEnd(animation: Animator) {
+                        settlingDrag = false
                         homeSearchBody.layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
                         homeSearchBody.alpha = 1f
                         homeSearchBody.requestLayout()
@@ -892,36 +993,116 @@ class MainActivity : AppCompatActivity() {
         refreshSavedPlaceLabels()
     }
 
-    private fun runSearch(query: String) {
-        if (query.trim().length < 3) {
+    /** live = as-you-type (Photon only, failures stay silent and keep the
+     * previous results); otherwise it's the keyboard's Search key (Photon,
+     * falling back to Nominatim, with a message if nothing is found). */
+    private fun runSearch(
+        query: String,
+        live: Boolean,
+    ) {
+        val trimmed = query.trim()
+        if (trimmed.length < GeocodingService.MIN_LIVE_QUERY_LENGTH) {
+            searchSeq++
             currentResults = emptyList()
             activeSearchResultsList?.visibility = View.GONE
             return
         }
         val bias = lastKnownLocation
-        searchExecutor.execute {
-            val results =
+        val seq = ++searchSeq
+        placeSearchExecutor.execute {
+            val results: List<GeocodeResult>? =
                 try {
-                    GeocodingService.search(query, bias?.latitude, bias?.longitude)
+                    if (live) {
+                        GeocodingService.searchLive(trimmed, bias?.latitude, bias?.longitude)
+                    } else {
+                        GeocodingService.search(trimmed, bias?.latitude, bias?.longitude)
+                    }
                 } catch (e: Exception) {
-                    emptyList()
+                    null
                 }
-            mainHandler.post { showSearchResults(results) }
+            mainHandler.post {
+                if (seq != searchSeq) return@post // a newer search/clear replaced this one
+                if (results == null) {
+                    if (!live) Toast.makeText(this, "Search failed - check your connection", Toast.LENGTH_SHORT).show()
+                    return@post
+                }
+                if (!live && results.isEmpty()) {
+                    Toast.makeText(this, "No places found", Toast.LENGTH_SHORT).show()
+                }
+                showSearchResults(results)
+            }
         }
     }
 
     private fun showSearchResults(results: List<GeocodeResult>) {
         currentResults = results
         val list = activeSearchResultsList ?: return
+        // Home/Work make way for real results, and come back once the box
+        // is cleared - same as Waze showing Home/Work only on an empty box.
+        if (list === homeSearchResultsList) setHomeQuickPicksVisible(results.isEmpty())
         if (results.isEmpty()) {
             list.visibility = View.GONE
             return
         }
-        list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, results.map { it.label })
+        list.adapter = SearchResultAdapter(results, lastKnownLocation)
         list.visibility = View.VISIBLE
+        list.setSelection(0)
     }
 
+    private fun setHomeQuickPicksVisible(visible: Boolean) {
+        val v = if (visible) View.VISIBLE else View.GONE
+        homeButton.visibility = v
+        workButton.visibility = v
+    }
+
+    /** Two-line results row (bold name, grey area) with the distance from
+     * the driver's last GPS fix on the right, like Waze. */
+    private inner class SearchResultAdapter(
+        private val results: List<GeocodeResult>,
+        private val origin: Location?,
+    ) : BaseAdapter() {
+        override fun getCount(): Int = results.size
+
+        override fun getItem(position: Int): Any = results[position]
+
+        override fun getItemId(position: Int): Long = position.toLong()
+
+        override fun getView(
+            position: Int,
+            convertView: View?,
+            parent: ViewGroup,
+        ): View {
+            val row = convertView ?: LayoutInflater.from(parent.context).inflate(R.layout.item_search_result, parent, false)
+            val result = results[position]
+            row.findViewById<TextView>(R.id.resultName).text = result.name.ifBlank { result.label }
+            val address = row.findViewById<TextView>(R.id.resultAddress)
+            address.text = result.address
+            address.visibility = if (result.address.isBlank()) View.GONE else View.VISIBLE
+            val distance = row.findViewById<TextView>(R.id.resultDistance)
+            if (origin != null) {
+                distance.text =
+                    formatDistance(
+                        GeocodingService.distanceMeters(origin.latitude, origin.longitude, result.latitude, result.longitude),
+                    )
+                distance.visibility = View.VISIBLE
+            } else {
+                distance.visibility = View.GONE
+            }
+            return row
+        }
+    }
+
+    private fun formatDistance(meters: Float): String =
+        when {
+            meters < 1000f -> "${(Math.round(meters / 10f) * 10)} m"
+            meters < 100_000f -> String.format(java.util.Locale.US, "%.1f km", meters / 1000f)
+            else -> "${Math.round(meters / 1000f)} km"
+        }
+
     private fun onDestinationSelected(result: GeocodeResult) {
+        liveSearchRunnable?.let { mainHandler.removeCallbacks(it) }
+        liveSearchRunnable = null
+        searchSeq++ // a late search reply must not reopen the results list
         activeSearchResultsList?.visibility = View.GONE
         currentResults = emptyList()
         // Clear rather than fill with the picked destination's label - the
@@ -1823,6 +2004,8 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         mapView.onDestroy()
         searchExecutor.shutdownNow()
+        placeSearchExecutor.shutdownNow()
+        liveSearchRunnable?.let { mainHandler.removeCallbacks(it) }
         unbindNavigationService()
         super.onDestroy()
     }

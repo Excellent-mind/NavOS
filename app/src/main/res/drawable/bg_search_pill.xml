@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Light grey rounded pill for the search box inside the white home
+     sheet (white-on-white would make the box invisible). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#F0F2F6" />
+    <corners android:radius="24dp" />
+</shape>
