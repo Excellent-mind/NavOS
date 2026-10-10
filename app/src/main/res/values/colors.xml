@@ -3,4 +3,24 @@
     <color name="navos_navy">#14284B</color>
     <color name="navos_blue">#1CB0F6</color>
     <color name="white">#FFFFFF</color>
+
+    <!-- Semantic UI colours. Light values are the original look; the
+         matching dark values live in values-night/colors.xml. -->
+    <color name="navos_surface">#FFFFFF</color>
+    <color name="navos_surface_variant">#F0F2F6</color>
+    <color name="navos_surface_alt">#F2F4F7</color>
+    <color name="navos_text">#14284B</color>
+    <color name="navos_text_secondary">#5F6B7A</color>
+    <color name="navos_text_tertiary">#7A869A</color>
+    <color name="navos_hint">#80142A4B</color>
+    <color name="navos_divider_faint">#14142A4B</color>
+    <color name="navos_line">#E3E7EC</color>
+    <color name="navos_rule">#E0E0E0</color>
+    <color name="navos_handle">#CBD1DA</color>
+    <color name="navos_button_fill">#14284B</color>
+    <color name="navos_overlay_surface">#99FFFFFF</color>
+    <color name="navos_chip_ok_bg">#EAF7EF</color>
+    <color name="navos_chip_ok_text">#1F9D55</color>
+    <color name="navos_chip_off_bg">#F1F3F6</color>
+    <color name="navos_chip_off_text">#9AA4B5</color>
 </resources>
