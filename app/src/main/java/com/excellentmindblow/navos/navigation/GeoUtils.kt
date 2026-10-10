@@ -95,4 +95,52 @@ object GeoUtils {
             )
         return distanceMeters(p, closest)
     }
+
+    /** Where a GPS point lands on the route line. */
+    data class RouteSnap(
+        val point: RoutePoint,
+        val bearing: Double,
+        val distanceMeters: Double,
+        val segmentIndex: Int,
+    )
+
+    /** Projects [p] onto the polyline and returns the closest spot on it,
+     * the line's own heading there, and how far off the line the GPS fix
+     * was. Only segments from [startIndex] for [maxSegments] are searched,
+     * so a parallel road or a later loop of the route can't steal the match
+     * and long routes stay cheap. Null when the line is too short. */
+    fun snapToPolyline(
+        p: RoutePoint,
+        line: List<RoutePoint>,
+        startIndex: Int = 0,
+        maxSegments: Int = Int.MAX_VALUE,
+    ): RouteSnap? {
+        if (line.size < 2) return null
+        val first = startIndex.coerceIn(0, line.size - 2)
+        val last = if (maxSegments >= line.size) line.size - 2 else (first + maxSegments).coerceAtMost(line.size - 2)
+        var best: RouteSnap? = null
+        for (i in first..last) {
+            val a = line[i]
+            val b = line[i + 1]
+            val cosLat = cos(toRad(a.latitude))
+            val dx = (b.longitude - a.longitude) * cosLat
+            val dy = b.latitude - a.latitude
+            val lengthSq = dx * dx + dy * dy
+            if (lengthSq == 0.0) continue
+            val px = (p.longitude - a.longitude) * cosLat
+            val py = p.latitude - a.latitude
+            val t = ((px * dx + py * dy) / lengthSq).coerceIn(0.0, 1.0)
+            val closest =
+                RoutePoint(
+                    latitude = a.latitude + t * (b.latitude - a.latitude),
+                    longitude = a.longitude + t * (b.longitude - a.longitude),
+                )
+            val d = distanceMeters(p, closest)
+            val currentBest = best
+            if (currentBest == null || d < currentBest.distanceMeters) {
+                best = RouteSnap(closest, bearingDegrees(a, b), d, i)
+            }
+        }
+        return best
+    }
 }
