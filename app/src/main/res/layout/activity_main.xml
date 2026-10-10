@@ -903,9 +903,8 @@
                 android:id="@+id/mapStyleDark"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:enabled="false"
-                android:text="Dark (coming soon)"
-                android:textColor="#80142A4B" />
+                android:text="Dark"
+                android:textColor="@color/navos_navy" />
 
         </RadioGroup>
 

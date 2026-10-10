@@ -32,6 +32,8 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
@@ -86,6 +88,12 @@ import java.util.concurrent.Executors
 // React Native build. https://openfreemap.org
 private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
 
+// OpenFreeMap's own dark basemap - one of their six default styles
+// (Positron/Bright/Liberty/Dark/Fiord/3D), same free no-API-key CDN as the
+// light style above, no new provider or dependency. "Fiord" is the one the
+// user picked (confirmed against openfreemap.org's own style list).
+private const val MAP_STYLE_URL_DARK = "https://tiles.openfreemap.org/styles/fiord"
+
 private const val ROUTE_SOURCE_ID = "navos-route-source"
 private const val ROUTE_CASING_LAYER_ID = "navos-route-casing-layer"
 private const val ROUTE_LAYER_ID = "navos-route-layer"
@@ -119,6 +127,7 @@ private const val IDLE_RECENTER_ZOOM = 16.5
 
 private const val PREFS_NAME = "navos_prefs"
 private const val KEY_VOICE_ENABLED = "voice_enabled"
+private const val KEY_DARK_MODE_ENABLED = "dark_mode_enabled"
 
 /** Where the app currently is in the search -> preview -> drive flow. */
 private enum class NavMode { IDLE, PREVIEW, ACTIVE }
@@ -201,6 +210,12 @@ class MainActivity : AppCompatActivity() {
     private var routeSource: GeoJsonSource? = null
     private var altRouteSource: GeoJsonSource? = null
     private var destinationSource: GeoJsonSource? = null
+
+    /** The destination pin's position, kept around purely so it can be
+     * redrawn after a map restyle (e.g. toggling dark mode) wipes every
+     * custom source/layer - MapLibre's setStyle() fully replaces the style,
+     * it doesn't merge into it. */
+    private var destinationLatLng: LatLng? = null
 
     private var navMode = NavMode.IDLE
     private var routeOptions: List<Route> = emptyList()
@@ -351,11 +366,9 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            loadedMap.setStyle(Style.Builder().fromUri(MAP_STYLE_URL)) { style ->
-                enableLocationComponent(loadedMap, style)
-                setUpRouteLayers(style)
-                ensureLocationPermissionThenTrack()
-            }
+            val initialStyleUrl =
+                if (prefs.getBoolean(KEY_DARK_MODE_ENABLED, false)) MAP_STYLE_URL_DARK else MAP_STYLE_URL
+            applyMapStyle(loadedMap, initialStyleUrl, isRestyle = false)
         }
 
         setUpSearch()
@@ -380,8 +393,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // "Dark" is disabled in the layout until we've confirmed a working
-        // dark style URL to switch to - nothing more to wire up here yet.
+        val isDark = prefs.getBoolean(KEY_DARK_MODE_ENABLED, false)
+        findViewById<RadioButton>(R.id.mapStyleLight).isChecked = !isDark
+        findViewById<RadioButton>(R.id.mapStyleDark).isChecked = isDark
+
+        findViewById<RadioGroup>(R.id.mapStyleGroup).setOnCheckedChangeListener { _, checkedId ->
+            val wantDark = checkedId == R.id.mapStyleDark
+            if (wantDark == prefs.getBoolean(KEY_DARK_MODE_ENABLED, false)) return@setOnCheckedChangeListener
+            prefs.edit().putBoolean(KEY_DARK_MODE_ENABLED, wantDark).apply()
+            val loadedMap = map ?: return@setOnCheckedChangeListener
+            applyMapStyle(loadedMap, if (wantDark) MAP_STYLE_URL_DARK else MAP_STYLE_URL, isRestyle = true)
+        }
     }
 
     /** Placeholder profile-drawer rows - there's no account/backend system
@@ -760,6 +782,33 @@ class MainActivity : AppCompatActivity() {
         fetchRoute(result)
     }
 
+    /** Loads a map style (initial load, or a later switch e.g. the
+     * Light/Dark setting). MapLibre's setStyle() fully replaces the style -
+     * it does not merge into the existing one - so every custom
+     * source/layer (location puck, route lines, destination pin, incident
+     * reports) has to be re-added afterward, and on a restyle (not the
+     * first load) any live state those sources held has to be redrawn into
+     * the fresh, empty sources too. */
+    private fun applyMapStyle(
+        loadedMap: MapLibreMap,
+        styleUrl: String,
+        isRestyle: Boolean,
+    ) {
+        loadedMap.setStyle(Style.Builder().fromUri(styleUrl)) { style ->
+            enableLocationComponent(loadedMap, style)
+            setUpRouteLayers(style)
+            if (isRestyle) {
+                redrawRouteLines()
+                destinationLatLng?.let { showDestinationMarker(it) }
+                if (incidentFeatures.isNotEmpty()) {
+                    incidentsSource?.setGeoJson(FeatureCollection.fromFeatures(incidentFeatures))
+                }
+            } else {
+                ensureLocationPermissionThenTrack()
+            }
+        }
+    }
+
     private fun setUpRouteLayers(style: Style) {
         // The base style's own road/POI name labels are symbol layers
         // further up its layer stack. style.addLayer() appends at the very
@@ -901,10 +950,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDestinationMarker(latLng: LatLng) {
+        destinationLatLng = latLng
         destinationSource?.setGeoJson(Point.fromLngLat(latLng.longitude, latLng.latitude))
     }
 
     private fun clearDestinationMarker() {
+        destinationLatLng = null
         destinationSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
     }
 
