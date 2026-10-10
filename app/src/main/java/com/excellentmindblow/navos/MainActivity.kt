@@ -474,10 +474,12 @@ class MainActivity : AppCompatActivity() {
                     when (navMode) {
                         NavMode.ACTIVE -> {
                             navFollowing = false
+                            placeRecenterButton(drivingLayout = true)
                             recenterButton.visibility = View.VISIBLE
                         }
                         NavMode.IDLE -> {
                             followingUser = false
+                            placeRecenterButton(drivingLayout = false)
                             recenterButton.visibility = View.VISIBLE
                         }
                         NavMode.PREVIEW -> {}
@@ -1871,6 +1873,28 @@ class MainActivity : AppCompatActivity() {
             ),
             durationMs,
         )
+    }
+
+    /** Positions the recenter button for the current screen. During a drive
+     * the bottom-right column is taken by the report and POI buttons (the
+     * report button sits in exactly the spot the free-roam recenter button
+     * uses and would hide it), so while driving it goes bottom-left, just
+     * above the speed badge. In free-roam it keeps its layout position. */
+    private fun placeRecenterButton(drivingLayout: Boolean) {
+        val params = recenterButton.layoutParams as? android.widget.FrameLayout.LayoutParams ?: return
+        val density = resources.displayMetrics.density
+        if (drivingLayout) {
+            params.gravity = Gravity.BOTTOM or Gravity.START
+            params.marginStart = (12 * density).toInt()
+            params.marginEnd = 0
+            params.bottomMargin = (100 * density).toInt()
+        } else {
+            params.gravity = Gravity.BOTTOM or Gravity.END
+            params.marginStart = 0
+            params.marginEnd = (12 * density).toInt()
+            params.bottomMargin = (120 * density).toInt()
+        }
+        recenterButton.layoutParams = params
     }
 
     /** The Position/recenter button's actual behavior, chosen by whether a

@@ -258,8 +258,8 @@
             android:visibility="gone" />
 
         <!-- "What do you see?" incident report button, shown only during
-             active navigation - same spot the re-centre button uses in
-             free-roam, since the two are never visible at once. -->
+             active navigation. The re-centre button moves to the bottom-left
+             (above the speed badge) while driving so the two don't overlap. -->
         <ImageButton
             android:id="@+id/reportButton"
             android:layout_width="48dp"
