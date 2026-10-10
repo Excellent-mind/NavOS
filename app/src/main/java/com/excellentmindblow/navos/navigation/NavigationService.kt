@@ -9,7 +9,9 @@ import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationManager
 import android.os.Binder
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -80,6 +82,13 @@ class NavigationService : Service() {
         // logic.
         private const val MIN_ARRIVAL_METERS = 30.0
 
+        // Reroute pacing: the engine flags offRoute on every GPS fix (~1/s),
+        // so without these a single noisy fix would trigger a reroute and a
+        // failed request (no signal, OSRM busy/rate-limited) would be
+        // retried every second.
+        private const val OFF_ROUTE_FIXES_BEFORE_REROUTE = 2
+        private const val REROUTE_RETRY_COOLDOWN_MS = 5_000L
+
         private const val PREFS_NAME = "navos_prefs"
         private const val KEY_VOICE_ENABLED = "voice_enabled"
     }
@@ -92,6 +101,10 @@ class NavigationService : Service() {
     private var locationTracker: LiveLocationTracker? = null
     private var rerouteExecutor: ExecutorService? = null
     private var isRerouting = false
+    private var offRouteStreak = 0
+    private var lastRerouteAttemptMs = 0L
+    private var rerouteCount = 0
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var activeRoute: Route? = null
     private var hasStoppedSelf = false
 
@@ -201,6 +214,8 @@ class NavigationService : Service() {
         engine = null
         activeRoute = null
         isRerouting = false
+        offRouteStreak = 0
+        mainHandler.removeCallbacksAndMessages(null)
         lastLocation = null
         lastState = null
 
@@ -244,7 +259,17 @@ class NavigationService : Service() {
             return
         }
 
-        if (state.offRoute && !isRerouting) {
+        if (!state.offRoute) {
+            offRouteStreak = 0
+            return
+        }
+        offRouteStreak += 1
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!isRerouting &&
+            offRouteStreak >= OFF_ROUTE_FIXES_BEFORE_REROUTE &&
+            now - lastRerouteAttemptMs >= REROUTE_RETRY_COOLDOWN_MS
+        ) {
+            lastRerouteAttemptMs = now
             rerouteFromCurrentLocation()
         }
     }
@@ -259,6 +284,9 @@ class NavigationService : Service() {
         val destination = activeRoute?.geometry?.lastOrNull() ?: return
         isRerouting = true
 
+        rerouteCount += 1
+        voiceNarrator?.speak("reroute-$rerouteCount", "Recalculating")
+
         val executor = rerouteExecutor ?: Executors.newSingleThreadExecutor().also { rerouteExecutor = it }
         val originPoint = RoutePoint(origin.latitude, origin.longitude)
         executor.execute {
@@ -266,13 +294,22 @@ class NavigationService : Service() {
             try {
                 routes = RoutingService.calculateRoutes(originPoint, destination)
             } catch (e: Exception) {
-                // Empty list just means "stay off-route, try again next
-                // off-route tick" rather than crash the service.
+                // Empty list just means "stay off-route, try again after the
+                // cooldown" rather than crash the service.
             }
-            isRerouting = false
-            val newRoute = routes.firstOrNull()
-            if (newRoute != null && activeRoute != null) {
-                rerouteTo(newRoute)
+            // Everything that touches the engine, the map listener or this
+            // service's state goes back onto the main thread - GPS updates,
+            // the engine and the map all live there, and applying a route
+            // from this worker thread raced with them (and map calls off the
+            // main thread don't work), which is why the new route never
+            // showed up.
+            mainHandler.post {
+                isRerouting = false
+                val newRoute = routes.firstOrNull()
+                if (newRoute != null && activeRoute != null && !hasStoppedSelf) {
+                    offRouteStreak = 0
+                    rerouteTo(newRoute)
+                }
             }
         }
     }

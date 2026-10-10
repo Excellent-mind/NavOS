@@ -2107,9 +2107,11 @@ class MainActivity : AppCompatActivity() {
             }
         val remainingKm = state.distanceRemainingMeters / 1000.0
         val remainingMin = state.durationRemainingSeconds / 60.0
-        val suffix = if (state.offRoute) " (off route)" else ""
-        turnDistanceText.text = "$distanceLabel$suffix"
-        turnStreetText.text = state.instruction
+        turnDistanceText.text = if (state.offRoute) "" else distanceLabel
+        // Off the planned route: NavigationService is already fetching a new
+        // one (and says "Recalculating"), so show that instead of a turn
+        // instruction that no longer applies.
+        turnStreetText.text = if (state.offRoute) "Recalculating..." else state.instruction
 
         val arrivalTime = Date(System.currentTimeMillis() + (state.durationRemainingSeconds * 1000).toLong())
         val arrivalLabel = SimpleDateFormat("h:mm a", Locale.US).format(arrivalTime)
