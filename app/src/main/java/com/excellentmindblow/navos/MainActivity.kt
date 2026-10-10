@@ -213,6 +213,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var routePreviewVia: TextView
     private lateinit var routePreviewDestination: TextView
     private var navSheetExpanded = false
+    private lateinit var navBarRow: View
     private var destinationName: String? = null
     private lateinit var turnIcon: ImageView
     private lateinit var speedBadge: TextView
@@ -772,6 +773,14 @@ class MainActivity : AppCompatActivity() {
         routePreviewHint = findViewById(R.id.routePreviewHint)
         topNavBar = findViewById(R.id.topNavBar)
         bottomNavBar = findViewById(R.id.bottomNavBar)
+        navBarRow = findViewById(R.id.navBarRow)
+        // Keep the speed badge / report / POI / recenter buttons riding on
+        // the drive bar's top edge as it expands or collapses (runs every
+        // frame, so it also follows the 220 ms expand animation).
+        bottomNavBar.viewTreeObserver.addOnPreDrawListener {
+            updateNavFloatingOffset()
+            true
+        }
         turnDistanceText = findViewById(R.id.turnDistanceText)
         turnStreetText = findViewById(R.id.turnStreetText)
         etaClockText = findViewById(R.id.etaClockText)
@@ -804,7 +813,9 @@ class MainActivity : AppCompatActivity() {
 
         homeSearchPill.setOnClickListener { openHomeSheetAnimated() }
         homeSettingsButton.setOnClickListener { setHomeSheetState(HomeSheetState.SETTINGS) }
-        homeSheetBackButton.setOnClickListener { closeHomeSheetAnimated() }
+        homeSheetBackButton.setOnClickListener {
+            if (searchOpenedFromNav) exitSearchFromNav() else closeHomeSheetAnimated()
+        }
         homeSheetDragHandle.setOnTouchListener { _, event -> onHomeSheetDragTouch(event) }
 
         permissionDeniedOverlay = findViewById(R.id.permissionDeniedOverlay)
@@ -1033,6 +1044,8 @@ class MainActivity : AppCompatActivity() {
                             settlingDrag = false
                             homeSearchBody.alpha = 1f
                             setHomeSheetState(if (open) HomeSheetState.SEARCH else HomeSheetState.COLLAPSED)
+                            // Dragged down mid-drive: treat as "back to navigation".
+                            if (!open && searchOpenedFromNav) exitSearchFromNav()
                         }
                     },
                 )
@@ -1080,25 +1093,20 @@ class MainActivity : AppCompatActivity() {
         hidePoiCard()
         nextTurnStrip.visibility = View.GONE
         laneContainer.visibility = View.GONE
-        searchBackButton.visibility = View.VISIBLE
-        topBar.visibility = View.VISIBLE
-        activeSearchInput = searchInput
-        activeSearchResultsList = searchResultsList
-        searchInput.requestFocus()
+        // Reuse the home sheet's full-height search (Home/Work shortcuts +
+        // results above the keyboard) instead of the old bare top bar, so
+        // search looks the same mid-drive as it does when idle.
+        topBar.visibility = View.GONE
+        homeSheet.visibility = View.VISIBLE
+        setHomeSheetState(HomeSheetState.SEARCH)
     }
 
     /** Backs out of a search opened mid-drive without picking anything,
      * restoring the drive UI exactly as it was. */
     private fun exitSearchFromNav() {
         searchOpenedFromNav = false
-        searchBackButton.visibility = View.GONE
-        searchResultsList.visibility = View.GONE
-        currentResults = emptyList()
-        searchInput.setText("")
-        searchInput.clearFocus()
-        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.hideSoftInputFromWindow(searchInput.windowToken, 0)
-        topBar.visibility = View.GONE
+        setHomeSheetState(HomeSheetState.COLLAPSED) // also clears text + hides keyboard
+        homeSheet.visibility = View.GONE
 
         if (navMode == NavMode.ACTIVE) {
             topNavBar.visibility = View.VISIBLE
@@ -1825,6 +1833,22 @@ class MainActivity : AppCompatActivity() {
             }
         }
         findViewById<View>(R.id.navEtaCenter).setOnClickListener { setNavSheetExpanded(!navSheetExpanded) }
+    }
+
+    /** Lifts every floating drive control by however far the drive bar has
+     * grown past its collapsed height, so they stay just above the card
+     * instead of being covered when the Stop pill is revealed. */
+    private fun updateNavFloatingOffset() {
+        val floating = listOf(speedBadge, reportButton, poiToggleColumn, recenterButton, poiCard)
+        if (bottomNavBar.visibility != View.VISIBLE || navBarRow.height == 0) {
+            floating.forEach { if (it.translationY != 0f) it.translationY = 0f }
+            return
+        }
+        val parentHeight = (bottomNavBar.parent as View).height
+        val collapsedHeight = bottomNavBar.paddingTop + bottomNavBar.paddingBottom + dp(24) + navBarRow.height
+        val extra = ((parentHeight - collapsedHeight) - bottomNavBar.top).coerceAtLeast(0)
+        val ty = -extra.toFloat()
+        floating.forEach { if (it.translationY != ty) it.translationY = ty }
     }
 
     private fun setNavSheetExpanded(expanded: Boolean) {
