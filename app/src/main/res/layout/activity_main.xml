@@ -121,8 +121,7 @@
             android:layout_marginTop="40dp"
             android:layout_marginStart="12dp"
             android:layout_marginEnd="12dp"
-            android:background="@drawable/search_bar_bg"
-            android:backgroundTint="@color/navos_navy"
+            android:background="@drawable/bg_top_card"
             android:elevation="4dp"
             android:orientation="vertical"
             android:visibility="gone">
@@ -140,7 +139,8 @@
                     android:layout_height="44dp"
                     android:layout_marginEnd="14dp"
                     android:contentDescription="Next turn"
-                    android:src="@drawable/ic_nav_arrow" />
+                    android:src="@drawable/ic_nav_arrow"
+                    android:tint="@color/navos_navy" />
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -152,7 +152,7 @@
                         android:id="@+id/turnDistanceText"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:textColor="@color/white"
+                        android:textColor="@color/navos_navy"
                         android:textSize="24sp"
                         android:textStyle="bold"
                         tools:text="90 m" />
@@ -161,7 +161,7 @@
                         android:id="@+id/turnStreetText"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:textColor="@color/navos_blue"
+                        android:textColor="#3B4A63"
                         android:textSize="16sp"
                         tools:text="Lorong Sabudin" />
 
@@ -192,7 +192,7 @@
                 android:id="@+id/nextTurnStrip"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="#2A3F63"
+                android:background="@drawable/bg_strip_light"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:paddingStart="16dp"
@@ -206,7 +206,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="10dp"
                     android:text="and then"
-                    android:textColor="#B8C4D9"
+                    android:textColor="#5F6B7A"
                     android:textSize="13sp" />
 
                 <ImageView
@@ -214,7 +214,8 @@
                     android:layout_width="22dp"
                     android:layout_height="22dp"
                     android:contentDescription="Then"
-                    android:src="@drawable/ic_nav_arrow" />
+                    android:src="@drawable/ic_nav_arrow"
+                    android:tint="@color/navos_navy" />
 
             </LinearLayout>
 
@@ -229,10 +230,10 @@
             android:layout_gravity="bottom|start"
             android:layout_marginStart="12dp"
             android:layout_marginBottom="32dp"
-            android:background="@drawable/bg_circle_navy"
+            android:background="@drawable/bg_circle_white"
             android:elevation="4dp"
             android:gravity="center"
-            android:textColor="@color/white"
+            android:textColor="@color/navos_navy"
             android:textSize="13sp"
             android:textStyle="bold"
             android:visibility="gone"
@@ -249,12 +250,12 @@
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="12dp"
             android:layout_marginBottom="120dp"
-            android:background="@drawable/search_bar_bg"
-            android:backgroundTint="@color/navos_navy"
+            android:background="@drawable/bg_circle_white"
             android:contentDescription="Re-centre on my location"
             android:elevation="4dp"
             android:padding="11dp"
             android:src="@drawable/ic_recenter"
+            android:tint="@color/navos_navy"
             android:visibility="gone" />
 
         <!-- "What do you see?" incident report button, shown only during
@@ -267,8 +268,7 @@
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="12dp"
             android:layout_marginBottom="120dp"
-            android:background="@drawable/search_bar_bg"
-            android:backgroundTint="@color/navos_navy"
+            android:background="@drawable/bg_circle_white"
             android:contentDescription="Report what you see"
             android:elevation="4dp"
             android:padding="11dp"
@@ -293,7 +293,7 @@
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:layout_marginBottom="8dp"
-                android:background="@drawable/search_bar_bg"
+                android:background="@drawable/bg_circle_white"
                 android:contentDescription="Show or hide EV charging"
                 android:elevation="4dp"
                 android:padding="12dp"
@@ -303,7 +303,7 @@
                 android:id="@+id/fuelToggleButton"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
-                android:background="@drawable/search_bar_bg"
+                android:background="@drawable/bg_circle_white"
                 android:contentDescription="Show or hide petrol stations"
                 android:elevation="4dp"
                 android:padding="12dp"
@@ -406,7 +406,6 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
             android:background="@drawable/bg_bottom_sheet"
-            android:backgroundTint="@color/navos_navy"
             android:elevation="8dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
@@ -423,7 +422,8 @@
                 android:background="@android:color/transparent"
                 android:contentDescription="Stop navigation"
                 android:padding="8dp"
-                android:src="@drawable/ic_close" />
+                android:src="@drawable/ic_close"
+                android:tint="@color/navos_navy" />
 
             <TextView
                 android:id="@+id/etaSummaryText"
@@ -432,7 +432,7 @@
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
                 android:gravity="center"
-                android:textColor="@color/white"
+                android:textColor="@color/navos_navy"
                 android:textSize="15sp"
                 android:textStyle="bold"
                 tools:text="50 min • 49.9 km • 12:10 am" />
@@ -448,7 +448,8 @@
                 android:background="@android:color/transparent"
                 android:contentDescription="Search for a new destination"
                 android:padding="8dp"
-                android:src="@drawable/ic_search" />
+                android:src="@drawable/ic_search"
+                android:tint="@color/navos_navy" />
 
             <!-- Re-opens the route preview (with alternates redrawn) so the
                  driver can switch routes mid-drive, same spot Waze's fork
@@ -461,7 +462,8 @@
                 android:background="@android:color/transparent"
                 android:contentDescription="Switch route"
                 android:padding="8dp"
-                android:src="@drawable/ic_alt_route" />
+                android:src="@drawable/ic_alt_route"
+                android:tint="@color/navos_navy" />
 
         </LinearLayout>
 
@@ -904,10 +906,16 @@
                     android:orientation="vertical">
 
                     <RadioButton
+                        android:id="@+id/mapStyleSystem"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Follow system"
+                        android:textColor="@color/navos_navy" />
+
+                    <RadioButton
                         android:id="@+id/mapStyleLight"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:checked="true"
                         android:text="Light"
                         android:textColor="@color/navos_navy" />
 

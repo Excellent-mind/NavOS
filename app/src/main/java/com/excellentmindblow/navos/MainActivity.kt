@@ -36,6 +36,7 @@ import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.widget.BaseAdapter
 import android.widget.EditText
 import android.widget.ImageButton
@@ -142,7 +143,11 @@ private const val IDLE_RECENTER_ZOOM = 16.5
 
 private const val PREFS_NAME = "navos_prefs"
 private const val KEY_VOICE_ENABLED = "voice_enabled"
-private const val KEY_DARK_MODE_ENABLED = "dark_mode_enabled"
+private const val KEY_DARK_MODE_ENABLED = "dark_mode_enabled" // legacy (pre "Follow system")
+private const val KEY_MAP_STYLE_MODE = "map_style_mode"
+private const val MAP_STYLE_SYSTEM = "system"
+private const val MAP_STYLE_LIGHT = "light"
+private const val MAP_STYLE_DARK = "dark"
 
 /** Pause after the last keystroke before a live search fires - long
  * enough not to query on every letter, short enough to feel instant. */
@@ -488,7 +493,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             val initialStyleUrl =
-                if (prefs.getBoolean(KEY_DARK_MODE_ENABLED, false)) MAP_STYLE_URL_DARK else MAP_STYLE_URL
+                mapStyleUrl()
             applyMapStyle(loadedMap, initialStyleUrl, isRestyle = false)
         }
 
@@ -572,17 +577,60 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val isDark = prefs.getBoolean(KEY_DARK_MODE_ENABLED, false)
-        findViewById<RadioButton>(R.id.mapStyleLight).isChecked = !isDark
-        findViewById<RadioButton>(R.id.mapStyleDark).isChecked = isDark
+        val styleButtonIds =
+            mapOf(
+                MAP_STYLE_SYSTEM to R.id.mapStyleSystem,
+                MAP_STYLE_LIGHT to R.id.mapStyleLight,
+                MAP_STYLE_DARK to R.id.mapStyleDark,
+            )
+        findViewById<RadioButton>(styleButtonIds.getValue(mapStyleMode())).isChecked = true
 
         findViewById<RadioGroup>(R.id.mapStyleGroup).setOnCheckedChangeListener { _, checkedId ->
-            val wantDark = checkedId == R.id.mapStyleDark
-            if (wantDark == prefs.getBoolean(KEY_DARK_MODE_ENABLED, false)) return@setOnCheckedChangeListener
-            prefs.edit().putBoolean(KEY_DARK_MODE_ENABLED, wantDark).apply()
+            val mode =
+                when (checkedId) {
+                    R.id.mapStyleDark -> MAP_STYLE_DARK
+                    R.id.mapStyleLight -> MAP_STYLE_LIGHT
+                    else -> MAP_STYLE_SYSTEM
+                }
+            if (mode == mapStyleMode()) return@setOnCheckedChangeListener
+            prefs.edit().putString(KEY_MAP_STYLE_MODE, mode).apply()
             val loadedMap = map ?: return@setOnCheckedChangeListener
-            applyMapStyle(loadedMap, if (wantDark) MAP_STYLE_URL_DARK else MAP_STYLE_URL, isRestyle = true)
+            // e.g. Follow system -> Light while the phone is already light:
+            // same map either way, so don't reload the style for nothing.
+            if (wantsDarkMap() == appliedMapDark) return@setOnCheckedChangeListener
+            applyMapStyle(loadedMap, mapStyleUrl(), isRestyle = true)
         }
+    }
+
+    /** The saved map style choice: Follow system (the default), Light or
+     * Dark. Anyone who had picked Dark before "Follow system" existed keeps
+     * Dark; everyone else starts on Follow system. */
+    private fun mapStyleMode(): String =
+        prefs.getString(KEY_MAP_STYLE_MODE, null)
+            ?: if (prefs.getBoolean(KEY_DARK_MODE_ENABLED, false)) MAP_STYLE_DARK else MAP_STYLE_SYSTEM
+
+    private fun wantsDarkMap(): Boolean =
+        when (mapStyleMode()) {
+            MAP_STYLE_DARK -> true
+            MAP_STYLE_LIGHT -> false
+            else -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        }
+
+    private fun mapStyleUrl(): String = if (wantsDarkMap()) MAP_STYLE_URL_DARK else MAP_STYLE_URL
+
+    /** Whether the map style currently loaded (or loading) is the dark one. */
+    private var appliedMapDark: Boolean? = null
+
+    /** The phone switched between light and dark (manually or on a
+     * schedule) - if the map follows the system, swap its style live. The
+     * manifest opts MainActivity out of being recreated for uiMode changes
+     * so this can't interrupt a drive. */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (mapStyleMode() != MAP_STYLE_SYSTEM) return
+        val loadedMap = map ?: return
+        if (wantsDarkMap() == appliedMapDark) return
+        applyMapStyle(loadedMap, mapStyleUrl(), isRestyle = true)
     }
 
     /** Placeholder settings-body rows (help/about) - there's no account/
@@ -1493,6 +1541,7 @@ class MainActivity : AppCompatActivity() {
         styleUrl: String,
         isRestyle: Boolean,
     ) {
+        appliedMapDark = styleUrl == MAP_STYLE_URL_DARK
         loadedMap.setStyle(Style.Builder().fromUri(styleUrl)) { style ->
             enableLocationComponent(loadedMap, style)
             setUpRouteLayers(style)
@@ -2195,8 +2244,8 @@ class MainActivity : AppCompatActivity() {
         val iconPadding = (7 * density).toInt()
         val validColor = ContextCompat.getColor(this, R.color.navos_blue)
         val validTint = ContextCompat.getColor(this, R.color.navos_navy)
-        val dimBackground = ColorStateList.valueOf(0x33FFFFFF)
-        val dimTint = 0x80FFFFFF.toInt()
+        val dimBackground = ColorStateList.valueOf(0x1F14284B)
+        val dimTint = 0x6614284B
 
         lanes.forEach { lane ->
             val indication = lane.indications.firstOrNull() ?: "straight"
