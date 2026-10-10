@@ -88,6 +88,10 @@ class DriveFollower(
         val interval = (now - lastFixAtMs).coerceIn(MIN_ANIM_MS, MAX_ANIM_MS)
         lastFixAtMs = now
 
+        // Idle fixes carry no zoom (NaN); the first drive fix must adopt
+        // its zoom outright, otherwise zoom stays NaN and the drive zoom
+        // is never applied.
+        if (zoom.isNaN() && !newZoom.isNaN()) zoom = newZoom
         fromLat = lat
         fromLng = lng
         fromBearing = bearing
