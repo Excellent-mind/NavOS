@@ -42,9 +42,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
-import androidx.core.view.GravityCompat
 import androidx.core.view.WindowCompat
-import androidx.drawerlayout.widget.DrawerLayout
 import com.excellentmindblow.navos.location.LiveLocationTracker
 import com.excellentmindblow.navos.navigation.NavigationService
 import com.excellentmindblow.navos.navigation.NavigationState
@@ -132,10 +130,10 @@ private const val KEY_DARK_MODE_ENABLED = "dark_mode_enabled"
 /** Where the app currently is in the search -> preview -> drive flow. */
 private enum class NavMode { IDLE, PREVIEW, ACTIVE }
 
-/** Which bottom tab is showing on the free-roam home screen. Settings
- * isn't included - it opens the side drawer as an overlay rather than
- * taking over this panel, so it doesn't have a "selected" state here. */
-private enum class HomeTab { MAP, SEARCH, SAVED }
+/** Which state the free-roam home bottom sheet is in. COLLAPSED shows just
+ * the search pill + settings icon; SEARCH and SETTINGS both expand the same
+ * card in place, with a back arrow to return to COLLAPSED. */
+private enum class HomeSheetState { COLLAPSED, SEARCH, SETTINGS }
 
 /**
  * Native Android entry point. MapView lifecycle forwarding below:
@@ -144,7 +142,6 @@ private enum class HomeTab { MAP, SEARCH, SAVED }
  */
 class MainActivity : AppCompatActivity() {
     private lateinit var mapView: MapView
-    private lateinit var drawerLayout: DrawerLayout
     private lateinit var topBar: View
     private lateinit var searchInput: EditText
     private lateinit var searchResultsList: ListView
@@ -167,17 +164,31 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
     private lateinit var nextTurnStrip: View
     private lateinit var laneContainer: LinearLayout
-    private lateinit var savedPanel: View
-    private lateinit var bottomTabBar: View
-    private lateinit var tabMapButton: LinearLayout
-    private lateinit var tabSearchButton: LinearLayout
-    private lateinit var tabSavedButton: LinearLayout
-    private lateinit var tabSettingsButton: LinearLayout
-    private var activeTab = HomeTab.MAP
     private lateinit var permissionDeniedOverlay: View
     private lateinit var gpsDisabledOverlay: View
     private lateinit var nextTurnIcon: ImageView
     private lateinit var searchBackButton: ImageButton
+
+    // ---- Home bottom sheet (replaces the old tab bar / saved panel /
+    // settings drawer) ----
+    private lateinit var homeSheet: View
+    private lateinit var homeSheetCollapsedRow: View
+    private lateinit var homeSheetExpandedRow: View
+    private lateinit var homeSearchPill: TextView
+    private lateinit var homeSettingsButton: ImageButton
+    private lateinit var homeSheetBackButton: ImageButton
+    private lateinit var homeSearchInput: EditText
+    private lateinit var homeSheetExpandedTitle: TextView
+    private lateinit var homeSearchBody: View
+    private lateinit var homeSettingsBody: View
+    private lateinit var homeSearchResultsList: ListView
+    private var homeSheetState = HomeSheetState.COLLAPSED
+
+    /** Whichever search box (the idle sheet's or the mid-drive topBar's)
+     * most recently opened - showSearchResults()/runSearch() target this
+     * one, since the two are never active at the same time. */
+    private var activeSearchInput: EditText? = null
+    private var activeSearchResultsList: ListView? = null
 
     /** Set while waiting for the user to pick a destination to save under
      * "home" or "work" - cleared once that pick is saved. */
@@ -373,18 +384,12 @@ class MainActivity : AppCompatActivity() {
 
         setUpSearch()
         setUpRouteControls()
-        setUpSettingsDrawer()
+        setUpSettings()
         setUpSavedPlaces()
-        setUpDrawerExtras()
+        setUpSettingsExtras()
     }
 
-    private fun setUpSettingsDrawer() {
-        drawerLayout = findViewById(R.id.drawerLayout)
-
-        findViewById<ImageButton>(R.id.settingsButton).setOnClickListener {
-            drawerLayout.openDrawer(GravityCompat.END)
-        }
-
+    private fun setUpSettings() {
         findViewById<Switch>(R.id.voiceGuidanceSwitch).apply {
             isChecked = prefs.getBoolean(KEY_VOICE_ENABLED, true)
             setOnCheckedChangeListener { _, isChecked ->
@@ -406,9 +411,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Placeholder profile-drawer rows - there's no account/backend system
-     * yet, so these are simple, honest actions rather than fake screens. */
-    private fun setUpDrawerExtras() {
+    /** Placeholder settings-body rows (help/about) - there's no account/
+     * backend system yet, so these are simple, honest actions rather than
+     * fake screens. */
+    private fun setUpSettingsExtras() {
         findViewById<TextView>(R.id.helpFeedbackRow).setOnClickListener {
             val intent =
                 Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:excellentmindblow@gmail.com")).apply {
@@ -434,21 +440,36 @@ class MainActivity : AppCompatActivity() {
     private fun setUpSearch() {
         searchInput = findViewById(R.id.searchInput)
         searchResultsList = findViewById(R.id.searchResultsList)
+        homeSearchInput = findViewById(R.id.homeSearchInput)
+        homeSearchResultsList = findViewById(R.id.homeSearchResultsList)
 
+        // Two search boxes share this wiring: the mid-drive one (topBar)
+        // and the idle home sheet's own one. They're never open at the
+        // same time, so both just feed the same runSearch()/currentResults
+        // - showSearchResults() writes into whichever one's
+        // activeSearchResultsList was set when it was opened.
+        wireSearchBox(searchInput, searchResultsList)
+        wireSearchBox(homeSearchInput, homeSearchResultsList)
+    }
+
+    private fun wireSearchBox(
+        input: EditText,
+        resultsList: ListView,
+    ) {
         // Nominatim's usage policy rules out hitting the public endpoint as
         // autocomplete-on-every-keystroke (that reads as systematic/bulk
         // querying to them). So typing itself never calls the network here
         // - it only clears stale results once the box empties out. The
         // actual search fires once, on explicit submit (search/enter/go on
         // the keyboard), via the editor-action listener below.
-        searchInput.addTextChangedListener(
+        input.addTextChangedListener(
             object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
 
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                     if (s?.toString().orEmpty().trim().length < 3) {
                         currentResults = emptyList()
-                        searchResultsList.visibility = View.GONE
+                        resultsList.visibility = View.GONE
                     }
                 }
 
@@ -456,19 +477,21 @@ class MainActivity : AppCompatActivity() {
             },
         )
 
-        searchInput.setOnEditorActionListener { _, actionId, _ ->
+        input.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH ||
                 actionId == EditorInfo.IME_ACTION_DONE ||
                 actionId == EditorInfo.IME_ACTION_GO
             ) {
-                runSearch(searchInput.text?.toString().orEmpty())
+                activeSearchInput = input
+                activeSearchResultsList = resultsList
+                runSearch(input.text?.toString().orEmpty())
                 true
             } else {
                 false
             }
         }
 
-        searchResultsList.setOnItemClickListener { _, _, position, _ ->
+        resultsList.setOnItemClickListener { _, _, position, _ ->
             val result = currentResults.getOrNull(position) ?: return@setOnItemClickListener
             onDestinationSelected(result)
         }
@@ -492,17 +515,20 @@ class MainActivity : AppCompatActivity() {
         laneContainer = findViewById(R.id.laneContainer)
         nextTurnIcon = findViewById(R.id.nextTurnIcon)
         searchBackButton = findViewById(R.id.searchBackButton)
-        savedPanel = findViewById(R.id.savedPanel)
-        bottomTabBar = findViewById(R.id.bottomTabBar)
-        tabMapButton = findViewById(R.id.tabMapButton)
-        tabSearchButton = findViewById(R.id.tabSearchButton)
-        tabSavedButton = findViewById(R.id.tabSavedButton)
-        tabSettingsButton = findViewById(R.id.tabSettingsButton)
 
-        tabMapButton.setOnClickListener { selectTab(HomeTab.MAP) }
-        tabSearchButton.setOnClickListener { selectTab(HomeTab.SEARCH) }
-        tabSavedButton.setOnClickListener { selectTab(HomeTab.SAVED) }
-        tabSettingsButton.setOnClickListener { drawerLayout.openDrawer(GravityCompat.END) }
+        homeSheet = findViewById(R.id.homeSheet)
+        homeSheetCollapsedRow = findViewById(R.id.homeSheetCollapsedRow)
+        homeSheetExpandedRow = findViewById(R.id.homeSheetExpandedRow)
+        homeSearchPill = findViewById(R.id.homeSearchPill)
+        homeSettingsButton = findViewById(R.id.homeSettingsButton)
+        homeSheetBackButton = findViewById(R.id.homeSheetBackButton)
+        homeSheetExpandedTitle = findViewById(R.id.homeSheetExpandedTitle)
+        homeSearchBody = findViewById(R.id.homeSearchBody)
+        homeSettingsBody = findViewById(R.id.homeSettingsBody)
+
+        homeSearchPill.setOnClickListener { setHomeSheetState(HomeSheetState.SEARCH) }
+        homeSettingsButton.setOnClickListener { setHomeSheetState(HomeSheetState.SETTINGS) }
+        homeSheetBackButton.setOnClickListener { setHomeSheetState(HomeSheetState.COLLAPSED) }
 
         permissionDeniedOverlay = findViewById(R.id.permissionDeniedOverlay)
         gpsDisabledOverlay = findViewById(R.id.gpsDisabledOverlay)
@@ -542,37 +568,29 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Switches the free-roam home screen between its three tabs. Only
-     * meaningful while idle - PREVIEW/ACTIVE hide the whole tab bar and
-     * drive their own bottom sheets instead. */
-    private fun selectTab(tab: HomeTab) {
-        activeTab = tab
-        topBar.visibility = if (tab == HomeTab.SEARCH) View.VISIBLE else View.GONE
-        savedPanel.visibility = if (tab == HomeTab.SAVED) View.VISIBLE else View.GONE
+    /** Switches the free-roam home bottom sheet between collapsed, search
+     * and settings. Only meaningful while idle - PREVIEW/ACTIVE hide the
+     * whole sheet and drive their own bottom sheets instead. */
+    private fun setHomeSheetState(state: HomeSheetState) {
+        homeSheetState = state
+        homeSheetCollapsedRow.visibility = if (state == HomeSheetState.COLLAPSED) View.VISIBLE else View.GONE
+        homeSheetExpandedRow.visibility = if (state == HomeSheetState.COLLAPSED) View.GONE else View.VISIBLE
+        homeSearchInput.visibility = if (state == HomeSheetState.SEARCH) View.VISIBLE else View.GONE
+        homeSheetExpandedTitle.visibility = if (state == HomeSheetState.SETTINGS) View.VISIBLE else View.GONE
+        homeSearchBody.visibility = if (state == HomeSheetState.SEARCH) View.VISIBLE else View.GONE
+        homeSettingsBody.visibility = if (state == HomeSheetState.SETTINGS) View.VISIBLE else View.GONE
 
-        if (tab == HomeTab.SEARCH) {
-            searchInput.requestFocus()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        if (state == HomeSheetState.SEARCH) {
+            activeSearchInput = homeSearchInput
+            activeSearchResultsList = homeSearchResultsList
+            homeSearchInput.requestFocus()
+            imm.showSoftInput(homeSearchInput, InputMethodManager.SHOW_IMPLICIT)
         } else {
-            searchInput.clearFocus()
-            searchResultsList.visibility = View.GONE
-            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.hideSoftInputFromWindow(searchInput.windowToken, 0)
+            homeSearchInput.clearFocus()
+            homeSearchResultsList.visibility = View.GONE
+            imm.hideSoftInputFromWindow(homeSearchInput.windowToken, 0)
         }
-
-        val activeColor = ContextCompat.getColor(this, R.color.navos_navy)
-        val inactiveColor = 0x80142A4B.toInt()
-        tabMapButton.setTabTint(if (tab == HomeTab.MAP) activeColor else inactiveColor)
-        tabSearchButton.setTabTint(if (tab == HomeTab.SEARCH) activeColor else inactiveColor)
-        tabSavedButton.setTabTint(if (tab == HomeTab.SAVED) activeColor else inactiveColor)
-    }
-
-    /** Tints a tab's icon + label to show selection state - both children
-     * are always an ImageView then a TextView, per the tab layout. */
-    private fun LinearLayout.setTabTint(color: Int) {
-        val icon = getChildAt(0) as? ImageView
-        val label = getChildAt(1) as? TextView
-        icon?.setColorFilter(color)
-        label?.setTextColor(color)
     }
 
     /** Opens the search bar over the drive view without stopping the
@@ -591,6 +609,8 @@ class MainActivity : AppCompatActivity() {
         laneContainer.visibility = View.GONE
         searchBackButton.visibility = View.VISIBLE
         topBar.visibility = View.VISIBLE
+        activeSearchInput = searchInput
+        activeSearchResultsList = searchResultsList
         searchInput.requestFocus()
     }
 
@@ -698,9 +718,7 @@ class MainActivity : AppCompatActivity() {
         pendingSavedPlaceLabel = key
         val name = if (key == "home") "home" else "work"
         Toast.makeText(this, "Search your $name address - we'll save it", Toast.LENGTH_LONG).show()
-        selectTab(HomeTab.SEARCH)
-        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.showSoftInput(searchInput, InputMethodManager.SHOW_IMPLICIT)
+        setHomeSheetState(HomeSheetState.SEARCH)
     }
 
     private fun maybeSaveAsPendingPlace(result: GeocodeResult) {
@@ -718,7 +736,7 @@ class MainActivity : AppCompatActivity() {
     private fun runSearch(query: String) {
         if (query.trim().length < 3) {
             currentResults = emptyList()
-            searchResultsList.visibility = View.GONE
+            activeSearchResultsList?.visibility = View.GONE
             return
         }
         val bias = lastKnownLocation
@@ -735,23 +753,26 @@ class MainActivity : AppCompatActivity() {
 
     private fun showSearchResults(results: List<GeocodeResult>) {
         currentResults = results
+        val list = activeSearchResultsList ?: return
         if (results.isEmpty()) {
-            searchResultsList.visibility = View.GONE
+            list.visibility = View.GONE
             return
         }
-        searchResultsList.adapter =
-            ArrayAdapter(this, android.R.layout.simple_list_item_1, results.map { it.label })
-        searchResultsList.visibility = View.VISIBLE
+        list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, results.map { it.label })
+        list.visibility = View.VISIBLE
     }
 
     private fun onDestinationSelected(result: GeocodeResult) {
-        searchResultsList.visibility = View.GONE
+        activeSearchResultsList?.visibility = View.GONE
         currentResults = emptyList()
-        searchInput.setText(result.label)
-        searchInput.clearFocus()
+        activeSearchInput?.setText(result.label)
+        activeSearchInput?.clearFocus()
 
-        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.hideSoftInputFromWindow(searchInput.windowToken, 0)
+        val activeInput = activeSearchInput
+        if (activeInput != null) {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.hideSoftInputFromWindow(activeInput.windowToken, 0)
+        }
 
         // A new destination picked mid-drive replaces whatever was active.
         if (navMode == NavMode.ACTIVE) endActiveNavigation()
@@ -761,8 +782,7 @@ class MainActivity : AppCompatActivity() {
         maybeSaveAsPendingPlace(result)
 
         topBar.visibility = View.GONE
-        bottomTabBar.visibility = View.GONE
-        savedPanel.visibility = View.GONE
+        homeSheet.visibility = View.GONE
         recenterButton.visibility = View.GONE
 
         val destinationLatLng = LatLng(result.latitude, result.longitude)
@@ -984,8 +1004,8 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     clearDestinationMarker()
                     followingUser = true
-                    bottomTabBar.visibility = View.VISIBLE
-                    selectTab(HomeTab.SEARCH)
+                    homeSheet.visibility = View.VISIBLE
+                    setHomeSheetState(HomeSheetState.SEARCH)
                     Toast.makeText(this, "Couldn't calculate a route to that destination", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -1009,8 +1029,7 @@ class MainActivity : AppCompatActivity() {
         topBar.visibility = View.GONE
         topNavBar.visibility = View.GONE
         bottomNavBar.visibility = View.GONE
-        bottomTabBar.visibility = View.GONE
-        savedPanel.visibility = View.GONE
+        homeSheet.visibility = View.GONE
         recenterButton.visibility = View.GONE
         // Also reachable mid-drive via the drive bar's alt-route icon, so
         // clear the ACTIVE-only chrome too (harmless no-ops if already gone).
@@ -1105,8 +1124,8 @@ class MainActivity : AppCompatActivity() {
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         clearDestinationMarker()
         followingUser = true
-        bottomTabBar.visibility = View.VISIBLE
-        selectTab(HomeTab.MAP)
+        homeSheet.visibility = View.VISIBLE
+        setHomeSheetState(HomeSheetState.COLLAPSED)
     }
 
     // ---- Active (driving) navigation ------------------------------------
@@ -1302,8 +1321,8 @@ class MainActivity : AppCompatActivity() {
         nextTurnStrip.visibility = View.GONE
         laneContainer.visibility = View.GONE
         recenterButton.visibility = View.GONE
-        bottomTabBar.visibility = View.VISIBLE
-        selectTab(HomeTab.MAP)
+        homeSheet.visibility = View.VISIBLE
+        setHomeSheetState(HomeSheetState.COLLAPSED)
         routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         routeOptions = emptyList()
