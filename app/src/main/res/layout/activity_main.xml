@@ -447,13 +447,21 @@
             android:paddingEnd="16dp"
             android:paddingBottom="20dp">
 
-            <View
-                android:layout_width="36dp"
-                android:layout_height="4dp"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginTop="10dp"
-                android:layout_marginBottom="10dp"
-                android:background="@drawable/bg_drag_handle" />
+            <!-- Drag target for opening/closing the sheet by hand, separate
+                 from the decorative handle View inside it so the touchable
+                 area is taller than the 4dp handle graphic alone. -->
+            <FrameLayout
+                android:id="@+id/homeSheetDragHandle"
+                android:layout_width="match_parent"
+                android:layout_height="24dp">
+
+                <View
+                    android:layout_width="36dp"
+                    android:layout_height="4dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_drag_handle" />
+
+            </FrameLayout>
 
             <!-- Collapsed row: search pill + settings icon. -->
             <LinearLayout

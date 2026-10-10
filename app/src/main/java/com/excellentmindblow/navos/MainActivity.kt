@@ -1,6 +1,9 @@
 package com.excellentmindblow.navos
 
 import android.Manifest
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
@@ -22,7 +25,10 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.content.res.ColorStateList
@@ -182,7 +188,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var homeSearchBody: View
     private lateinit var homeSettingsBody: View
     private lateinit var homeSearchResultsList: ListView
+    private lateinit var homeSheetDragHandle: View
     private var homeSheetState = HomeSheetState.COLLAPSED
+
+    /** Home/Work rows' natural height (no search results showing yet) -
+     * measured once and reused as the drag range when opening the sheet
+     * from COLLAPSED. Dragging it closed again from an already-open sheet
+     * (which may be taller, with results showing) uses the sheet's actual
+     * current height instead - see the drag handler below. -1 = not
+     * measured yet. */
+    private var searchBodyBaselineHeight = -1
+    private var dragStartRawY = 0f
+    private var dragging = false
+    private var dragBaseHeight = 0
+    private var dragRangeHeight = 0
 
     /** Whichever search box (the idle sheet's or the mid-drive topBar's)
      * most recently opened - showSearchResults()/runSearch() target this
@@ -525,10 +544,12 @@ class MainActivity : AppCompatActivity() {
         homeSheetExpandedTitle = findViewById(R.id.homeSheetExpandedTitle)
         homeSearchBody = findViewById(R.id.homeSearchBody)
         homeSettingsBody = findViewById(R.id.homeSettingsBody)
+        homeSheetDragHandle = findViewById(R.id.homeSheetDragHandle)
 
         homeSearchPill.setOnClickListener { setHomeSheetState(HomeSheetState.SEARCH) }
         homeSettingsButton.setOnClickListener { setHomeSheetState(HomeSheetState.SETTINGS) }
         homeSheetBackButton.setOnClickListener { setHomeSheetState(HomeSheetState.COLLAPSED) }
+        homeSheetDragHandle.setOnTouchListener { _, event -> onHomeSheetDragTouch(event) }
 
         permissionDeniedOverlay = findViewById(R.id.permissionDeniedOverlay)
         gpsDisabledOverlay = findViewById(R.id.gpsDisabledOverlay)
@@ -590,6 +611,115 @@ class MainActivity : AppCompatActivity() {
             homeSearchInput.clearFocus()
             homeSearchResultsList.visibility = View.GONE
             imm.hideSoftInputFromWindow(homeSearchInput.windowToken, 0)
+        }
+    }
+
+    /** Handles the home sheet's drag handle - lets the sheet be dragged
+     * open/closed by hand (between COLLAPSED and SEARCH) instead of only
+     * tapping the search pill/back arrow. SETTINGS has no drag - it's a
+     * short fixed list, not something to "pull up more of", so it stays
+     * tap-only (gear icon in, back arrow out), same as before. */
+    private fun onHomeSheetDragTouch(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                dragStartRawY = event.rawY
+                dragging = false
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val deltaY = dragStartRawY - event.rawY // positive = finger moved up
+                if (!dragging) {
+                    val slop = ViewConfiguration.get(this).scaledTouchSlop
+                    if (kotlin.math.abs(deltaY) <= slop) return true
+                    if (homeSheetState == HomeSheetState.SETTINGS) return false // no drag in settings
+                    dragging = true
+                    when (homeSheetState) {
+                        HomeSheetState.COLLAPSED -> {
+                            ensureSearchBodyBaselineMeasured()
+                            dragRangeHeight = searchBodyBaselineHeight.coerceAtLeast(1)
+                            dragBaseHeight = 0
+                            beginDragOpenFromCollapsed()
+                        }
+                        HomeSheetState.SEARCH -> {
+                            dragRangeHeight = homeSearchBody.height.coerceAtLeast(1)
+                            dragBaseHeight = dragRangeHeight
+                        }
+                        HomeSheetState.SETTINGS -> return false
+                    }
+                }
+                val target = (dragBaseHeight + deltaY.toInt()).coerceIn(0, dragRangeHeight)
+                homeSearchBody.layoutParams.height = target
+                homeSearchBody.alpha = target.toFloat() / dragRangeHeight
+                homeSearchBody.requestLayout()
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (dragging) {
+                    dragging = false
+                    settleHomeSheetDrag()
+                    return true
+                }
+                return false
+            }
+            else -> return false
+        }
+    }
+
+    /** Measured once (Home/Work rows only, before any search has run) and
+     * reused as the open-from-collapsed drag range - cheap since it's just
+     * an off-screen measure pass, not a real layout. */
+    private fun ensureSearchBodyBaselineMeasured() {
+        if (searchBodyBaselineHeight >= 0) return
+        homeSearchBody.measure(
+            View.MeasureSpec.makeMeasureSpec(homeSheet.width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        searchBodyBaselineHeight = homeSearchBody.measuredHeight
+    }
+
+    /** Swaps the sheet's top row to the search/back-arrow layout right as a
+     * drag-open begins (instant, not animated - only the body below grows
+     * with the finger), without yet touching focus/keyboard - that happens
+     * once the drag actually settles open, in setHomeSheetState(). */
+    private fun beginDragOpenFromCollapsed() {
+        homeSheetCollapsedRow.visibility = View.GONE
+        homeSheetExpandedRow.visibility = View.VISIBLE
+        homeSearchInput.visibility = View.VISIBLE
+        homeSheetExpandedTitle.visibility = View.GONE
+        homeSearchBody.visibility = View.VISIBLE
+        homeSearchBody.layoutParams.height = 0
+        homeSearchBody.alpha = 0f
+        homeSearchBody.requestLayout()
+    }
+
+    /** Animates the drag to whichever end it was closer to when released,
+     * then hands off to setHomeSheetState() for the final, authoritative
+     * visibility/focus/keyboard handling - same path the tap gestures use,
+     * so a half-finished drag can never leave the sheet in a state tapping
+     * wouldn't also reach. */
+    private fun settleHomeSheetDrag() {
+        val current = homeSearchBody.layoutParams.height.coerceIn(0, dragRangeHeight)
+        val openEnough = current > dragRangeHeight / 2
+        val target = if (openEnough) dragRangeHeight else 0
+        ValueAnimator.ofInt(current, target).apply {
+            duration = 180
+            addUpdateListener { anim ->
+                val value = anim.animatedValue as Int
+                homeSearchBody.layoutParams.height = value
+                homeSearchBody.alpha = value.toFloat() / dragRangeHeight
+                homeSearchBody.requestLayout()
+            }
+            addListener(
+                object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        homeSearchBody.layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+                        homeSearchBody.alpha = 1f
+                        homeSearchBody.requestLayout()
+                        setHomeSheetState(if (openEnough) HomeSheetState.SEARCH else HomeSheetState.COLLAPSED)
+                    }
+                },
+            )
+            start()
         }
     }
 
