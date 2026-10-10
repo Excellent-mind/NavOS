@@ -48,7 +48,7 @@
                     android:layout_height="48dp"
                     android:layout_marginEnd="8dp"
                     android:background="@drawable/search_bar_bg"
-                    android:backgroundTint="@color/navos_navy"
+                    android:backgroundTint="@color/navos_button_fill"
                     android:contentDescription="Back to navigation"
                     android:elevation="4dp"
                     android:padding="12dp"
@@ -77,8 +77,8 @@
                         android:maxLines="1"
                         android:paddingStart="16dp"
                         android:paddingEnd="4dp"
-                        android:textColor="@color/navos_navy"
-                        android:textColorHint="#80142A4B" />
+                        android:textColor="@color/navos_text"
+                        android:textColorHint="@color/navos_hint" />
 
                     <ImageButton
                         android:id="@+id/searchClearButton"
@@ -100,7 +100,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:background="@drawable/search_bar_bg"
-                android:divider="#14142A4B"
+                android:divider="@color/navos_divider_faint"
                 android:dividerHeight="1dp"
                 android:elevation="4dp"
                 android:maxHeight="320dp"
@@ -140,7 +140,7 @@
                     android:layout_marginEnd="14dp"
                     android:contentDescription="Next turn"
                     android:src="@drawable/ic_nav_arrow"
-                    android:tint="@color/navos_navy" />
+                    android:tint="@color/navos_text" />
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -152,7 +152,7 @@
                         android:id="@+id/turnDistanceText"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:textColor="@color/navos_navy"
+                        android:textColor="@color/navos_text"
                         android:textSize="24sp"
                         android:textStyle="bold"
                         tools:text="90 m" />
@@ -161,7 +161,7 @@
                         android:id="@+id/turnStreetText"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:textColor="#3B4A63"
+                        android:textColor="@color/navos_text_secondary"
                         android:textSize="16sp"
                         tools:text="Lorong Sabudin" />
 
@@ -206,7 +206,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="10dp"
                     android:text="and then"
-                    android:textColor="#5F6B7A"
+                    android:textColor="@color/navos_text_secondary"
                     android:textSize="13sp" />
 
                 <ImageView
@@ -215,7 +215,7 @@
                     android:layout_height="22dp"
                     android:contentDescription="Then"
                     android:src="@drawable/ic_nav_arrow"
-                    android:tint="@color/navos_navy" />
+                    android:tint="@color/navos_text" />
 
             </LinearLayout>
 
@@ -233,7 +233,7 @@
             android:background="@drawable/bg_circle_white"
             android:elevation="4dp"
             android:gravity="center"
-            android:textColor="@color/navos_navy"
+            android:textColor="@color/navos_text"
             android:textSize="13sp"
             android:textStyle="bold"
             android:visibility="gone"
@@ -255,7 +255,7 @@
             android:elevation="4dp"
             android:padding="11dp"
             android:src="@drawable/ic_recenter"
-            android:tint="@color/navos_navy"
+            android:tint="@color/navos_text"
             android:visibility="gone" />
 
         <!-- "What do you see?" incident report button, shown only during
@@ -350,7 +350,7 @@
                     android:id="@+id/routePreviewEta"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="@color/navos_navy"
+                    android:textColor="@color/navos_text"
                     android:textSize="28sp"
                     android:textStyle="bold"
                     tools:text="3:38 PM" />
@@ -359,7 +359,7 @@
                     android:id="@+id/routePreviewSummary"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="#5F6B7A"
+                    android:textColor="@color/navos_text_secondary"
                     android:textSize="18sp"
                     tools:text="1:11 h • 61 km" />
 
@@ -368,7 +368,7 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="#F2F4F7"
+                android:background="@color/navos_surface_alt"
                 android:orientation="vertical"
                 android:padding="12dp">
 
@@ -388,7 +388,7 @@
                         android:ellipsize="end"
                         android:gravity="center"
                         android:maxLines="1"
-                        android:textColor="#5F6B7A"
+                        android:textColor="@color/navos_text_secondary"
                         android:textSize="16sp"
                         tools:text="Lorong Latif, Kajang, Selangor" />
 
@@ -399,7 +399,7 @@
                         android:layout_marginTop="4dp"
                         android:gravity="center"
                         android:maxLines="2"
-                        android:textColor="@color/navos_navy"
+                        android:textColor="@color/navos_text"
                         android:textSize="20sp"
                         android:textStyle="bold"
                         tools:text="Via E26 Lebuhraya SKVE" />
@@ -410,7 +410,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:gravity="center"
-                        android:textColor="#5F6B7A"
+                        android:textColor="@color/navos_text_secondary"
                         android:textSize="13sp"
                         tools:text="2 routes found - tap a grey route to switch" />
 
@@ -507,7 +507,7 @@
                     android:contentDescription="Search for a new destination"
                     android:padding="14dp"
                     android:src="@drawable/ic_search"
-                    android:tint="#4A5568" />
+                    android:tint="@color/navos_text_secondary" />
 
                 <LinearLayout
                     android:id="@+id/navEtaCenter"
@@ -523,7 +523,7 @@
                         android:id="@+id/etaClockText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="@color/navos_navy"
+                        android:textColor="@color/navos_text"
                         android:textSize="28sp"
                         android:textStyle="bold"
                         tools:text="3:38 PM" />
@@ -532,7 +532,7 @@
                         android:id="@+id/etaDetailText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="#5F6B7A"
+                        android:textColor="@color/navos_text_secondary"
                         android:textSize="18sp"
                         tools:text="1:11 h • 61 km" />
 
@@ -548,7 +548,7 @@
                     android:contentDescription="Switch route"
                     android:padding="14dp"
                     android:src="@drawable/ic_alt_route"
-                    android:tint="#4A5568" />
+                    android:tint="@color/navos_text_secondary" />
 
             </LinearLayout>
 
@@ -623,7 +623,7 @@
                         android:layout_height="wrap_content"
                         android:ellipsize="end"
                         android:maxLines="2"
-                        android:textColor="@color/navos_navy"
+                        android:textColor="@color/navos_text"
                         android:textSize="17sp"
                         android:textStyle="bold" />
 
@@ -632,7 +632,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:textColor="#7A869A"
+                        android:textColor="@color/navos_text_tertiary"
                         android:textSize="13sp" />
 
                 </LinearLayout>
@@ -643,11 +643,11 @@
                     android:layout_height="36dp"
                     android:layout_marginStart="8dp"
                     android:background="@drawable/bg_circle_navy"
-                    android:backgroundTint="#E3E7EC"
+                    android:backgroundTint="@color/navos_line"
                     android:contentDescription="Close"
                     android:padding="8dp"
                     android:src="@drawable/ic_close"
-                    android:tint="@color/navos_navy" />
+                    android:tint="@color/navos_text" />
 
             </LinearLayout>
 
@@ -657,7 +657,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:lineSpacingExtra="2dp"
-                android:textColor="@color/navos_navy"
+                android:textColor="@color/navos_text"
                 android:textSize="13sp"
                 android:visibility="gone" />
 
@@ -672,7 +672,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:text="Facilities from OpenStreetMap - may be incomplete"
-                android:textColor="#9AA4B5"
+                android:textColor="@color/navos_text_tertiary"
                 android:textSize="11sp" />
 
             <TextView
@@ -703,13 +703,13 @@
             android:layout_gravity="bottom|start"
             android:layout_marginStart="8dp"
             android:layout_marginBottom="80dp"
-            android:background="#99FFFFFF"
+            android:background="@color/navos_overlay_surface"
             android:paddingStart="6dp"
             android:paddingEnd="6dp"
             android:paddingTop="2dp"
             android:paddingBottom="2dp"
             android:text="© OpenStreetMap contributors"
-            android:textColor="@color/navos_navy"
+            android:textColor="@color/navos_text"
             android:textSize="10sp" />
 
         <!-- Unified home bottom sheet - replaces the old Map/Search/Saved/
@@ -766,13 +766,13 @@
                     android:clickable="true"
                     android:drawablePadding="12dp"
                     android:drawableStart="@drawable/ic_search"
-                    android:drawableTint="#5F6B7A"
+                    android:drawableTint="@color/navos_text_secondary"
                     android:focusable="true"
                     android:gravity="center_vertical"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
                     android:text="Where to?"
-                    android:textColor="#5F6B7A"
+                    android:textColor="@color/navos_text_secondary"
                     android:textSize="17sp" />
 
                 <ImageButton
@@ -784,7 +784,7 @@
                     android:contentDescription="Settings"
                     android:padding="14dp"
                     android:src="@drawable/ic_settings"
-                    android:tint="@color/navos_navy" />
+                    android:tint="@color/navos_text" />
 
             </LinearLayout>
 
@@ -807,7 +807,7 @@
                     android:contentDescription="Back"
                     android:padding="14dp"
                     android:src="@drawable/ic_arrow_back"
-                    android:tint="@color/navos_navy" />
+                    android:tint="@color/navos_text" />
 
                 <!-- Search pill: the input plus the circled-X clear button
                      inside it (shown only once something is typed). -->
@@ -834,8 +834,8 @@
                         android:maxLines="1"
                         android:paddingStart="16dp"
                         android:paddingEnd="4dp"
-                        android:textColor="@color/navos_navy"
-                        android:textColorHint="#5F6B7A"
+                        android:textColor="@color/navos_text"
+                        android:textColorHint="@color/navos_text_secondary"
                         android:textSize="17sp" />
 
                     <ImageButton
@@ -856,7 +856,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="Settings"
-                    android:textColor="@color/navos_navy"
+                    android:textColor="@color/navos_text"
                     android:textSize="18sp"
                     android:textStyle="bold"
                     android:visibility="gone" />
@@ -892,7 +892,7 @@
                         android:layout_height="20dp"
                         android:layout_marginEnd="12dp"
                         android:contentDescription="Home"
-                        android:tint="@color/navos_navy"
+                        android:tint="@color/navos_text"
                         android:src="@drawable/ic_home" />
 
                     <TextView
@@ -902,7 +902,7 @@
                         android:layout_weight="1"
                         android:ellipsize="end"
                         android:maxLines="1"
-                        android:textColor="@color/navos_navy"
+                        android:textColor="@color/navos_text"
                         android:textSize="15sp"
                         tools:text="Home" />
 
@@ -924,7 +924,7 @@
                         android:layout_height="20dp"
                         android:layout_marginEnd="12dp"
                         android:contentDescription="Work"
-                        android:tint="@color/navos_navy"
+                        android:tint="@color/navos_text"
                         android:src="@drawable/ic_work" />
 
                     <TextView
@@ -934,7 +934,7 @@
                         android:layout_weight="1"
                         android:ellipsize="end"
                         android:maxLines="1"
-                        android:textColor="@color/navos_navy"
+                        android:textColor="@color/navos_text"
                         android:textSize="15sp"
                         tools:text="Work" />
 
@@ -947,7 +947,7 @@
                     android:id="@+id/homeSearchResultsList"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:divider="#E3E7EC"
+                    android:divider="@color/navos_line"
                     android:dividerHeight="1dp"
                     android:visibility="gone" />
 
@@ -974,7 +974,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="Voice guidance"
-                        android:textColor="@color/navos_navy"
+                        android:textColor="@color/navos_text"
                         android:textSize="16sp" />
 
                     <Switch
@@ -990,14 +990,14 @@
                     android:layout_height="1dp"
                     android:layout_marginTop="16dp"
                     android:layout_marginBottom="16dp"
-                    android:background="#E0E0E0" />
+                    android:background="@color/navos_rule" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="8dp"
                     android:text="Map style"
-                    android:textColor="@color/navos_navy"
+                    android:textColor="@color/navos_text"
                     android:textSize="16sp"
                     android:textStyle="bold" />
 
@@ -1012,21 +1012,21 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="Follow system"
-                        android:textColor="@color/navos_navy" />
+                        android:textColor="@color/navos_text" />
 
                     <RadioButton
                         android:id="@+id/mapStyleLight"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="Light"
-                        android:textColor="@color/navos_navy" />
+                        android:textColor="@color/navos_text" />
 
                     <RadioButton
                         android:id="@+id/mapStyleDark"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="Dark"
-                        android:textColor="@color/navos_navy" />
+                        android:textColor="@color/navos_text" />
 
                 </RadioGroup>
 
@@ -1035,7 +1035,7 @@
                     android:layout_height="1dp"
                     android:layout_marginTop="16dp"
                     android:layout_marginBottom="8dp"
-                    android:background="#E0E0E0" />
+                    android:background="@color/navos_rule" />
 
                 <TextView
                     android:id="@+id/helpFeedbackRow"
@@ -1044,7 +1044,7 @@
                     android:paddingTop="10dp"
                     android:paddingBottom="10dp"
                     android:text="Help &amp; feedback"
-                    android:textColor="@color/navos_navy"
+                    android:textColor="@color/navos_text"
                     android:textSize="15sp" />
 
                 <TextView
@@ -1054,7 +1054,7 @@
                     android:paddingTop="10dp"
                     android:paddingBottom="10dp"
                     android:text="About"
-                    android:textColor="@color/navos_navy"
+                    android:textColor="@color/navos_text"
                     android:textSize="15sp" />
 
                 <View
@@ -1062,13 +1062,13 @@
                     android:layout_height="1dp"
                     android:layout_marginTop="6dp"
                     android:layout_marginBottom="16dp"
-                    android:background="#E0E0E0" />
+                    android:background="@color/navos_rule" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="NavOS"
-                    android:textColor="@color/navos_navy"
+                    android:textColor="@color/navos_text"
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
@@ -1077,7 +1077,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
                     android:text="Powered by Excellent Mindblow"
-                    android:textColor="#80142A4B"
+                    android:textColor="@color/navos_hint"
                     android:textSize="12sp" />
 
             </LinearLayout>

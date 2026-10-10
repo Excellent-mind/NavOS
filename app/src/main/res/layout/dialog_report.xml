@@ -14,7 +14,7 @@
         android:layout_height="wrap_content"
         android:layout_marginBottom="16dp"
         android:text="What do you see?"
-        android:textColor="@color/navos_navy"
+        android:textColor="@color/navos_text"
         android:textSize="18sp"
         android:textStyle="bold" />
 
@@ -45,7 +45,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="Traffic"
-                android:textColor="@color/navos_navy"
+                android:textColor="@color/navos_text"
                 android:textSize="13sp" />
 
         </LinearLayout>
@@ -72,7 +72,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="Police"
-                android:textColor="@color/navos_navy"
+                android:textColor="@color/navos_text"
                 android:textSize="13sp" />
 
         </LinearLayout>
@@ -107,7 +107,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="Hazard"
-                android:textColor="@color/navos_navy"
+                android:textColor="@color/navos_text"
                 android:textSize="13sp" />
 
         </LinearLayout>
@@ -134,7 +134,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="Crash"
-                android:textColor="@color/navos_navy"
+                android:textColor="@color/navos_text"
                 android:textSize="13sp" />
 
         </LinearLayout>

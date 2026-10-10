@@ -31,7 +31,7 @@
             android:layout_height="wrap_content"
             android:ellipsize="end"
             android:maxLines="1"
-            android:textColor="@color/navos_navy"
+            android:textColor="@color/navos_text"
             android:textSize="16sp"
             android:textStyle="bold" />
 
@@ -42,7 +42,7 @@
             android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:maxLines="1"
-            android:textColor="#7A869A"
+            android:textColor="@color/navos_text_tertiary"
             android:textSize="13sp" />
 
     </LinearLayout>
@@ -52,7 +52,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="10dp"
-        android:textColor="#7A869A"
+        android:textColor="@color/navos_text_tertiary"
         android:textSize="14sp"
         android:textStyle="bold" />
 
