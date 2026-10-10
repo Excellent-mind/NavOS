@@ -52,6 +52,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.graphics.ColorUtils
@@ -74,6 +75,7 @@ import com.excellentmindblow.navos.poi.PoiService
 import com.excellentmindblow.navos.routing.LaneInfo
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
+import com.excellentmindblow.navos.routing.RouteStep
 import com.excellentmindblow.navos.routing.RoutingService
 import com.excellentmindblow.navos.search.GeocodeResult
 import com.excellentmindblow.navos.search.GeocodingService
@@ -224,7 +226,14 @@ class MainActivity : AppCompatActivity() {
     private var destinationName: String? = null
     private lateinit var turnIcon: ImageView
     private lateinit var speedBadge: TextView
-    private lateinit var recenterButton: ImageButton
+    private lateinit var recenterButton: View
+    private lateinit var nextTurnsSheet: View
+    private lateinit var nextTurnsList: LinearLayout
+
+    /** Step the Next-turns list was last built for, and its first-row
+     * distance label (updated every GPS fix without rebuilding the list). */
+    private var nextTurnsRenderedIndex = -1
+    private var nextTurnsFirstDistance: TextView? = null
     private lateinit var reportButton: ImageButton
     private lateinit var homeButton: View
     private lateinit var homeButtonLabel: TextView
@@ -413,6 +422,8 @@ class MainActivity : AppCompatActivity() {
                 routeOptions = listOf(route)
                 selectedRouteIndex = 0
                 redrawRouteLines()
+                nextTurnsRenderedIndex = -1
+                if (nextTurnsSheet.visibility == View.VISIBLE) refreshNextTurns()
             }
         }
 
@@ -859,6 +870,8 @@ class MainActivity : AppCompatActivity() {
         turnIcon = findViewById(R.id.turnIcon)
         speedBadge = findViewById(R.id.speedBadge)
         recenterButton = findViewById(R.id.recenterButton)
+        nextTurnsSheet = findViewById(R.id.nextTurnsSheet)
+        nextTurnsList = findViewById(R.id.nextTurnsList)
         reportButton = findViewById(R.id.reportButton)
         nextTurnStrip = findViewById(R.id.nextTurnStrip)
         laneContainer = findViewById(R.id.laneContainer)
@@ -917,8 +930,28 @@ class MainActivity : AppCompatActivity() {
             enterSearchFromNav()
         }
         findViewById<ImageButton>(R.id.bottomAltRouteButton).setOnClickListener {
+            openNextTurns()
+        }
+        findViewById<View>(R.id.nextTurnsClose).setOnClickListener { closeNextTurns() }
+        findViewById<View>(R.id.nextTurnsSwitchRoute).setOnClickListener {
+            closeNextTurns()
             showRoutePreview()
         }
+        // Back closes the Next-turns sheet first; otherwise behaves as before.
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (nextTurnsSheet.visibility == View.VISIBLE) {
+                        closeNextTurns()
+                    } else {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                        isEnabled = true
+                    }
+                }
+            },
+        )
         searchBackButton.setOnClickListener {
             exitSearchFromNav()
         }
@@ -2389,6 +2422,7 @@ class MainActivity : AppCompatActivity() {
         navMode = NavMode.IDLE
         applyPendingUiRecreate()
         activeRoute = null
+        closeNextTurns()
         topNavBar.visibility = View.GONE
         bottomNavBar.visibility = View.GONE
         speedBadge.visibility = View.GONE
@@ -2455,17 +2489,23 @@ class MainActivity : AppCompatActivity() {
 
         showTripSummary(state.durationRemainingSeconds, state.distanceRemainingMeters, etaClockText, etaDetailText)
 
-        val (iconRes, rotation) = iconForManeuver(state.maneuverType, state.modifier)
-        turnIcon.setImageResource(iconRes)
-        turnIcon.rotation = rotation
+        turnIcon.setImageResource(iconForManeuver(state.maneuverType, state.modifier))
+        turnIcon.rotation = 0f
+
+        if (nextTurnsSheet.visibility == View.VISIBLE) {
+            if (state.currentStepIndex != nextTurnsRenderedIndex) {
+                refreshNextTurns()
+            } else {
+                nextTurnsFirstDistance?.text = formatTurnDistance(state.distanceToNextTurnMeters)
+            }
+        }
 
         // "and then" look-ahead - only worth showing once the current turn
         // is close enough that the next one is relevant, same as Waze.
         val nextType = state.nextManeuverType
         if (nextType != null && state.distanceToNextTurnMeters <= 400 && !state.isArrival) {
-            val (nextIconRes, nextRotation) = iconForManeuver(nextType, state.nextModifier)
-            nextTurnIcon.setImageResource(nextIconRes)
-            nextTurnIcon.rotation = nextRotation
+            nextTurnIcon.setImageResource(iconForManeuver(nextType, state.nextModifier))
+            nextTurnIcon.rotation = 0f
             nextTurnStrip.visibility = View.VISIBLE
         } else {
             nextTurnStrip.visibility = View.GONE
@@ -2490,30 +2530,140 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Picks a turn-icon drawable + rotation for a maneuver. Distinct
-     * glyphs for u-turn/roundabout/arrival; every other maneuver reuses
-     * one directional arrow rotated to the right angle - the same
-     * approach professional nav apps use rather than drawing a separate
-     * icon per angle. */
+    /** Picks the Waze-style arrow for a maneuver: a distinct drawn arrow
+     * for every turn angle, plus U-turn, fork/ramp, roundabout (exit side)
+     * and arrival. No rotation tricks - each is its own icon. */
     private fun iconForManeuver(
         maneuverType: String,
         modifier: String?,
-    ): Pair<Int, Float> {
-        if (maneuverType == "arrive") return R.drawable.ic_nav_flag to 0f
-        if (maneuverType == "roundabout" || maneuverType == "rotary") return R.drawable.ic_nav_roundabout to 0f
-        if (maneuverType == "uturn" || modifier == "uturn") return R.drawable.ic_nav_uturn to 0f
+    ): Int {
+        val mod = modifier.orEmpty()
+        return when {
+            maneuverType == "arrive" -> R.drawable.ic_turn_arrive
+            maneuverType.contains("roundabout") || maneuverType.contains("rotary") ->
+                when {
+                    mod.contains("left") -> R.drawable.ic_turn_roundabout_left
+                    mod.contains("right") -> R.drawable.ic_turn_roundabout_right
+                    else -> R.drawable.ic_turn_roundabout_straight
+                }
+            maneuverType == "uturn" || mod == "uturn" -> R.drawable.ic_turn_uturn
+            maneuverType == "fork" || maneuverType == "off ramp" || maneuverType == "on ramp" ->
+                when {
+                    mod.contains("left") -> R.drawable.ic_turn_fork_left
+                    mod.contains("right") -> R.drawable.ic_turn_fork_right
+                    else -> R.drawable.ic_turn_straight
+                }
+            else ->
+                when (mod) {
+                    "sharp right" -> R.drawable.ic_turn_sharp_right
+                    "right" -> R.drawable.ic_turn_right
+                    "slight right" -> R.drawable.ic_turn_slight_right
+                    "slight left" -> R.drawable.ic_turn_slight_left
+                    "left" -> R.drawable.ic_turn_left
+                    "sharp left" -> R.drawable.ic_turn_sharp_left
+                    else -> R.drawable.ic_turn_straight // straight / depart / continue / new name / merge
+                }
+        }
+    }
 
-        val rotation =
-            when (modifier) {
-                "sharp right" -> 135f
-                "right" -> 90f
-                "slight right" -> 45f
-                "slight left" -> -45f
-                "left" -> -90f
-                "sharp left" -> -135f
-                else -> 0f // straight / depart / continue / new name / merge / fork / ramps
+    private fun formatTurnDistance(meters: Double): String =
+        if (meters >= 1000) {
+            String.format(Locale.US, "%.1f km", meters / 1000)
+        } else {
+            // Round to 10 m like Waze's list so it doesn't flicker every fix.
+            "${(Math.round(meters / 10.0) * 10).toInt().coerceAtLeast(10)} m"
+        }
+
+    private fun openNextTurns() {
+        if (navMode != NavMode.ACTIVE) return
+        nextTurnsRenderedIndex = -1
+        refreshNextTurns()
+        nextTurnsSheet.visibility = View.VISIBLE
+    }
+
+    private fun closeNextTurns() {
+        if (!::nextTurnsSheet.isInitialized) return
+        nextTurnsSheet.visibility = View.GONE
+    }
+
+    /** Rebuilds the Next-turns list from the live step index: the upcoming
+     * maneuver first (distance from where you are now), then each later
+     * turn with the distance between it and the previous one. */
+    private fun refreshNextTurns() {
+        val steps = activeRoute?.steps ?: return
+        if (steps.isEmpty()) return
+        val state = lastNavState
+        val startIndex = (state?.currentStepIndex ?: 1).coerceIn(0, steps.size - 1)
+        nextTurnsRenderedIndex = startIndex
+        nextTurnsList.removeAllViews()
+        nextTurnsFirstDistance = null
+        var shown = 0
+        for (i in startIndex until steps.size) {
+            if (shown >= 40) break
+            val meters =
+                if (i == startIndex) {
+                    state?.distanceToNextTurnMeters ?: steps.getOrNull(i - 1)?.distanceMeters ?: 0.0
+                } else {
+                    steps[i - 1].distanceMeters
+                }
+            val row = buildTurnRow(steps[i], meters, shaded = shown % 2 == 1, isFirst = shown == 0)
+            nextTurnsList.addView(row)
+            shown++
+        }
+    }
+
+    private fun buildTurnRow(
+        step: RouteStep,
+        meters: Double,
+        shaded: Boolean,
+        isFirst: Boolean,
+    ): View {
+        val density = resources.displayMetrics.density
+
+        fun px(v: Int) = (v * density).toInt()
+        val textColor = ContextCompat.getColor(this, R.color.navos_text)
+        val streetColor = ContextCompat.getColor(this, R.color.navos_blue)
+        val isArrival = step.maneuverType == "arrive"
+
+        val row =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(px(20), px(14), px(20), px(14))
+                if (shaded) setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.navos_surface_alt))
             }
-        return R.drawable.ic_nav_arrow to rotation
+        val icon =
+            ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(px(52), px(52)).apply { marginEnd = px(18) }
+                setImageResource(iconForManeuver(step.maneuverType, step.modifier))
+                setColorFilter(textColor)
+            }
+        val texts =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+        val distance =
+            TextView(this).apply {
+                text = formatTurnDistance(meters)
+                setTextColor(textColor)
+                textSize = 24f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }
+        if (isFirst) nextTurnsFirstDistance = distance
+        val street =
+            TextView(this).apply {
+                text = if (isArrival) step.instruction else step.roadName.ifBlank { step.instruction }
+                setTextColor(if (isArrival) textColor else streetColor)
+                textSize = 18f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                maxLines = 2
+            }
+        texts.addView(distance)
+        texts.addView(street)
+        row.addView(icon)
+        row.addView(texts)
+        return row
     }
 
     /** Rebuilds the lane-guidance row from scratch each call - the lane
@@ -2550,7 +2700,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     setBackgroundResource(R.drawable.bg_lane_pill)
                     backgroundTintList = if (lane.valid) ColorStateList.valueOf(validColor) else dimBackground
-                    setImageResource(R.drawable.ic_nav_arrow)
+                    setImageResource(R.drawable.ic_turn_straight)
                     setColorFilter(if (lane.valid) validTint else dimTint)
                     setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
                     rotation = rotationForIndication(indication)
