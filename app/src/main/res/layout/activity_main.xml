@@ -585,7 +585,7 @@
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:contentDescription="Search"
-                    android:src="@drawable/ic_search"
+                    android:src="@drawable/ic_tab_search"
                     android:tint="#80142A4B" />
 
                 <TextView
@@ -639,7 +639,7 @@
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:contentDescription="Settings"
-                    android:src="@drawable/ic_settings"
+                    android:src="@drawable/ic_tab_settings"
                     android:tint="#80142A4B" />
 
                 <TextView
