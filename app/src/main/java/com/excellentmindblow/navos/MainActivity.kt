@@ -28,9 +28,11 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.content.res.ColorStateList
@@ -227,22 +229,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var homeSheetDragHandle: View
     private var homeSheetState = HomeSheetState.COLLAPSED
 
-    /** Home/Work rows' natural height (no search results showing yet) -
-     * measured once and reused as the drag range when opening the sheet
-     * from COLLAPSED. Dragging it closed again from an already-open sheet
-     * (which may be taller, with results showing) uses the sheet's actual
-     * current height instead - see the drag handler below. -1 = not
-     * measured yet. */
-    private var searchBodyBaselineHeight = -1
     private var dragStartRawY = 0f
     private var dragging = false
 
-    /** True while the post-drag snap animation runs - keeps the sheet out
-     * of full-height mode until it settles (the keyboard closing mid-snap
-     * would otherwise re-apply full height and make it jump). */
+    /** True while a drag or the snap animation after it owns the sheet's
+     * height - keeps applySheetInsets() from fighting it (e.g. the keyboard
+     * closing mid-snap would otherwise re-apply full/wrap height and make
+     * the sheet jump). */
     private var settlingDrag = false
-    private var dragBaseHeight = 0
-    private var dragRangeHeight = 0
+
+    /** The sheet's own height (px) when the current drag began, and the
+     * velocity tracker + running snap animation for the drag handle. */
+    private var dragStartSheetHeight = 0
+    private var dragVelocityTracker: VelocityTracker? = null
+    private var sheetSettleAnimator: ValueAnimator? = null
 
     /** Whichever search box (the idle sheet's or the mid-drive topBar's)
      * most recently opened - showSearchResults()/runSearch() target this
@@ -474,10 +474,12 @@ class MainActivity : AppCompatActivity() {
                     when (navMode) {
                         NavMode.ACTIVE -> {
                             navFollowing = false
+                            placeRecenterButton(drivingLayout = true)
                             recenterButton.visibility = View.VISIBLE
                         }
                         NavMode.IDLE -> {
                             followingUser = false
+                            placeRecenterButton(drivingLayout = false)
                             recenterButton.visibility = View.VISIBLE
                         }
                         NavMode.PREVIEW -> {}
@@ -522,12 +524,14 @@ class MainActivity : AppCompatActivity() {
      *    keyboard if one is open.
      * Also pads the mid-drive search bar (topBar) the same way. */
     private fun applySheetInsets() {
-        val fullHeight = homeSheetState == HomeSheetState.SEARCH && !dragging && !settlingDrag
+        val ownedByDrag = dragging || settlingDrag
+        val fullHeight = homeSheetState == HomeSheetState.SEARCH && !ownedByDrag
         val params = homeSheet.layoutParams as? ViewGroup.MarginLayoutParams
-        if (params != null) {
-            val topGap = (if (statusBarTop > 0) statusBarTop else dp(32)) + dp(8)
+        // While a drag/snap owns the sheet it sets the height itself, every
+        // frame - leave height and margin alone so nothing pops.
+        if (params != null && !ownedByDrag) {
             val wantHeight = if (fullHeight) ViewGroup.LayoutParams.MATCH_PARENT else ViewGroup.LayoutParams.WRAP_CONTENT
-            val wantTop = if (fullHeight) topGap else 0
+            val wantTop = if (fullHeight) sheetTopGap() else 0
             if (params.height != wantHeight || params.topMargin != wantTop) {
                 params.height = wantHeight
                 params.topMargin = wantTop
@@ -536,12 +540,28 @@ class MainActivity : AppCompatActivity() {
         }
         val bottomPad = homeSheetBasePaddingBottom + if (fullHeight) lastImeBottom else 0
         homeSheet.setPadding(homeSheet.paddingLeft, homeSheet.paddingTop, homeSheet.paddingRight, bottomPad)
-        homeSheet.translationY = if (fullHeight) 0f else -lastImeBottom.toFloat()
+        homeSheet.translationY = if (fullHeight || ownedByDrag) 0f else -lastImeBottom.toFloat()
 
         topBar.setPadding(topBar.paddingLeft, topBar.paddingTop, topBar.paddingRight, lastImeBottom + dp(12))
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    /** Gap between the top of the screen and the sheet when it's full height. */
+    private fun sheetTopGap(): Int = (if (statusBarTop > 0) statusBarTop else dp(32)) + dp(8)
+
+    /** The sheet's height when fully open (same pixels MATCH_PARENT + the top
+     * margin from applySheetInsets() resolves to, so snapping into the real
+     * full-height layout afterwards is seamless). */
+    private fun sheetFullHeight(): Int {
+        val parentHeight = (homeSheet.parent as View).height
+        return (parentHeight - sheetTopGap()).coerceAtLeast(sheetCollapsedHeight() + 1)
+    }
+
+    /** The sheet's height when collapsed: padding + drag handle (24dp) + the
+     * 52dp search-pill row, with the body hidden. */
+    private fun sheetCollapsedHeight(): Int =
+        homeSheet.paddingTop + dp(24) + dp(52) + homeSheetBasePaddingBottom
 
     private fun setUpSettings() {
         findViewById<Switch>(R.id.voiceGuidanceSwitch).apply {
@@ -712,9 +732,9 @@ class MainActivity : AppCompatActivity() {
         homeSettingsBody = findViewById(R.id.homeSettingsBody)
         homeSheetDragHandle = findViewById(R.id.homeSheetDragHandle)
 
-        homeSearchPill.setOnClickListener { setHomeSheetState(HomeSheetState.SEARCH) }
+        homeSearchPill.setOnClickListener { openHomeSheetAnimated() }
         homeSettingsButton.setOnClickListener { setHomeSheetState(HomeSheetState.SETTINGS) }
-        homeSheetBackButton.setOnClickListener { setHomeSheetState(HomeSheetState.COLLAPSED) }
+        homeSheetBackButton.setOnClickListener { closeHomeSheetAnimated() }
         homeSheetDragHandle.setOnTouchListener { _, event -> onHomeSheetDragTouch(event) }
 
         permissionDeniedOverlay = findViewById(R.id.permissionDeniedOverlay)
@@ -787,123 +807,190 @@ class MainActivity : AppCompatActivity() {
         applySheetInsets()
     }
 
-    /** Handles the home sheet's drag handle - lets the sheet be dragged
-     * open/closed by hand (between COLLAPSED and SEARCH) instead of only
-     * tapping the search pill/back arrow. SETTINGS has no drag - it's a
-     * short fixed list, not something to "pull up more of", so it stays
-     * tap-only (gear icon in, back arrow out), same as before. */
+    /** Handles the home sheet's drag handle - the sheet's top edge follows
+     * the finger 1:1 between collapsed and full height (the same two
+     * states as COLLAPSED and SEARCH), and on release snaps to whichever
+     * end the fling/position points at with a decelerating animation.
+     * SETTINGS has no drag - it's a short fixed list, not something to
+     * "pull up more of", so it stays tap-only (gear icon in, back arrow
+     * out). */
     private fun onHomeSheetDragTouch(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                if (homeSheetState == HomeSheetState.SETTINGS) return false
                 dragStartRawY = event.rawY
                 dragging = false
+                dragVelocityTracker?.recycle()
+                dragVelocityTracker = VelocityTracker.obtain().also { it.addMovement(event) }
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                dragVelocityTracker?.addMovement(event)
                 val deltaY = dragStartRawY - event.rawY // positive = finger moved up
                 if (!dragging) {
                     val slop = ViewConfiguration.get(this).scaledTouchSlop
                     if (kotlin.math.abs(deltaY) <= slop) return true
-                    if (homeSheetState == HomeSheetState.SETTINGS) return false // no drag in settings
-                    dragging = true
-                    when (homeSheetState) {
-                        HomeSheetState.COLLAPSED -> {
-                            ensureSearchBodyBaselineMeasured()
-                            dragRangeHeight = searchBodyBaselineHeight.coerceAtLeast(1)
-                            dragBaseHeight = 0
-                            beginDragOpenFromCollapsed()
-                        }
-                        HomeSheetState.SEARCH -> {
-                            dragRangeHeight = homeSearchBody.height.coerceAtLeast(1)
-                            dragBaseHeight = dragRangeHeight
-                            // Shrink from full-screen back to a normal
-                            // bottom sheet so dragging down visibly pulls
-                            // the sheet's top edge down with the finger
-                            // (applySheetInsets() skips full height while
-                            // dragging is true).
-                            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                            imm.hideSoftInputFromWindow(homeSearchInput.windowToken, 0)
-                            applySheetInsets()
-                        }
-                        HomeSheetState.SETTINGS -> return false
-                    }
+                    if (homeSheetState == HomeSheetState.SETTINGS) return false
+                    startSheetDrag()
                 }
-                val target = (dragBaseHeight + deltaY.toInt()).coerceIn(0, dragRangeHeight)
-                homeSearchBody.layoutParams.height = target
-                homeSearchBody.alpha = target.toFloat() / dragRangeHeight
-                homeSearchBody.requestLayout()
+                val collapsed = sheetCollapsedHeight()
+                val full = sheetFullHeight()
+                val target = (dragStartSheetHeight + deltaY.toInt()).coerceIn(collapsed, full)
+                applySheetDragHeight(target, collapsed, full)
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val tracker = dragVelocityTracker
+                dragVelocityTracker = null
                 if (dragging) {
                     dragging = false
-                    settleHomeSheetDrag()
+                    tracker?.computeCurrentVelocity(1000)
+                    val velocityY = tracker?.yVelocity ?: 0f // px/s, negative = flinging up
+                    tracker?.recycle()
+                    val collapsed = sheetCollapsedHeight()
+                    val full = sheetFullHeight()
+                    val progress = (homeSheet.height - collapsed).toFloat() / (full - collapsed).coerceAtLeast(1)
+                    val flingThreshold = 900f
+                    val open =
+                        when {
+                            velocityY < -flingThreshold -> true
+                            velocityY > flingThreshold -> false
+                            else -> progress > 0.5f
+                        }
+                    animateHomeSheetTo(open, velocityY)
                     return true
                 }
+                tracker?.recycle()
                 return false
             }
             else -> return false
         }
     }
 
-    /** Measured once (Home/Work rows only, before any search has run) and
-     * reused as the open-from-collapsed drag range - cheap since it's just
-     * an off-screen measure pass, not a real layout. */
-    private fun ensureSearchBodyBaselineMeasured() {
-        if (searchBodyBaselineHeight >= 0) return
-        homeSearchBody.measure(
-            View.MeasureSpec.makeMeasureSpec(homeSheet.width, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-        )
-        searchBodyBaselineHeight = homeSearchBody.measuredHeight
+    /** Takes over the sheet's height for a drag: pins it to its current
+     * pixel height (so nothing jumps), shows the expanded header + body
+     * (clipped by the sheet's own bounds as it grows) and hides the keyboard. */
+    private fun startSheetDrag() {
+        // Grabbing the sheet mid-snap hands control straight back to the
+        // finger instead of waiting for the animation to finish.
+        sheetSettleAnimator?.cancel()
+        sheetSettleAnimator = null
+        dragging = true
+        settlingDrag = true
+        dragStartSheetHeight = homeSheet.height
+        if (homeSheetState == HomeSheetState.COLLAPSED) {
+            beginDragOpenFromCollapsed()
+        } else {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.hideSoftInputFromWindow(homeSearchInput.windowToken, 0)
+        }
+        val params = homeSheet.layoutParams as ViewGroup.MarginLayoutParams
+        params.topMargin = 0
+        params.height = dragStartSheetHeight
+        homeSheet.layoutParams = params
+        applySheetInsets()
+    }
+
+    /** Sets the sheet to [height] px and fades the body in with it. */
+    private fun applySheetDragHeight(
+        height: Int,
+        collapsed: Int = sheetCollapsedHeight(),
+        full: Int = sheetFullHeight(),
+    ) {
+        val params = homeSheet.layoutParams
+        if (params.height != height) {
+            params.height = height
+            homeSheet.layoutParams = params
+        }
+        homeSearchBody.alpha = ((height - collapsed).toFloat() / (full - collapsed).coerceAtLeast(1)).coerceIn(0f, 1f)
     }
 
     /** Swaps the sheet's top row to the search/back-arrow layout right as a
-     * drag-open begins (instant, not animated - only the body below grows
-     * with the finger), without yet touching focus/keyboard - that happens
-     * once the drag actually settles open, in setHomeSheetState(). */
+     * drag-open begins (instant, not animated - only the sheet's height
+     * follows the finger), without yet touching focus/keyboard - that
+     * happens once the sheet actually settles open, in setHomeSheetState(). */
     private fun beginDragOpenFromCollapsed() {
         homeSheetCollapsedRow.visibility = View.GONE
         homeSheetExpandedRow.visibility = View.VISIBLE
         homeSearchInputContainer.visibility = View.VISIBLE
         homeSheetExpandedTitle.visibility = View.GONE
         homeSearchBody.visibility = View.VISIBLE
-        homeSearchBody.layoutParams.height = 0
         homeSearchBody.alpha = 0f
-        homeSearchBody.requestLayout()
     }
 
-    /** Animates the drag to whichever end it was closer to when released,
-     * then hands off to setHomeSheetState() for the final, authoritative
-     * visibility/focus/keyboard handling - same path the tap gestures use,
-     * so a half-finished drag can never leave the sheet in a state tapping
-     * wouldn't also reach. */
-    private fun settleHomeSheetDrag() {
-        val current = homeSearchBody.layoutParams.height.coerceIn(0, dragRangeHeight)
-        val openEnough = current > dragRangeHeight / 2
-        val target = if (openEnough) dragRangeHeight else 0
+    /** Animates the sheet from wherever it is to fully open or fully
+     * collapsed, then hands off to setHomeSheetState() for the final,
+     * authoritative visibility/focus/keyboard/full-height handling - same
+     * path the other callers use, so a half-finished drag can never leave
+     * the sheet in a state tapping wouldn't also reach. Used for both the
+     * release of a drag and (with zero velocity) the tap open/close. */
+    private fun animateHomeSheetTo(
+        open: Boolean,
+        velocityY: Float = 0f,
+    ) {
+        val collapsed = sheetCollapsedHeight()
+        val full = sheetFullHeight()
+        val from = homeSheet.height.coerceIn(collapsed, full)
+        val to = if (open) full else collapsed
         settlingDrag = true
-        ValueAnimator.ofInt(current, target).apply {
-            duration = 180
-            addUpdateListener { anim ->
-                val value = anim.animatedValue as Int
-                homeSearchBody.layoutParams.height = value
-                homeSearchBody.alpha = value.toFloat() / dragRangeHeight
-                homeSearchBody.requestLayout()
+        sheetSettleAnimator?.cancel()
+
+        // Longer travel takes a little longer, and a hard fling in the
+        // same direction as the snap shortens it - so it keeps the finger's
+        // momentum instead of stopping and restarting.
+        val distanceFraction = kotlin.math.abs(to - from).toFloat() / (full - collapsed).coerceAtLeast(1)
+        val flingBoost = (kotlin.math.abs(velocityY) / 6000f).coerceAtMost(0.4f)
+        val durationMs = (240 + 160 * distanceFraction) * (1f - flingBoost)
+
+        var cancelled = false
+        val animator =
+            ValueAnimator.ofInt(from, to).apply {
+                duration = durationMs.toLong().coerceAtLeast(160L)
+                interpolator = DecelerateInterpolator(1.8f)
+                addUpdateListener { anim ->
+                    applySheetDragHeight(anim.animatedValue as Int, collapsed, full)
+                }
+                addListener(
+                    object : AnimatorListenerAdapter() {
+                        override fun onAnimationCancel(animation: Animator) {
+                            cancelled = true
+                        }
+
+                        override fun onAnimationEnd(animation: Animator) {
+                            if (cancelled) return
+                            sheetSettleAnimator = null
+                            settlingDrag = false
+                            homeSearchBody.alpha = 1f
+                            setHomeSheetState(if (open) HomeSheetState.SEARCH else HomeSheetState.COLLAPSED)
+                        }
+                    },
+                )
             }
-            addListener(
-                object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) {
-                        settlingDrag = false
-                        homeSearchBody.layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
-                        homeSearchBody.alpha = 1f
-                        homeSearchBody.requestLayout()
-                        setHomeSheetState(if (openEnough) HomeSheetState.SEARCH else HomeSheetState.COLLAPSED)
-                    }
-                },
-            )
-            start()
+        sheetSettleAnimator = animator
+        animator.start()
+    }
+
+    /** Tap on the search pill: same slide-up as a drag. */
+    private fun openHomeSheetAnimated() {
+        if (homeSheetState != HomeSheetState.COLLAPSED || settlingDrag) {
+            setHomeSheetState(HomeSheetState.SEARCH)
+            return
         }
+        startSheetDrag()
+        dragging = false // no finger involved - startSheetDrag() only needed for the setup
+        animateHomeSheetTo(open = true)
+    }
+
+    /** Tap on the back arrow: slides down from search; settings (and any
+     * other state) collapses instantly as before. */
+    private fun closeHomeSheetAnimated() {
+        if (homeSheetState != HomeSheetState.SEARCH || settlingDrag) {
+            setHomeSheetState(HomeSheetState.COLLAPSED)
+            return
+        }
+        startSheetDrag()
+        dragging = false
+        animateHomeSheetTo(open = false)
     }
 
     /** Opens the search bar over the drive view without stopping the
@@ -1873,6 +1960,28 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    /** Positions the recenter button for the current screen. During a drive
+     * the bottom-right column is taken by the report and POI buttons (the
+     * report button sits in exactly the spot the free-roam recenter button
+     * uses and would hide it), so while driving it goes bottom-left, just
+     * above the speed badge. In free-roam it keeps its layout position. */
+    private fun placeRecenterButton(drivingLayout: Boolean) {
+        val params = recenterButton.layoutParams as? android.widget.FrameLayout.LayoutParams ?: return
+        val density = resources.displayMetrics.density
+        if (drivingLayout) {
+            params.gravity = Gravity.BOTTOM or Gravity.START
+            params.marginStart = (12 * density).toInt()
+            params.marginEnd = 0
+            params.bottomMargin = (100 * density).toInt()
+        } else {
+            params.gravity = Gravity.BOTTOM or Gravity.END
+            params.marginStart = 0
+            params.marginEnd = (12 * density).toInt()
+            params.bottomMargin = (120 * density).toInt()
+        }
+        recenterButton.layoutParams = params
+    }
+
     /** The Position/recenter button's actual behavior, chosen by whether a
      * drive is active - a flat "jump back to my dot" pan everywhere would
      * leave active navigation looking nothing like the 3D follow camera it
@@ -1998,9 +2107,11 @@ class MainActivity : AppCompatActivity() {
             }
         val remainingKm = state.distanceRemainingMeters / 1000.0
         val remainingMin = state.durationRemainingSeconds / 60.0
-        val suffix = if (state.offRoute) " (off route)" else ""
-        turnDistanceText.text = "$distanceLabel$suffix"
-        turnStreetText.text = state.instruction
+        turnDistanceText.text = if (state.offRoute) "" else distanceLabel
+        // Off the planned route: NavigationService is already fetching a new
+        // one (and says "Recalculating"), so show that instead of a turn
+        // instruction that no longer applies.
+        turnStreetText.text = if (state.offRoute) "Recalculating..." else state.instruction
 
         val arrivalTime = Date(System.currentTimeMillis() + (state.durationRemainingSeconds * 1000).toLong())
         val arrivalLabel = SimpleDateFormat("h:mm a", Locale.US).format(arrivalTime)

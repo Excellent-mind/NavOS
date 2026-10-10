@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Light grey circle behind the round icon buttons in the white home
+     sheet (settings gear, back arrow), same tone as the search pill. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="#F0F2F6" />
+</shape>
