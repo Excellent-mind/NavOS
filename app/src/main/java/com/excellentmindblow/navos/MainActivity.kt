@@ -929,7 +929,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.bottomSearchButton).setOnClickListener {
             enterSearchFromNav()
         }
-        findViewById<ImageButton>(R.id.bottomAltRouteButton).setOnClickListener {
+        findViewById<View>(R.id.bottomAltRouteButton).setOnClickListener {
             openNextTurns()
         }
         findViewById<View>(R.id.nextTurnsClose).setOnClickListener { closeNextTurns() }
@@ -1209,7 +1209,6 @@ class MainActivity : AppCompatActivity() {
         homeSheet.visibility = View.GONE
 
         if (navMode == NavMode.ACTIVE) {
-            topNavBar.visibility = View.VISIBLE
             bottomNavBar.visibility = View.VISIBLE
             speedBadge.visibility = View.VISIBLE
             reportButton.visibility = View.VISIBLE
@@ -2171,7 +2170,6 @@ class MainActivity : AppCompatActivity() {
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
 
         activeRoute = route
-        topNavBar.visibility = View.VISIBLE
         bottomNavBar.visibility = View.VISIBLE
         speedBadge.visibility = View.VISIBLE
         reportButton.visibility = View.VISIBLE
@@ -2475,12 +2473,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun onNavigationState(state: NavigationState) {
         lastNavState = state
-        val distanceLabel =
-            if (state.distanceToNextTurnMeters >= 1000) {
-                String.format(Locale.US, "%.1f km", state.distanceToNextTurnMeters / 1000)
-            } else {
-                "${state.distanceToNextTurnMeters.toInt()} m"
-            }
+        val distanceLabel = formatCountdownDistance(state.distanceToNextTurnMeters)
         turnDistanceText.text = if (state.offRoute) "" else distanceLabel
         // Off the planned route: NavigationService is already fetching a new
         // one (and says "Recalculating"), so show that instead of a turn
@@ -2565,6 +2558,16 @@ class MainActivity : AppCompatActivity() {
                 }
         }
     }
+
+    /** Turn countdown shown on the round button: km with one decimal from
+     * 1 km up, then 950 m, 900 m ... 100 m in 50 m steps, then 10 m steps
+     * for the last stretch. */
+    private fun formatCountdownDistance(meters: Double): String =
+        when {
+            meters >= 1000 -> String.format(Locale.US, "%.1f km", meters / 1000)
+            meters >= 100 -> "${(Math.round(meters / 50.0) * 50).toInt().coerceAtMost(950)} m"
+            else -> "${(Math.round(meters / 10.0) * 10).toInt().coerceAtLeast(10)} m"
+        }
 
     private fun formatTurnDistance(meters: Double): String =
         if (meters >= 1000) {
