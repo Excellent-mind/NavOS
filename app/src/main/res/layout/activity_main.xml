@@ -1196,42 +1196,14 @@
                     android:background="@color/navos_rule" />
 
                 <TextView
+                    android:id="@+id/navMapDisplayRow"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:text="Map style"
+                    android:paddingTop="10dp"
+                    android:paddingBottom="10dp"
+                    android:text="Map display"
                     android:textColor="@color/navos_text"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-
-                <RadioGroup
-                    android:id="@+id/mapStyleGroup"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
-
-                    <RadioButton
-                        android:id="@+id/mapStyleSystem"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Follow system"
-                        android:textColor="@color/navos_text" />
-
-                    <RadioButton
-                        android:id="@+id/mapStyleLight"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Light"
-                        android:textColor="@color/navos_text" />
-
-                    <RadioButton
-                        android:id="@+id/mapStyleDark"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Dark"
-                        android:textColor="@color/navos_text" />
-
-                </RadioGroup>
+                    android:textSize="15sp" />
 
                 <View
                     android:layout_width="match_parent"
