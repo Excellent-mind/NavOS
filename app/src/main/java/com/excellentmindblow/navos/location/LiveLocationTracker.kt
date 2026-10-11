@@ -24,8 +24,8 @@ class LiveLocationTracker(
     private var listener: LocationListener? = null
 
     companion object {
-        private const val MIN_INTERVAL_MS = 1000L
-        private const val MIN_DISTANCE_M = 3f
+        private const val MIN_INTERVAL_MS = 500L
+        private const val MIN_DISTANCE_M = 1f
     }
 
     fun start() {
