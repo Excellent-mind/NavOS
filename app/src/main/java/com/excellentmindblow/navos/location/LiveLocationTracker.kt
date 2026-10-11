@@ -19,13 +19,16 @@ import android.os.Looper
  */
 class LiveLocationTracker(
     private val locationManager: LocationManager,
+    /** 0 = keep reporting even when standing still (needed while driving
+     * so the camera can zoom in / settle when you stop). */
+    private val minDistanceM: Float = MIN_DISTANCE_M,
     private val onLocation: (Location) -> Unit,
 ) {
     private var listener: LocationListener? = null
 
     companion object {
         private const val MIN_INTERVAL_MS = 500L
-        private const val MIN_DISTANCE_M = 1f
+        const val MIN_DISTANCE_M = 1f
     }
 
     fun start() {
@@ -44,7 +47,7 @@ class LiveLocationTracker(
         locationManager.requestLocationUpdates(
             provider,
             MIN_INTERVAL_MS,
-            MIN_DISTANCE_M,
+            minDistanceM,
             newListener,
             Looper.getMainLooper(),
         )
