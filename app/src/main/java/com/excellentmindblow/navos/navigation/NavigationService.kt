@@ -246,7 +246,7 @@ class NavigationService : Service() {
         if (locationTracker != null) return
         val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
         val tracker =
-            LiveLocationTracker(locationManager) { location ->
+            LiveLocationTracker(locationManager, minDistanceM = 0f) { location ->
                 lastLocation = location
                 listener?.onNavLocation(location)
                 engine?.onLocation(
