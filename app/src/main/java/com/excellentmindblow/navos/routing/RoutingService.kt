@@ -28,11 +28,31 @@ data class RouteStep(
     val lanes: List<LaneInfo>? = null,
 )
 
+/** An intermediate stop on a multi-stop trip (the final destination is NOT a
+ * RouteStop - it is simply where the route ends).
+ *
+ * [number] is the stop's number for the whole trip (1, 2, 3...). It stays the
+ * same after a reroute drops the stops already visited, so the pin on the map
+ * and the "Stop 2" the driver hears never get renumbered mid-drive.
+ *
+ * [stepIndex] / [geometryIndex] are filled in by [RoutingService] once a route
+ * exists: where this stop's "arrive" step sits in [Route.steps], and which
+ * vertex of [Route.geometry] it is nearest. -1 until then. */
+data class RouteStop(
+    val point: RoutePoint,
+    val name: String,
+    val number: Int,
+    val stepIndex: Int = -1,
+    val geometryIndex: Int = -1,
+)
+
 data class Route(
     val geometry: List<RoutePoint>,
     val distanceMeters: Double,
     val durationSeconds: Double,
     val steps: List<RouteStep>,
+    /** Intermediate stops, in driving order. Empty for an ordinary A -> B route. */
+    val stops: List<RouteStop> = emptyList(),
 )
 
 /**
@@ -46,6 +66,9 @@ data class Route(
  * thread (see MainActivity's background executor).
  */
 object RoutingService {
+    // How far either side of the estimated spot to look for a stop on the line.
+    private const val STOP_LOCATE_WINDOW_METERS = 300.0
+
     // Same reason geocoding.ts needs one: OSRM's public demo server
     // 403s requests that carry Java's generic default User-Agent
     // (looks bot-like with no app identity behind it).
@@ -78,6 +101,21 @@ object RoutingService {
             requestRoutes(listOf(origin, destination), "true")
         }
 
+    /** Multi-stop trip: origin -> [stops] (in this order) -> destination, as ONE
+     * route. OSRM only offers alternatives for two-point requests, so a trip with
+     * stops comes back as a single best route. With no stops this is exactly
+     * [calculateRoutes] (alternatives and all). */
+    @Throws(Exception::class)
+    fun calculateRoutes(
+        origin: RoutePoint,
+        stops: List<RouteStop>,
+        destination: RoutePoint,
+    ): List<Route> {
+        if (stops.isEmpty()) return calculateRoutes(origin, destination)
+        val points = listOf(origin) + stops.map { it.point } + destination
+        return requestRoutes(points, "false", stops)
+    }
+
     /** Thrown when the server rejects the `exclude` option (not every OSRM build supports it). */
     private class ExcludeUnsupported : Exception()
 
@@ -88,13 +126,14 @@ object RoutingService {
     private fun requestRoutes(
         points: List<RoutePoint>,
         alternatives: String,
+        stops: List<RouteStop> = emptyList(),
     ): List<Route> {
         val exclude = RoutePrefs.excludeParam()
         return try {
-            requestRoutesOnce(points, alternatives, exclude)
+            requestRoutesOnce(points, alternatives, exclude, stops)
         } catch (e: ExcludeUnsupported) {
             RoutePrefs.excludeUnsupported = true
-            requestRoutesOnce(points, alternatives, null)
+            requestRoutesOnce(points, alternatives, null, stops)
         }
     }
 
@@ -118,6 +157,7 @@ object RoutingService {
         points: List<RoutePoint>,
         alternatives: String,
         exclude: String?,
+        stops: List<RouteStop> = emptyList(),
     ): List<Route> {
         val coords = points.joinToString(";") { String.format(Locale.US, "%f,%f", it.longitude, it.latitude) }
         val now = System.currentTimeMillis()
@@ -126,7 +166,7 @@ object RoutingService {
         for (n in SERVERS.indices) {
             val i = (first + n) % SERVERS.size
             try {
-                val routes = requestFromServer(SERVERS[i], coords, alternatives, exclude)
+                val routes = requestFromServer(SERVERS[i], coords, alternatives, exclude, stops)
                 if (i != 0 || now < stickyUntilMs) {
                     stickyIndex = i
                     stickyUntilMs = now + STICKY_MS
@@ -147,6 +187,7 @@ object RoutingService {
         coords: String,
         alternatives: String,
         exclude: String?,
+        stops: List<RouteStop> = emptyList(),
     ): List<Route> {
         val url =
             URL(
@@ -181,7 +222,7 @@ object RoutingService {
             val routesJson = json.getJSONArray("routes")
             val routes = mutableListOf<Route>()
             for (i in 0 until routesJson.length()) {
-                routes.add(parseRoute(routesJson.getJSONObject(i)))
+                routes.add(parseRoute(routesJson.getJSONObject(i), stops))
             }
             return routes
         } finally {
@@ -315,22 +356,72 @@ object RoutingService {
         return near.toDouble() / samples.size
     }
 
-    private fun parseRoute(route: JSONObject): Route {
+    private fun parseRoute(
+        route: JSONObject,
+        stops: List<RouteStop> = emptyList(),
+    ): Route {
         val geometry = PolylineDecoder.decode(route.getString("geometry"))
 
         val steps = mutableListOf<RouteStep>()
         val legs = route.getJSONArray("legs")
+        val stopStepIndices = mutableListOf<Int>()
+        val stopSnapped = mutableListOf<RoutePoint>()
+        val legDistances = mutableListOf<Double>()
         for (legIndex in 0 until legs.length()) {
-            val legSteps = legs.getJSONObject(legIndex).getJSONArray("steps")
+            val leg = legs.getJSONObject(legIndex)
+            legDistances.add(leg.optDouble("distance", 0.0))
+            val legSteps = leg.getJSONArray("steps")
             for (stepIndex in 0 until legSteps.length()) {
                 val step = legSteps.getJSONObject(stepIndex)
                 val maneuver = step.getJSONObject("maneuver")
                 val location = maneuver.getJSONArray("location")
                 val type = maneuver.optString("type", "turn")
-                // A detour point splits the trip into legs; drop the fake
-                // "arrive" / "depart" steps at the joins so it stays one trip.
-                if (type == "arrive" && legIndex < legs.length() - 1) continue
-                if (type == "depart" && legIndex > 0) continue
+                val here = RoutePoint(latitude = location.getDouble(1), longitude = location.getDouble(0))
+                val isJoin = legIndex < legs.length() - 1
+                if (type == "arrive" && isJoin) {
+                    // End of a leg that is not the last. For a real stop the
+                    // driver reaches it here: keep it as a step (the engine
+                    // announces it, the turn list shows it) - its distance and
+                    // duration are filled in from the next leg's "depart" just
+                    // below. For a hidden detour point (route alternatives are
+                    // found by forcing the trip through one) there is nothing
+                    // to announce: drop it so it stays one ordinary trip.
+                    val stop = stops.getOrNull(legIndex)
+                    if (stop != null) {
+                        steps.add(
+                            RouteStep(
+                                instruction = stopInstruction(stop, legIndex),
+                                distanceMeters = 0.0,
+                                durationSeconds = 0.0,
+                                maneuverType = "arrive",
+                                modifier = null,
+                                roadName = stop.name,
+                                point = here,
+                                lanes = null,
+                            ),
+                        )
+                        stopStepIndices.add(steps.size - 1)
+                        stopSnapped.add(here)
+                    }
+                    continue
+                }
+                if (type == "depart" && legIndex > 0) {
+                    // A leg's "depart" is the point we just left (a stop or a
+                    // detour point). A step's distance/duration is "from this
+                    // maneuver to the next one", so hand the leg's first
+                    // stretch to the step before it instead of losing it -
+                    // otherwise every stop / detour point would shave that
+                    // stretch off the distance and time remaining.
+                    val last = steps.lastOrNull()
+                    if (last != null) {
+                        steps[steps.size - 1] =
+                            last.copy(
+                                distanceMeters = last.distanceMeters + step.optDouble("distance", 0.0),
+                                durationSeconds = last.durationSeconds + step.optDouble("duration", 0.0),
+                            )
+                    }
+                    continue
+                }
                 val modifier = if (maneuver.has("modifier")) maneuver.getString("modifier") else null
                 val roadName = step.optString("name", "")
 
@@ -342,19 +433,83 @@ object RoutingService {
                         maneuverType = type,
                         modifier = modifier,
                         roadName = roadName,
-                        point = RoutePoint(latitude = location.getDouble(1), longitude = location.getDouble(0)),
+                        point = here,
                         lanes = parseLanes(step),
                     ),
                 )
             }
         }
 
+        val geometryIndices = locateStopsOnGeometry(geometry, legDistances, stopSnapped)
+        val placedStops =
+            stops.mapIndexedNotNull { i, stop ->
+                val stepIdx = stopStepIndices.getOrNull(i) ?: return@mapIndexedNotNull null
+                stop.copy(stepIndex = stepIdx, geometryIndex = geometryIndices.getOrElse(i) { -1 })
+            }
+
         return Route(
             geometry = geometry,
             distanceMeters = route.optDouble("distance", 0.0),
             durationSeconds = route.optDouble("duration", 0.0),
             steps = steps,
+            stops = placedStops,
         )
+    }
+
+    private fun stopInstruction(
+        stop: RouteStop?,
+        legIndex: Int,
+    ): String {
+        val number = stop?.number ?: (legIndex + 1)
+        val name = stop?.name.orEmpty().trim()
+        return if (name.isBlank()) "Arrive at stop $number" else "Arrive at stop $number: $name"
+    }
+
+    /**
+     * For each intermediate stop, the index of the route-line vertex where the
+     * stop is. Estimated from the cumulative leg distances OSRM reports, then
+     * snapped to the vertex nearest the stop's on-road position within a small
+     * window - so a stop passed twice (drive in, U-turn, drive back out the same
+     * road) resolves to the first visit, i.e. the end of the right leg.
+     * NavigationEngine uses these to only match the GPS fix against the CURRENT
+     * leg of the line; without that, the way back along the same road would look
+     * like heading the wrong way and trigger endless rerouting.
+     */
+    private fun locateStopsOnGeometry(
+        geometry: List<RoutePoint>,
+        legDistances: List<Double>,
+        snappedStops: List<RoutePoint>,
+    ): List<Int> {
+        if (snappedStops.isEmpty() || geometry.size < 2) return emptyList()
+        val cum = DoubleArray(geometry.size)
+        for (i in 1 until geometry.size) cum[i] = cum[i - 1] + GeoUtils.distanceMeters(geometry[i - 1], geometry[i])
+        val osrmTotal = legDistances.sum()
+        val scale = if (osrmTotal > 0.0) cum[geometry.size - 1] / osrmTotal else 1.0
+        val result = ArrayList<Int>(snappedStops.size)
+        var floor = 0
+        var legEnd = 0.0
+        for (k in snappedStops.indices) {
+            legEnd += legDistances.getOrElse(k) { 0.0 }
+            val estimate = legEnd * scale
+            var best = -1
+            var bestDist = Double.MAX_VALUE
+            for (i in floor until geometry.size) {
+                if (cum[i] < estimate - STOP_LOCATE_WINDOW_METERS) continue
+                if (cum[i] > estimate + STOP_LOCATE_WINDOW_METERS) break
+                val d = GeoUtils.distanceMeters(geometry[i], snappedStops[k])
+                if (d < bestDist) {
+                    bestDist = d
+                    best = i
+                }
+            }
+            if (best < 0) {
+                // Window found nothing (odd data) - fall back to the estimate itself.
+                best = (floor until geometry.size).firstOrNull { cum[it] >= estimate } ?: (geometry.size - 1)
+            }
+            result.add(best)
+            floor = best
+        }
+        return result
     }
 
     /** A step's maneuver happens at its first intersection (OSRM: "the
