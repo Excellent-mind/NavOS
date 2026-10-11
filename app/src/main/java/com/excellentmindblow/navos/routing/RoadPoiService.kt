@@ -13,7 +13,6 @@ data class RoadPoi(
     val latitude: Double,
     val longitude: Double,
     val name: String,
-    val charge: String?,
     /** Camera only: the posted limit from the map data (e.g. "90"), if mapped. */
     val maxspeed: String? = null,
 )
@@ -22,8 +21,7 @@ data class RoadPoi(
  * Finds toll plazas and speed cameras along routes using OpenStreetMap data
  * (Overpass API), then keeps only the ones that sit on each route.
  *
- * Toll PRICES are only known where OpenStreetMap has a `charge` tag on the
- * toll booth - many plazas don't, so those show as "Toll" without a price.
+ * Toll prices are deliberately not handled - plazas show as "Toll" only.
  * Blocking: call off the main thread.
  */
 object RoadPoiService {
@@ -121,7 +119,6 @@ object RoadPoiService {
                     latitude = e.getDouble("lat"),
                     longitude = e.getDouble("lon"),
                     name = tags.optString("name").ifBlank { tags.optString("operator") },
-                    charge = tags.optString("charge").ifBlank { null },
                     maxspeed = tags.optString("maxspeed").ifBlank { null },
                 ),
             )
@@ -147,8 +144,8 @@ object RoadPoiService {
                 }
             if (idx < 0) {
                 out.add(poi)
-            } else if (out[idx].charge == null && poi.charge != null) {
-                out[idx] = out[idx].copy(charge = poi.charge, name = out[idx].name.ifBlank { poi.name })
+            } else if (out[idx].name.isBlank() && poi.name.isNotBlank()) {
+                out[idx] = out[idx].copy(name = poi.name)
             }
         }
         return out
@@ -168,17 +165,6 @@ object RoadPoiService {
         }
         if (points.isNotEmpty() && out.lastOrNull() != points.last()) out.add(points.last())
         return out
-    }
-
-    /** The number in a charge tag like "RM 4.20" / "4.2 MYR", or null when
-     * unknown or in another currency. */
-    fun parsePrice(charge: String?): Double? {
-        if (charge.isNullOrBlank()) return null
-        val lower = charge.lowercase()
-        val letters = lower.filter { it.isLetter() }
-        if (letters.isNotEmpty() && letters != "rm" && letters != "myr") return null
-        val match = Regex("(\\d+(?:[.,]\\d+)?)").find(charge) ?: return null
-        return match.value.replace(',', '.').toDoubleOrNull()
     }
 
     private fun runQuery(query: String): JSONObject {

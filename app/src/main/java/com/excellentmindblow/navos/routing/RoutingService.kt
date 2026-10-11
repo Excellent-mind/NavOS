@@ -78,16 +78,38 @@ object RoutingService {
             requestRoutes(listOf(origin, destination), "true")
         }
 
+    /** Thrown when the server rejects the `exclude` option (not every OSRM build supports it). */
+    private class ExcludeUnsupported : Exception()
+
+    /** Asks for the routes honouring "avoid tolls / highways". If the server can't do that,
+     * falls back to ordinary routes and raises [RoutePrefs.excludeUnsupported] so the app
+     * can say so, rather than silently ignoring the driver's setting. */
     @Throws(Exception::class)
     private fun requestRoutes(
         points: List<RoutePoint>,
         alternatives: String,
     ): List<Route> {
+        val exclude = RoutePrefs.excludeParam()
+        return try {
+            requestRoutesOnce(points, alternatives, exclude)
+        } catch (e: ExcludeUnsupported) {
+            RoutePrefs.excludeUnsupported = true
+            requestRoutesOnce(points, alternatives, null)
+        }
+    }
+
+    @Throws(Exception::class)
+    private fun requestRoutesOnce(
+        points: List<RoutePoint>,
+        alternatives: String,
+        exclude: String?,
+    ): List<Route> {
         val coords = points.joinToString(";") { String.format(Locale.US, "%f,%f", it.longitude, it.latitude) }
         val url =
             URL(
                 "https://router.project-osrm.org/route/v1/driving/$coords" +
-                    "?overview=full&geometries=polyline&steps=true&annotations=false&alternatives=$alternatives",
+                    "?overview=full&geometries=polyline&steps=true&annotations=false&alternatives=$alternatives" +
+                    (if (exclude != null) "&exclude=$exclude" else ""),
             )
         val connection = url.openConnection() as HttpURLConnection
         connection.setRequestProperty("User-Agent", USER_AGENT)
@@ -96,6 +118,15 @@ object RoutingService {
 
         try {
             if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                val errorBody =
+                    try {
+                        connection.errorStream?.bufferedReader()?.use { it.readText() }
+                    } catch (e: Exception) {
+                        null
+                    }
+                // OSRM words this "Exclude flag combination is not supported." - matching on that,
+                // not just "InvalidValue", so an unrelated bad parameter isn't mistaken for it.
+                if (exclude != null && errorBody?.contains("exclude", ignoreCase = true) == true) throw ExcludeUnsupported()
                 throw RuntimeException("Route request failed (${connection.responseCode})")
             }
             val body = connection.inputStream.bufferedReader().use { it.readText() }
