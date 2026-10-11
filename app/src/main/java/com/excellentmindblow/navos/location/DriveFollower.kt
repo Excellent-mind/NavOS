@@ -74,11 +74,16 @@ class DriveFollower(
     /** Call when a pinch ends: remember how far the person zoomed away
      * from the automatic zoom. */
     fun onPinchEnd(keepOffset: Boolean) {
-        val map = mapProvider()
-        if (keepOffset && map != null && !zoom.isNaN()) {
-            manualZoomOffset = (map.cameraPosition.zoom - zoom).coerceIn(-6.0, 6.0)
-        }
-        pinching = false
+        // Read the final zoom a moment later: right at the end of the gesture
+        // the map's reported zoom can still be a step behind. Frames stay
+        // paused (pinching = true) until then.
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            val map = mapProvider()
+            if (keepOffset && map != null && !zoom.isNaN()) {
+                manualZoomOffset = (map.cameraPosition.zoom - zoom).coerceIn(-6.0, 6.0)
+            }
+            pinching = false
+        }, 150L)
     }
 
     /** Go back to the automatic zoom (Recenter button / new navigation). */
@@ -374,6 +379,14 @@ class DriveFollower(
             blendFrom = null
             if (drive3d && !zoom.isNaN()) {
                 manualZoomOffset = (map.cameraPosition.zoom - zoom).coerceIn(-6.0, 6.0)
+            }
+            // Do NOT move the camera while the fingers are on it. The map's
+            // reported position lags a frame behind the gesture, so writing
+            // it back every frame undid each small step of the pinch and the
+            // zoom looked stuck. Only the arrow is redrawn.
+            if (drive3d || turnWithHeading) {
+                onFrame?.invoke()
+                return
             }
         }
 
