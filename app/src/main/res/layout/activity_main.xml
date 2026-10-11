@@ -338,6 +338,24 @@
             android:visibility="gone"
             tools:text="0\nkm/h" />
 
+        <!-- Posted speed limit of the road being driven (from map data),
+             shown to the right of the speed badge only when it is known. -->
+        <TextView
+            android:id="@+id/speedLimitSign"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="76dp"
+            android:layout_marginBottom="144dp"
+            android:background="@drawable/bg_speed_limit"
+            android:elevation="4dp"
+            android:gravity="center"
+            android:textColor="#111111"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:text="60" />
+
         <!-- Re-centre, shown only once the driver pans the free-roam map
              away from their own position - tap to resume following. Kept
              on the right, clear of the bottom sheet/preview card, same as
@@ -378,25 +396,8 @@
 
         </LinearLayout>
 
-        <!-- "What do you see?" incident report button, shown only during
-             active navigation. The re-centre button moves to the bottom-left
-             (above the speed badge) while driving so the two don't overlap. -->
-        <ImageButton
-            android:id="@+id/reportButton"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_gravity="bottom|end"
-            android:layout_marginEnd="12dp"
-            android:layout_marginBottom="156dp"
-            android:background="@drawable/bg_circle_white"
-            android:contentDescription="Report what you see"
-            android:elevation="4dp"
-            android:padding="11dp"
-            android:src="@drawable/ic_report_button"
-            android:visibility="gone" />
-
         <!-- Show/hide the petrol (pump) and EV charging (lightning) pins
-             during a drive - stacked just above the report button. Colours
+             during a drive - sitting above the re-center / speed badge area. Colours
              (on = orange/green, off = white) are set in code. -->
         <LinearLayout
             android:id="@+id/poiToggleColumn"
@@ -404,7 +405,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="12dp"
-            android:layout_marginBottom="212dp"
+            android:layout_marginBottom="156dp"
             android:orientation="vertical"
             android:visibility="gone">
 
@@ -704,6 +705,21 @@
                 android:focusable="true"
                 android:gravity="center"
                 android:text="Stop"
+                android:textColor="@color/white"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/shareEtaButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_pill_blue"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:text="Share ETA"
                 android:textColor="@color/white"
                 android:textSize="18sp"
                 android:textStyle="bold"
@@ -1222,6 +1238,16 @@
                     android:layout_marginTop="16dp"
                     android:layout_marginBottom="8dp"
                     android:background="@color/navos_rule" />
+
+                <TextView
+                    android:id="@+id/navPrefsRow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="10dp"
+                    android:paddingBottom="10dp"
+                    android:text="Navigation preferences"
+                    android:textColor="@color/navos_text"
+                    android:textSize="15sp" />
 
                 <TextView
                     android:id="@+id/helpFeedbackRow"
