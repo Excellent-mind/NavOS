@@ -14,6 +14,8 @@ data class RoadPoi(
     val longitude: Double,
     val name: String,
     val charge: String?,
+    /** Camera only: the posted limit from the map data (e.g. "90"), if mapped. */
+    val maxspeed: String? = null,
 )
 
 /**
@@ -63,26 +65,7 @@ object RoadPoiService {
                 "node[\"enforcement\"=\"maxspeed\"]($bbox);" +
                 ");out body 4000;"
 
-        val json = runQuery(query)
-        val elements = json.optJSONArray("elements") ?: return emptyMap()
-        val all = ArrayList<RoadPoi>()
-        for (i in 0 until elements.length()) {
-            val e = elements.getJSONObject(i)
-            if (!e.has("lat") || !e.has("lon")) continue
-            val tags = e.optJSONObject("tags") ?: JSONObject()
-            val isToll = tags.optString("barrier") == "toll_booth" || tags.optString("highway") == "toll_gantry"
-            val isCamera = tags.optString("highway") == "speed_camera" || tags.optString("enforcement") == "maxspeed"
-            if (!isToll && !isCamera) continue
-            all.add(
-                RoadPoi(
-                    kind = if (isToll) "toll" else "camera",
-                    latitude = e.getDouble("lat"),
-                    longitude = e.getDouble("lon"),
-                    name = tags.optString("name").ifBlank { tags.optString("operator") },
-                    charge = tags.optString("charge").ifBlank { null },
-                ),
-            )
-        }
+        val all = parseRoadPois(runQuery(query))
 
         val result = HashMap<Int, List<RoadPoi>>()
         routes.forEachIndexed { index, route ->
@@ -98,6 +81,52 @@ object RoadPoiService {
             result[index] = clusterTolls(onRoute)
         }
         return result
+    }
+
+    /** Every toll plaza / speed camera within [radiusMeters] of a point, not
+     * tied to any route - for the plain (idle) map. Plazas are merged to one
+     * icon each. Blocking: call off the main thread. */
+    @Throws(Exception::class)
+    fun fetchArea(
+        lat: Double,
+        lon: Double,
+        radiusMeters: Double = 8000.0,
+    ): List<RoadPoi> {
+        val dLat = radiusMeters / 111_320.0
+        val dLon = radiusMeters / (111_320.0 * Math.cos(Math.toRadians(lat)).coerceAtLeast(0.2))
+        val bbox = String.format(Locale.US, "%f,%f,%f,%f", lat - dLat, lon - dLon, lat + dLat, lon + dLon)
+        val query =
+            "[out:json][timeout:25];(" +
+                "node[\"barrier\"=\"toll_booth\"]($bbox);" +
+                "node[\"highway\"=\"toll_gantry\"]($bbox);" +
+                "node[\"highway\"=\"speed_camera\"]($bbox);" +
+                "node[\"enforcement\"=\"maxspeed\"]($bbox);" +
+                ");out body 2000;"
+        return clusterTolls(parseRoadPois(runQuery(query)))
+    }
+
+    private fun parseRoadPois(json: JSONObject): List<RoadPoi> {
+        val elements = json.optJSONArray("elements") ?: return emptyList()
+        val all = ArrayList<RoadPoi>()
+        for (i in 0 until elements.length()) {
+            val e = elements.getJSONObject(i)
+            if (!e.has("lat") || !e.has("lon")) continue
+            val tags = e.optJSONObject("tags") ?: JSONObject()
+            val isToll = tags.optString("barrier") == "toll_booth" || tags.optString("highway") == "toll_gantry"
+            val isCamera = tags.optString("highway") == "speed_camera" || tags.optString("enforcement") == "maxspeed"
+            if (!isToll && !isCamera) continue
+            all.add(
+                RoadPoi(
+                    kind = if (isToll) "toll" else "camera",
+                    latitude = e.getDouble("lat"),
+                    longitude = e.getDouble("lon"),
+                    name = tags.optString("name").ifBlank { tags.optString("operator") },
+                    charge = tags.optString("charge").ifBlank { null },
+                    maxspeed = tags.optString("maxspeed").ifBlank { null },
+                ),
+            )
+        }
+        return all
     }
 
     /** A plaza is mapped as one node per lane - merge those into one icon. */
