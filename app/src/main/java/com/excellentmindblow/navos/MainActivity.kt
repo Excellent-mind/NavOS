@@ -71,6 +71,7 @@ import com.excellentmindblow.navos.location.DriveFollower
 import com.excellentmindblow.navos.location.LiveLocationTracker
 import com.excellentmindblow.navos.location.PuckIcon
 import com.excellentmindblow.navos.navigation.GeoUtils
+import com.excellentmindblow.navos.navigation.RouteTrack
 import com.excellentmindblow.navos.navigation.NavigationService
 import com.excellentmindblow.navos.navigation.NavigationState
 import com.excellentmindblow.navos.poi.Poi
@@ -176,9 +177,8 @@ private const val MAX_ROUTE_OPTIONS = 5
 
 // Smart zoom: pull in as a turn / U-turn / roundabout gets close, ease back
 // out on straights, and open up a little at highway speed.
-private const val NAV_ZOOM_SLOW_BONUS = 0.25 // crawling in town
-private const val NAV_ZOOM_FAST_PENALTY = 0.7 // 120 km/h and up
-private const val NAV_ZOOM_SMOOTHING = 0.3 // share of the gap closed per GPS fix
+private const val NAV_ZOOM_SLOW_BONUS = 0.6 // crawling / stopped: come in closer
+private const val NAV_ZOOM_FAST_PENALTY = 1.0 // 110 km/h and up: open the view
 
 // Position-button / nav-follow camera tuning. Two different ease
 // durations on purpose: a short one for the continuous per-GPS-fix follow
@@ -189,7 +189,6 @@ private const val NAV_FOLLOW_EASE_MS = 350
 private const val SNAP_MAX_METERS = 35.0 // beyond this the fix isn't "on" the route
 private const val SNAP_LOOKAHEAD_SEGMENTS = 150
 private const val SNAP_LOOKBACK_SEGMENTS = 5
-private const val ARROW_LOOKAHEAD_METERS = 7.0 // the arrow's own heading looks only this far down the lane
 private const val PUCK_SOURCE_ID = "navos-puck-source"
 private const val PUCK_LAYER_ID = "navos-puck-layer"
 private const val PUCK_ICON_ID = "navos-puck-icon"
@@ -403,6 +402,10 @@ class MainActivity : AppCompatActivity() {
      * next fix only searches around it. */
     private var snapSegmentIndex = 0
 
+    /** The route being driven as a distance-indexed track (rebuilt when the
+     * route changes, e.g. after a reroute). */
+    private var routeTrack: RouteTrack? = null
+
     /** Drives the arrow AND the camera from one animation (see class doc). */
     private val driveFollower =
         DriveFollower(
@@ -414,10 +417,7 @@ class MainActivity : AppCompatActivity() {
                     NavMode.PREVIEW -> DriveFollower.Follow.OFF
                 }
             },
-        ).also {
-            it.driveTilt = NAV_TILT_DEGREES
-            it.laneBearingProvider = { lat, lng -> laneBearingAt(lat, lng) }
-        }
+        ).also { it.driveTilt = NAV_TILT_DEGREES }
     private var smoothedNavZoom: Double? = null
     private var lastNavState: NavigationState? = null
 
@@ -3187,27 +3187,6 @@ class MainActivity : AppCompatActivity() {
         navigationService = null
     }
 
-    /** Direction of the blue lane right under the arrow, looked up every
-     * animation frame for the arrow's own heading. Uses a short look-ahead
-     * so the arrow turns with the bend it is in, not the one far ahead.
-     * Null when not driving a route or when the arrow is off the line. */
-    private fun laneBearingAt(
-        lat: Double,
-        lng: Double,
-    ): Double? {
-        if (navMode != NavMode.ACTIVE) return null
-        val geometry = activeRoute?.geometry ?: return null
-        val snap =
-            GeoUtils.snapToPolyline(
-                RoutePoint(lat, lng),
-                geometry,
-                snapSegmentIndex - SNAP_LOOKBACK_SEGMENTS,
-                SNAP_LOOKAHEAD_SEGMENTS,
-            ) ?: return null
-        if (snap.distanceMeters > SNAP_MAX_METERS) return null
-        return GeoUtils.bearingAhead(geometry, snap, ARROW_LOOKAHEAD_METERS)
-    }
-
     /** Keeps the 3D follow camera (tilt + zoom + heading) locked on the
      * driver's position during active navigation. Called on every GPS fix
      * instead of leaning on LocationComponent's own camera tracking - and
@@ -3230,6 +3209,15 @@ class MainActivity : AppCompatActivity() {
         // turning even when you're crawling or stopped (GPS heading is
         // meaningless below walking speed, which is why it used to freeze).
         val geometry = activeRoute?.geometry
+        var progress = Double.NaN
+        // The arrow moves by distance along the route (see RouteTrack) so it
+        // stays on the blue line through bends.
+        driveFollower.track =
+            if (geometry != null && geometry.size >= 2) {
+                routeTrack?.takeIf { it.source === geometry } ?: RouteTrack(geometry).also { routeTrack = it }
+            } else {
+                null
+            }
         if (geometry != null) {
             val snap =
                 GeoUtils.snapToPolyline(
@@ -3242,6 +3230,7 @@ class MainActivity : AppCompatActivity() {
                 lat = snap.point.latitude
                 lng = snap.point.longitude
                 snapSegmentIndex = snap.segmentIndex
+                progress = driveFollower.track?.progressOf(snap) ?: Double.NaN
                 val speedMs = if (location.hasSpeed()) location.speed.toDouble() else 0.0
                 val ahead = (8.0 + speedMs * 1.2).coerceIn(10.0, 35.0)
                 rawBearing = GeoUtils.bearingAhead(geometry, snap, ahead)
@@ -3259,7 +3248,14 @@ class MainActivity : AppCompatActivity() {
         // Start the glide BEFORE the new fix is pushed, so even a big jump
         // is eased instead of snapping the camera in one frame.
         if (durationMs > NAV_FOLLOW_EASE_MS) driveFollower.beginCameraBlend(durationMs.toLong())
-        driveFollower.pushFix(lat, lng, bearing, smartNavZoom(location))
+        driveFollower.pushFix(
+            lat,
+            lng,
+            bearing,
+            smartNavZoom(location),
+            progressM = progress,
+            newSpeedMs = if (location.hasSpeed()) location.speed.toDouble() else 0.0,
+        )
     }
 
     /** Splits the route at [snap]: everything ahead stays the bright blue
@@ -3288,24 +3284,23 @@ class MainActivity : AppCompatActivity() {
         routePassedSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
     }
 
-    /** Zoom for the follow camera: cruising zoom, nudged by speed (a little
-     * closer when crawling, wider at highway speed) and pulled in as the
-     * next turn / U-turn / roundabout approaches so the junction is easy to
-     * read, then eased back out once it's behind. Smoothed across GPS fixes
-     * so it glides instead of stepping. */
+    /** Target zoom for the follow camera: cruising zoom, a good deal closer
+     * when crawling or stopped, wider at speed, and pulled in as the next
+     * turn / U-turn / roundabout approaches so the junction is easy to read
+     * (then back out once it's behind). This only picks the target - the
+     * smooth easing toward it happens every frame in DriveFollower, so it
+     * glides in and out instead of stepping on each GPS fix. */
     private fun smartNavZoom(location: Location): Double {
         val speedKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
         val speedAdjust =
             when {
                 speedKmh < 25.0 -> NAV_ZOOM_SLOW_BONUS * (1.0 - speedKmh / 25.0)
-                speedKmh > 70.0 -> -NAV_ZOOM_FAST_PENALTY * ((speedKmh - 70.0) / 50.0).coerceAtMost(1.0)
+                speedKmh > 60.0 -> -NAV_ZOOM_FAST_PENALTY * ((speedKmh - 60.0) / 50.0).coerceAtMost(1.0)
                 else -> 0.0
             }
         val target = NAV_ZOOM + speedAdjust + turnZoomBoost(lastNavState, speedKmh)
-        val previous = smoothedNavZoom
-        val next = if (previous == null) target else previous + (target - previous) * NAV_ZOOM_SMOOTHING
-        smoothedNavZoom = next
-        return next
+        smoothedNavZoom = target
+        return target
     }
 
     /** How much closer to zoom for the upcoming maneuver: 0 on straights and
@@ -3440,6 +3435,8 @@ class MainActivity : AppCompatActivity() {
         navMode = NavMode.IDLE
         driveFollower.resetArrowHeading()
         driveFollower.northUp = false
+        driveFollower.track = null
+        routeTrack = null
         applyPendingUiRecreate()
         activeRoute = null
         applyNavPadding(false)
