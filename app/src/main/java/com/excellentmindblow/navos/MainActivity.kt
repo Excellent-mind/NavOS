@@ -87,8 +87,10 @@ import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.routing.RoutePrefs
 import com.excellentmindblow.navos.routing.RouteStep
+import com.excellentmindblow.navos.routing.RouteStop
 import com.excellentmindblow.navos.routing.RoutingService
 import com.excellentmindblow.navos.routing.SpeedLimitService
+import com.excellentmindblow.navos.routing.TripPlanner
 import com.excellentmindblow.navos.search.GeocodeResult
 import com.excellentmindblow.navos.search.GeocodingService
 import org.maplibre.android.MapLibre
@@ -144,6 +146,12 @@ private const val ROUTE_INDEX_PROPERTY = "routeIndex"
 private const val DESTINATION_SOURCE_ID = "navos-destination-source"
 private const val DESTINATION_LAYER_ID = "navos-destination-layer"
 private const val DESTINATION_ICON_ID = "navos-destination-icon"
+
+// Numbered pins for the intermediate stops of a multi-stop trip.
+private const val STOPS_SOURCE_ID = "navos-stops-source"
+private const val STOPS_LAYER_ID = "navos-stops-layer"
+private const val STOP_ICON_PREFIX = "navos-stop-"
+private const val STOP_ICON_COUNT = 9
 
 // Drive camera: 3D tilted view, heading-up, the arrow sitting in the lower
 // part of the screen so more road ahead is visible.
@@ -241,6 +249,11 @@ private enum class NavMode { IDLE, PREVIEW, ACTIVE }
  * card in place, with a back arrow to return to COLLAPSED. */
 private enum class HomeSheetState { COLLAPSED, SEARCH, SETTINGS }
 
+/** What picking a place in the search sheet should do: replace the destination
+ * (NONE, the normal case) or add it as a stop to the trip being previewed /
+ * driven. */
+private enum class AddStopTarget { NONE, PREVIEW, ACTIVE }
+
 /**
  * Native Android entry point. MapView lifecycle forwarding below:
  * MapLibre's MapView needs every Activity lifecycle callback forwarded to
@@ -276,6 +289,26 @@ class MainActivity : AppCompatActivity() {
     private var navSheetExpanded = false
     private lateinit var navBarRow: View
     private var destinationName: String? = null
+
+    // ---- Multi-stop trip state ----
+    /** Every place of the trip in driving order; the LAST one is the
+     * destination, anything before it is a stop. One entry = ordinary A -> B. */
+    private var tripPlaces: MutableList<GeocodeResult> = mutableListOf()
+
+    /** The places the route on screen was calculated for - what the list goes
+     * back to if an edit can't be routed. */
+    private var tripRoutedPlaces: List<GeocodeResult> = emptyList()
+    private var tripRequestSeq = 0
+    private var addStopTarget = AddStopTarget.NONE
+    private var stopsSource: GeoJsonSource? = null
+
+    /** Stops of the current drive already reached (their pins are dropped). */
+    private val passedStopNumbers = mutableSetOf<Int>()
+    private lateinit var tripStopsPanel: LinearLayout
+    private lateinit var addStopButton: TextView
+    private lateinit var nextStopText: TextView
+    private lateinit var addStopDriveButton: TextView
+    private lateinit var skipStopDriveButton: TextView
     private lateinit var turnIcon: ImageView
     private lateinit var speedBadge: TextView
     private lateinit var recenterButton: View
@@ -492,6 +525,21 @@ class MainActivity : AppCompatActivity() {
                 if (now - lastRerouteFailToastMs < 10_000L) return
                 lastRerouteFailToastMs = now
                 Toast.makeText(this@MainActivity, "Can't find a new route - check your connection", Toast.LENGTH_SHORT).show()
+            }
+
+            override fun onStopReached(stop: RouteStop) {
+                passedStopNumbers.add(stop.number)
+                activeRoute?.let { renderStopMarkers(it.stops) }
+                val label = stop.name.ifBlank { "stop ${stop.number}" }
+                Toast.makeText(this@MainActivity, "Arrived at $label", Toast.LENGTH_SHORT).show()
+            }
+
+            override fun onStopChangeFailed() {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Couldn't change the stops right now - check your GPS and connection",
+                    Toast.LENGTH_SHORT,
+                ).show()
             }
 
             override fun onRerouted(route: Route) {
@@ -1169,6 +1217,7 @@ class MainActivity : AppCompatActivity() {
             endActiveNavigation()
         }
         findViewById<View>(R.id.shareEtaButton).setOnClickListener { shareEta() }
+        setUpTripUi()
         setUpNavSheetToggle()
         recenterButton.setOnClickListener { recenterCamera() }
         findViewById<ImageButton>(R.id.bottomSearchButton).setOnClickListener {
@@ -1189,6 +1238,8 @@ class MainActivity : AppCompatActivity() {
                 override fun handleOnBackPressed() {
                     if (routeListShowing) {
                         setRouteListVisible(false)
+                    } else if (addStopTarget != AddStopTarget.NONE) {
+                        exitSearchFromNav()
                     } else if (nextTurnsSheet.visibility == View.VISIBLE) {
                         closeNextTurns()
                     } else {
@@ -1454,6 +1505,7 @@ class MainActivity : AppCompatActivity() {
      * restoring the drive UI exactly as it was. */
     private fun exitSearchFromNav() {
         searchOpenedFromNav = false
+        addStopTarget = AddStopTarget.NONE
         setHomeSheetState(HomeSheetState.COLLAPSED) // also clears text + hides keyboard
         homeSheet.visibility = View.GONE
 
@@ -1461,6 +1513,10 @@ class MainActivity : AppCompatActivity() {
             bottomNavBar.visibility = View.VISIBLE
             speedBadge.visibility = View.VISIBLE
             poiToggleColumn.visibility = View.VISIBLE
+        } else if (navMode == NavMode.PREVIEW) {
+            // Backing out of "Add stop" from the route preview.
+            routePreviewCard.visibility = View.VISIBLE
+            routeViewToggle.visibility = if (routeOptions.size > 1) View.VISIBLE else View.GONE
         }
     }
 
@@ -2163,6 +2219,13 @@ class MainActivity : AppCompatActivity() {
             imm.hideSoftInputFromWindow(activeInput.windowToken, 0)
         }
 
+        // "Add stop" search: the pick becomes a stop on the current trip
+        // instead of replacing it.
+        if (addStopTarget != AddStopTarget.NONE) {
+            onStopPicked(result)
+            return
+        }
+
         // A new destination picked mid-drive replaces whatever was active.
         if (navMode == NavMode.ACTIVE) endActiveNavigation()
         searchOpenedFromNav = false
@@ -2190,7 +2253,9 @@ class MainActivity : AppCompatActivity() {
             600,
         )
 
-        fetchRoute(result)
+        tripPlaces = mutableListOf(result)
+        passedStopNumbers.clear()
+        fetchTripRoute()
     }
 
     /** Loads a map style (initial load, or a later switch e.g. the
@@ -2978,6 +3043,21 @@ class MainActivity : AppCompatActivity() {
             )
         style.addLayer(destLayer)
 
+        // Numbered stop pins: drawn below the destination pin so it stays on top.
+        for (n in 1..STOP_ICON_COUNT) style.addImage("$STOP_ICON_PREFIX$n", makeStopPinBitmap(n))
+        val stopsSrc = GeoJsonSource(STOPS_SOURCE_ID)
+        style.addSource(stopsSrc)
+        stopsSource = stopsSrc
+        style.addLayerBelow(
+            SymbolLayer(STOPS_LAYER_ID, STOPS_SOURCE_ID).withProperties(
+                PropertyFactory.iconImage(Expression.get("icon")),
+                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+            ),
+            DESTINATION_LAYER_ID,
+        )
+
         setUpPoiLayer(style)
     }
 
@@ -3022,37 +3102,68 @@ class MainActivity : AppCompatActivity() {
         destinationSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
     }
 
-    private fun fetchRoute(destination: GeocodeResult) {
+    // ---- Multi-stop trips ----------------------------------------------------
+    //
+    // A trip is a list of places (tripPlaces): everything before the last one is
+    // a stop, the last one is the destination. One entry is the ordinary A -> B
+    // trip with route alternatives; with stops it is ONE route through them in
+    // the listed order (the routing server only offers alternatives for A -> B).
+    // Stops can be added, removed, reordered or auto-ordered in the route
+    // preview, and added / skipped while driving (NavigationService re-plans the
+    // rest of the drive from where the car is).
+
+    private fun tripPoint(place: GeocodeResult) = RoutePoint(place.latitude, place.longitude)
+
+    /** Calculates the route for [tripPlaces] and shows it in the preview.
+     * [isEdit] = the driver changed the stops of a trip that is already on
+     * screen: if no route can be found the list goes back to what it was. */
+    private fun fetchTripRoute(isEdit: Boolean = false) {
+        val places = tripPlaces.toList()
+        val destination = places.lastOrNull() ?: return
         val origin = lastKnownLocation
         if (origin == null) {
             Toast.makeText(this, "Still waiting for a GPS fix - can't calculate a route yet", Toast.LENGTH_SHORT).show()
+            if (isEdit) tripPlaces = tripRoutedPlaces.toMutableList()
             return
         }
 
         val originPoint = RoutePoint(origin.latitude, origin.longitude)
-        val destinationPoint = RoutePoint(destination.latitude, destination.longitude)
+        val destinationPoint = tripPoint(destination)
+        val stops = places.dropLast(1).mapIndexed { i, p -> RouteStop(tripPoint(p), p.name, i + 1) }
+        val seq = ++tripRequestSeq
+        if (isEdit) routePreviewHint.text = "Updating route..."
 
         searchExecutor.execute {
             var routes: List<Route> = emptyList()
             RoutePrefs.excludeUnsupported = false
             try {
-                routes = RoutingService.calculateRoutes(originPoint, destinationPoint)
+                routes = RoutingService.calculateRoutes(originPoint, stops, destinationPoint)
             } catch (e: Exception) {
                 // handled below - empty list means "couldn't route"
             }
             val couldNotAvoid = RoutePrefs.excludeUnsupported
             mainHandler.post {
+                // A newer edit (or cancelling the trip) already superseded this one.
+                if (seq != tripRequestSeq) return@post
                 if (couldNotAvoid && routes.isNotEmpty()) {
                     Toast.makeText(this, "The routing server can't avoid tolls or highways yet - showing normal routes", Toast.LENGTH_LONG).show()
                 }
                 if (routes.isNotEmpty()) {
+                    tripRoutedPlaces = places
                     routeOptions = routes
                     selectedRouteIndex = 0
                     previewToken++
                     routePoisByIndex.clear()
+                    destinationName = destination.name
+                    showDestinationMarker(LatLng(destination.latitude, destination.longitude))
                     showRoutePreview()
                     loadRoutePois(routes, previewToken)
-                    searchMoreRoutes(originPoint, destinationPoint, previewToken)
+                    // Extra alternatives only exist for a plain A -> B trip.
+                    if (stops.isEmpty()) searchMoreRoutes(originPoint, destinationPoint, previewToken)
+                } else if (isEdit) {
+                    Toast.makeText(this, "Couldn't find a route through those stops", Toast.LENGTH_SHORT).show()
+                    tripPlaces = tripRoutedPlaces.toMutableList()
+                    updateRoutePreviewSummary()
                 } else {
                     clearDestinationMarker()
                     followingUser = true
@@ -3062,6 +3173,357 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /** Applies a change to the stop list and recalculates the route. */
+    private fun editTrip(change: (MutableList<GeocodeResult>) -> Unit) {
+        change(tripPlaces)
+        if (tripPlaces.isEmpty()) {
+            cancelRoutePreview()
+            return
+        }
+        renderTripStopsPanel() // the new list shows at once; the route follows
+        fetchTripRoute(isEdit = true)
+    }
+
+    private fun clearTrip() {
+        tripRequestSeq++ // a late route reply must not bring the trip back
+        tripPlaces = mutableListOf()
+        tripRoutedPlaces = emptyList()
+        passedStopNumbers.clear()
+        addStopTarget = AddStopTarget.NONE
+        renderStopMarkers(emptyList())
+    }
+
+    /** Opening the route preview mid-drive: the trip is what is still ahead. */
+    private fun rebuildTripFromRoute(route: Route) {
+        val destination = tripPlaces.lastOrNull() ?: return
+        tripPlaces =
+            route.stops
+                .filter { it.number !in passedStopNumbers }
+                .map { GeocodeResult(it.name, it.point.latitude, it.point.longitude) }
+                .toMutableList()
+                .apply { add(destination) }
+        tripRoutedPlaces = tripPlaces.toList()
+    }
+
+    private fun roundedBackground(
+        fill: Int,
+        stroke: Int? = null,
+    ): android.graphics.drawable.GradientDrawable =
+        android.graphics.drawable.GradientDrawable().apply {
+            cornerRadius = dp(22).toFloat()
+            setColor(fill)
+            if (stroke != null) setStroke(dp(1), stroke)
+        }
+
+    /** Builds the multi-stop views in code (no layout changes): the stop list
+     * and "Add stop" button in the route preview card, and the next-stop line
+     * plus "Add stop" / "Skip next stop" buttons in the drive bar. */
+    private fun setUpTripUi() {
+        val blue = ContextCompat.getColor(this, R.color.navos_blue)
+        val secondary = ContextCompat.getColor(this, R.color.navos_text_secondary)
+        val primary = ContextCompat.getColor(this, R.color.navos_text)
+
+        val card = routePreviewDestination.parent as LinearLayout
+        val at = card.indexOfChild(routePreviewDestination)
+        tripStopsPanel =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = View.GONE
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+        card.addView(tripStopsPanel, at)
+        addStopButton =
+            TextView(this).apply {
+                text = "+  Add stop"
+                gravity = Gravity.CENTER
+                textSize = 15f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setTextColor(blue)
+                background = roundedBackground(Color.TRANSPARENT, blue)
+                setPadding(dp(20), dp(9), dp(20), dp(9))
+                isClickable = true
+                isFocusable = true
+                layoutParams =
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                        .apply { topMargin = dp(10) }
+                setOnClickListener { enterAddStopSearch(AddStopTarget.PREVIEW) }
+            }
+        card.addView(addStopButton, at + 2) // just under the destination line
+
+        val bar = bottomNavBar as LinearLayout
+        nextStopText =
+            TextView(this).apply {
+                visibility = View.GONE
+                gravity = Gravity.CENTER
+                textSize = 15f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setTextColor(secondary)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                layoutParams =
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                        .apply { topMargin = dp(8) }
+            }
+        bar.addView(nextStopText, bar.indexOfChild(navBarRow) + 1)
+
+        fun driveButton(
+            label: String,
+            onClick: () -> Unit,
+        ) = TextView(this).apply {
+            text = label
+            gravity = Gravity.CENTER
+            textSize = 18f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setTextColor(primary)
+            background = roundedBackground(ContextCompat.getColor(this@MainActivity, R.color.navos_surface_variant))
+            isClickable = true
+            isFocusable = true
+            visibility = View.GONE
+            layoutParams =
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(10) }
+            setOnClickListener { onClick() }
+        }
+        addStopDriveButton = driveButton("Add stop") { enterAddStopSearch(AddStopTarget.ACTIVE) }
+        skipStopDriveButton = driveButton("Skip next stop") { skipNextStopFromDrive() }
+        val stopAt = bar.indexOfChild(navStopButton)
+        bar.addView(addStopDriveButton, stopAt)
+        bar.addView(skipStopDriveButton, stopAt + 1)
+    }
+
+    /** The stop list in the preview card: numbered stops then the destination,
+     * each with move up / move down / remove, plus "Optimize order". Hidden for
+     * an ordinary A -> B trip (the destination line shows as before). */
+    private fun renderTripStopsPanel() {
+        val multi = tripPlaces.size > 1
+        tripStopsPanel.removeAllViews()
+        tripStopsPanel.visibility = if (multi) View.VISIBLE else View.GONE
+        if (multi) routePreviewDestination.visibility = View.GONE
+        val stopCount = (tripPlaces.size - 1).coerceAtLeast(0)
+        addStopButton.visibility =
+            if (tripPlaces.isNotEmpty() && stopCount < TripPlanner.MAX_STOPS) View.VISIBLE else View.GONE
+        if (!multi) return
+
+        val primary = ContextCompat.getColor(this, R.color.navos_text)
+        val secondary = ContextCompat.getColor(this, R.color.navos_text_secondary)
+        val navy = ContextCompat.getColor(this, R.color.navos_navy)
+        val red = Color.parseColor("#E5484D")
+
+        fun action(
+            glyph: String,
+            description: String,
+            onClick: () -> Unit,
+        ) = TextView(this).apply {
+            text = glyph
+            gravity = Gravity.CENTER
+            textSize = 16f
+            setTextColor(secondary)
+            contentDescription = description
+            isClickable = true
+            isFocusable = true
+            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+            setOnClickListener { onClick() }
+        }
+
+        tripPlaces.forEachIndexed { i, place ->
+            val isDestination = i == tripPlaces.size - 1
+            val row =
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, dp(2), 0, dp(2))
+                }
+            val badge =
+                TextView(this).apply {
+                    gravity = Gravity.CENTER
+                    text = if (isDestination) "\u25A0" else "${i + 1}"
+                    setTextColor(Color.WHITE)
+                    textSize = 13f
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    background =
+                        android.graphics.drawable.GradientDrawable().apply {
+                            shape = android.graphics.drawable.GradientDrawable.OVAL
+                            setColor(if (isDestination) red else navy)
+                        }
+                    layoutParams = LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginEnd = dp(10) }
+                }
+            val label =
+                TextView(this).apply {
+                    text = place.name.ifBlank { if (isDestination) "Destination" else "Stop ${i + 1}" }
+                    setTextColor(primary)
+                    textSize = 16f
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }
+            row.addView(badge)
+            row.addView(label)
+            if (i > 0) row.addView(action("\u25B2", "Move up") { editTrip { it.add(i - 1, it.removeAt(i)) } })
+            if (!isDestination) row.addView(action("\u25BC", "Move down") { editTrip { it.add(i + 1, it.removeAt(i)) } })
+            row.addView(action("\u2715", "Remove") { editTrip { it.removeAt(i) } })
+            tripStopsPanel.addView(row)
+        }
+
+        if (stopCount >= 2) {
+            tripStopsPanel.addView(
+                TextView(this).apply {
+                    text = "Optimize order"
+                    textSize = 14f
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.navos_blue))
+                    setPadding(0, dp(8), 0, dp(4))
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener { optimizeStopOrder() }
+                },
+            )
+        }
+    }
+
+    /** Reorders the stops (destination stays last) into the shortest order. */
+    private fun optimizeStopOrder() {
+        val origin = lastKnownLocation ?: return
+        if (tripPlaces.size < 3) return
+        val stops = tripPlaces.dropLast(1)
+        val destination = tripPlaces.last()
+        val order =
+            TripPlanner.bestOrder(
+                RoutePoint(origin.latitude, origin.longitude),
+                stops.map { tripPoint(it) },
+                tripPoint(destination),
+            )
+        if (order == stops.indices.toList()) {
+            Toast.makeText(this, "Your stops are already in the shortest order", Toast.LENGTH_SHORT).show()
+            return
+        }
+        editTrip { places ->
+            places.clear()
+            places.addAll(order.map { stops[it] })
+            places.add(destination)
+        }
+    }
+
+    /** Opens the search sheet so the next place picked is added as a stop. */
+    private fun enterAddStopSearch(target: AddStopTarget) {
+        when (target) {
+            AddStopTarget.PREVIEW -> {
+                if (navMode != NavMode.PREVIEW || tripPlaces.isEmpty()) return
+                if (tripPlaces.size - 1 >= TripPlanner.MAX_STOPS) {
+                    Toast.makeText(this, "A trip can have up to ${TripPlanner.MAX_STOPS} stops", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                if (routeListShowing) setRouteListVisible(false)
+                addStopTarget = target
+                searchOpenedFromNav = true // same back / drag-down handling as a mid-drive search
+                routePreviewCard.visibility = View.GONE
+                routeViewToggle.visibility = View.GONE
+                topBar.visibility = View.GONE
+                homeSheet.visibility = View.VISIBLE
+                setHomeSheetState(HomeSheetState.SEARCH)
+            }
+            AddStopTarget.ACTIVE -> {
+                if (navMode != NavMode.ACTIVE) return
+                if ((navigationService?.remainingStops()?.size ?: 0) >= TripPlanner.MAX_STOPS) {
+                    Toast.makeText(this, "A trip can have up to ${TripPlanner.MAX_STOPS} stops", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                addStopTarget = target
+                enterSearchFromNav()
+            }
+            AddStopTarget.NONE -> Unit
+        }
+    }
+
+    /** A place was picked in the "Add stop" search. */
+    private fun onStopPicked(result: GeocodeResult) {
+        val target = addStopTarget
+        exitSearchFromNav() // puts the preview card / drive bar back, clears addStopTarget
+        saveRecent(result)
+        when (target) {
+            AddStopTarget.PREVIEW -> {
+                val pick = tripPoint(result)
+                if (tripPlaces.any { GeoUtils.distanceMeters(tripPoint(it), pick) < 30.0 }) {
+                    Toast.makeText(this, "That place is already on your trip", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                editTrip { places ->
+                    val destination = places.last()
+                    val start =
+                        lastKnownLocation?.let { RoutePoint(it.latitude, it.longitude) } ?: tripPoint(destination)
+                    // Slot it in wherever it adds the least detour; moving it
+                    // around afterwards is one tap.
+                    val index =
+                        TripPlanner.cheapestInsertIndex(start, places.dropLast(1).map { tripPoint(it) }, tripPoint(destination), pick)
+                    places.add(index, result)
+                }
+            }
+            AddStopTarget.ACTIVE -> {
+                navigationService?.addStop(RouteStop(tripPoint(result), result.name, 0))
+                Toast.makeText(this, "Adding stop...", Toast.LENGTH_SHORT).show()
+            }
+            AddStopTarget.NONE -> Unit
+        }
+    }
+
+    private fun skipNextStopFromDrive() {
+        navigationService?.skipNextStop()
+        Toast.makeText(this, "Skipping next stop...", Toast.LENGTH_SHORT).show()
+    }
+
+    /** The drive bar's extra buttons: only in the expanded bar, and "Skip next
+     * stop" only while a stop is still ahead. */
+    private fun updateStopButtons() {
+        val show = navSheetExpanded && navMode == NavMode.ACTIVE
+        addStopDriveButton.visibility = if (show) View.VISIBLE else View.GONE
+        skipStopDriveButton.visibility =
+            if (show && (lastNavState?.stopsRemaining ?: 0) > 0) View.VISIBLE else View.GONE
+    }
+
+    /** "Stop 2: Name - 12 min - 4.1 km" under the ETA while a stop is ahead. */
+    private fun updateNextStopLine(state: NavigationState?) {
+        val stop = state?.nextStop
+        if (state == null || stop == null || state.offRoute) {
+            nextStopText.visibility = View.GONE
+        } else {
+            val title = if (stop.name.isBlank()) "Stop ${stop.number}" else "Stop ${stop.number}: ${stop.name}"
+            nextStopText.text =
+                "$title \u2022 ${formatRouteMinutes(state.durationToNextStopSeconds)} \u2022 ${formatTripDistance(state.distanceToNextStopMeters)}"
+            nextStopText.visibility = View.VISIBLE
+        }
+        updateStopButtons()
+    }
+
+    /** Numbered pins for the stops of the route on screen. */
+    private fun renderStopMarkers(stops: List<RouteStop>) {
+        val src = stopsSource ?: return
+        val features =
+            stops
+                .filter { it.number !in passedStopNumbers }
+                .map { stop ->
+                    Feature.fromGeometry(Point.fromLngLat(stop.point.longitude, stop.point.latitude)).also {
+                        it.addStringProperty("icon", "$STOP_ICON_PREFIX${stop.number.coerceIn(1, STOP_ICON_COUNT)}")
+                    }
+                }
+        src.setGeoJson(FeatureCollection.fromFeatures(features))
+    }
+
+    private fun makeStopPinBitmap(number: Int): Bitmap {
+        val size = dp(30)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val r = size / 2f
+        paint.color = Color.WHITE
+        canvas.drawCircle(r, r, r, paint)
+        paint.color = ContextCompat.getColor(this, R.color.navos_navy)
+        canvas.drawCircle(r, r, r - dp(2), paint)
+        paint.color = Color.WHITE
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = size * 0.5f
+        paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
+        canvas.drawText(number.toString(), r, r - (paint.descent() + paint.ascent()) / 2f, paint)
+        return bitmap
     }
 
     // Reroute-on-off-route used to live here, recalculating from
@@ -3126,6 +3588,7 @@ class MainActivity : AppCompatActivity() {
         TransitionManager.beginDelayedTransition(bottomNavBar as ViewGroup, AutoTransition().setDuration(220))
         navStopButton.visibility = if (expanded) View.VISIBLE else View.GONE
         findViewById<View>(R.id.shareEtaButton).visibility = if (expanded) View.VISIBLE else View.GONE
+        updateStopButtons()
     }
 
     /** "3:38 PM" (arrival clock time, big) and "1:11 h • 61 km" (time left
@@ -3166,6 +3629,8 @@ class MainActivity : AppCompatActivity() {
             ?.key
 
     private fun showRoutePreview() {
+        // Opened mid-drive (switch route): the trip is whatever is still ahead.
+        if (navMode == NavMode.ACTIVE) activeRoute?.let { rebuildTripFromRoute(it) }
         navMode = NavMode.PREVIEW
         topBar.visibility = View.GONE
         topNavBar.visibility = View.GONE
@@ -3204,8 +3669,12 @@ class MainActivity : AppCompatActivity() {
         val destination = destinationName.orEmpty()
         routePreviewDestination.text = destination
         routePreviewDestination.visibility = if (destination.isNotBlank()) View.VISIBLE else View.GONE
+        renderTripStopsPanel()
+        val stopCount = (tripPlaces.size - 1).coerceAtLeast(0)
         routePreviewHint.text =
-            if (routeOptions.size > 1) {
+            if (stopCount > 0) {
+                "${if (stopCount == 1) "1 stop" else "$stopCount stops"} - one route through all of them\nTypical time - no live traffic"
+            } else if (routeOptions.size > 1) {
                 "${routeOptions.size} routes found - tap a grey route, or open List\nTypical time - no live traffic"
             } else {
                 "Typical time - no live traffic"
@@ -3242,6 +3711,7 @@ class MainActivity : AppCompatActivity() {
         }
         clearPassedRoute()
         renderRoutePois()
+        renderStopMarkers(selected.stops)
     }
 
     private fun onMapTapped(
@@ -3291,6 +3761,7 @@ class MainActivity : AppCompatActivity() {
         routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         clearDestinationMarker()
+        clearTrip()
         followingUser = true
         homeSheet.visibility = View.VISIBLE
         setHomeSheetState(HomeSheetState.COLLAPSED)
@@ -3323,6 +3794,7 @@ class MainActivity : AppCompatActivity() {
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
 
         activeRoute = route
+        passedStopNumbers.clear()
         hideRouteChooser()
         previewToken++
         activeRoutePois = routePoisByIndex[selectedRouteIndex].orEmpty()
@@ -3340,6 +3812,8 @@ class MainActivity : AppCompatActivity() {
         navSheetExpanded = false
         navStopButton.visibility = View.GONE
         findViewById<View>(R.id.shareEtaButton).visibility = View.GONE
+        updateStopButtons()
+        updateNextStopLine(null)
 
         // Waze-style 3D follow camera, driven by driveFollower on every
         // display frame together with the arrow (not by LocationComponent's
@@ -3686,6 +4160,7 @@ class MainActivity : AppCompatActivity() {
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         routeOptions = emptyList()
         clearDestinationMarker()
+        clearTrip()
         nearbyPois = emptyList()
         lastPoiFetchLocation = null
         lastPoiFetchAtMs = 0L
@@ -3765,6 +4240,7 @@ class MainActivity : AppCompatActivity() {
         turnStreetText.text = if (state.offRoute) "Recalculating..." else state.instruction
 
         showTripSummary(state.durationRemainingSeconds, state.distanceRemainingMeters, etaClockText, etaDetailText)
+        updateNextStopLine(state)
 
         if (state.currentStepIndex != renderedCalloutStep) {
             renderedCalloutStep = state.currentStepIndex
