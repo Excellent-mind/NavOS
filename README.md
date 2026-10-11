@@ -58,7 +58,9 @@ alternatives, turn-by-turn with lane guidance, live GPS, spoken guidance
 (ducks other audio), off-route rerouting, background navigation service,
 speed-camera alerts, toll plaza markers (no prices), petrol / EV pins,
 posted speed limit + over-limit warning (OpenStreetMap data), km / miles,
-avoid tolls / highways, Share ETA.
+avoid tolls / highways, Share ETA, **multi-stop trips** (up to 8 stops: add /
+remove / reorder / optimize order in the route preview, add or skip a stop
+while driving, numbered map pins, next-stop ETA, stops survive rerouting).
 
 Deliberately not built (no free, serverless source): live traffic and
 crowdsourced incident reports. ETAs are "typical time, no live traffic".
@@ -71,6 +73,10 @@ crowdsourced incident reports. ETAs are "typical time, no live traffic".
 - **Destination search**: Nominatim's public instance, same caveat.
 - **Speed limits** only appear where OpenStreetMap has a `maxspeed` tag.
 - **Avoid tolls / highways** needs a routing server built with OSRM's `exclude` support; the public demo server may refuse it (the app says so).
-- **Offline maps, multi-stop trips, depart-at, motorcycle mode, Android Auto**: not built yet.
+- **Multi-stop trips** come back as one route through the stops in the order
+  listed - OSRM only offers alternative routes for plain A -> B trips. "Optimize
+  order" and the automatic spot for a newly added stop use straight-line
+  distances, not road distances.
+- **Offline maps, depart-at, motorcycle mode, Android Auto**: not built yet.
 - Placeholder launcher icon (a simple generated compass glyph) - swap for
   real Excellent Mindblow branding whenever ready.
