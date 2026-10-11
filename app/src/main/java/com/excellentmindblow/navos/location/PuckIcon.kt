@@ -16,9 +16,15 @@ import android.graphics.Shader
  * (light left face, darker right face) with a visible thickness, a white
  * rim and a soft ground shadow. Pointing up; the map rotates it to the
  * heading. Drawn in code so there is no asset to maintain.
+ *
+ * The chevron is drawn so the middle of its footprint sits exactly on the
+ * bitmap centre. The map rotates a symbol about the bitmap centre and
+ * pins that centre to the GPS position, so an off-centre drawing made the
+ * arrow swing sideways off the blue line whenever it turned.
  */
 object PuckIcon {
-    const val SIZE_DP = 64
+    const val SIZE_DP = 76
+    private const val CONTENT_SCALE = 0.86f
 
     fun create(context: Context): Bitmap {
         val metrics = context.resources.displayMetrics
@@ -27,6 +33,13 @@ object PuckIcon {
         bitmap.density = metrics.densityDpi
         val canvas = Canvas(bitmap)
         val s = size.toFloat()
+
+        // Put the middle of the chevron's footprint (tip 0.07 .. wing 0.70)
+        // on the bitmap centre, shrinking a little so the thickness and
+        // shadow still fit inside the bitmap.
+        canvas.translate(0.5f * s, 0.5f * s)
+        canvas.scale(CONTENT_SCALE, CONTENT_SCALE)
+        canvas.translate(-0.5f * s, -0.385f * s)
 
         // Chevron corners, normalised to the bitmap.
         val tipX = 0.5f * s

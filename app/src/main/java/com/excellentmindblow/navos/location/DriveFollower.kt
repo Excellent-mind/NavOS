@@ -12,9 +12,11 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.Point
-import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.pow
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
@@ -26,6 +28,13 @@ import kotlin.math.sqrt
  * GPS fix just sets a new target; every display frame the position,
  * heading and zoom are interpolated once and applied to the arrow and the
  * camera together, so they can never disagree.
+ *
+ * Dynamic arrow bearing: the camera heading is deliberately smooth and
+ * looks ahead, but the arrow itself is rotated every frame to the local
+ * direction of the blue lane under it ([laneBearingProvider]), then
+ * corrected for the 3D tilt so it lies along the lane the way the lane
+ * looks on screen. Through a bend the arrow therefore turns with the line
+ * instead of staying fixed upright while the road curves away.
  */
 class DriveFollower(
     private val mapProvider: () -> MapLibreMap?,
@@ -42,6 +51,10 @@ class DriveFollower(
 
     var driveTilt = 55.0
 
+    /** Returns the direction (deg, 0 = north) of the route lane at a
+     * position, or null when the position is not on the route. */
+    var laneBearingProvider: ((Double, Double) -> Double?)? = null
+
     private var lat = Double.NaN
     private var lng = 0.0
     private var bearing = 0.0
@@ -55,6 +68,12 @@ class DriveFollower(
     private var toLng = 0.0
     private var toBearing = 0.0
     private var toZoom = Double.NaN
+
+    // Arrow heading actually drawn (smoothed lane direction) and what was
+    // last sent to the map after the tilt correction.
+    private var laneBearing = Double.NaN
+    private var lastLaneMs = 0L
+    private var shownBearing = 0.0
 
     private var animator: ValueAnimator? = null
     private var lastFixAtMs = 0L
@@ -79,6 +98,7 @@ class DriveFollower(
             if (!newBearing.isNaN()) bearing = newBearing
             if (!newZoom.isNaN()) zoom = newZoom
             lastFixAtMs = now
+            laneBearing = Double.NaN
             animator?.let {
                 it.removeAllListeners()
                 it.cancel()
@@ -133,6 +153,11 @@ class DriveFollower(
     fun redrawPuck() {
         if (lat.isNaN()) return
         puckSource?.setGeoJson(puckFeature())
+    }
+
+    /** Forget the smoothed arrow heading (navigation started / ended). */
+    fun resetArrowHeading() {
+        laneBearing = Double.NaN
     }
 
     fun stop() {
@@ -191,57 +216,100 @@ class DriveFollower(
 
     private fun puckFeature(): Feature =
         Feature.fromGeometry(Point.fromLngLat(lng, lat)).apply {
-            addNumberProperty("bearing", ((bearing % 360.0) + 360.0) % 360.0)
+            addNumberProperty("bearing", ((shownBearing % 360.0) + 360.0) % 360.0)
         }
+
+    /** Works out the heading to draw the arrow with for this frame.
+     * [camBearing] / [camTilt] are the camera's heading and tilt when the
+     * frame follows in 3D (the arrow is then corrected for perspective),
+     * or null when the arrow is simply rotated with the map. */
+    private fun updateArrowHeading(
+        now: Long,
+        camBearing: Double?,
+        camTilt: Double,
+    ) {
+        val lane = laneBearingProvider?.invoke(lat, lng)
+        val target = lane ?: bearing
+        if (laneBearing.isNaN()) {
+            laneBearing = target
+        } else {
+            val dt = ((now - lastLaneMs).coerceIn(0L, 250L)) / 1000.0
+            val alpha = 1.0 - exp(-dt / ARROW_TURN_TAU_S)
+            laneBearing += shortestDelta(laneBearing, target) * alpha
+        }
+        lastLaneMs = now
+        laneBearing = ((laneBearing % 360.0) + 360.0) % 360.0
+
+        shownBearing =
+            if (camBearing == null || lane == null) {
+                laneBearing
+            } else {
+                // A ground direction at angle d from the camera heading is
+                // foreshortened along the view axis by cos(tilt), so on
+                // screen it leans further from vertical than d itself.
+                val d = Math.toRadians(shortestDelta(camBearing, laneBearing))
+                val screen = Math.toDegrees(atan2(sin(d), cos(d) * cos(Math.toRadians(camTilt))))
+                camBearing + screen
+            }
+    }
 
     private fun render() {
         val map = mapProvider() ?: return
         if (lat.isNaN()) return
-        puckSource?.setGeoJson(puckFeature())
 
         val now = SystemClock.uptimeMillis()
-        if (now < holdCameraUntilMs) return
+        val mode = followProvider()
+        val frozen = now < holdCameraUntilMs
 
-        when (followProvider()) {
-            Follow.OFF -> Unit
-            Follow.CENTER -> map.moveCamera(CameraUpdateFactory.newLatLng(LatLng(lat, lng)))
-            Follow.DRIVE_3D -> {
-                var tLat = lat
-                var tLng = lng
-                var tZoom = if (zoom.isNaN()) map.cameraPosition.zoom else zoom
-                var tTilt = driveTilt
-                var tBearing = bearing
+        if (mode != Follow.DRIVE_3D || frozen) {
+            // Rotated together with the map: no perspective correction.
+            updateArrowHeading(now, null, 0.0)
+            puckSource?.setGeoJson(puckFeature())
+            if (frozen) return
+            when (mode) {
+                Follow.CENTER -> map.moveCamera(CameraUpdateFactory.newLatLng(LatLng(lat, lng)))
+                else -> Unit
+            }
+            return
+        }
 
-                val from = blendFrom
-                if (from != null) {
-                    val raw = (now - blendStartMs).toDouble() / blendDurationMs
-                    if (raw >= 1.0) {
-                        blendFrom = null
-                    } else {
-                        val e = 1.0 - (1.0 - raw).pow(3) // ease-out: moves fast right away, then settles softly
-                        val fromLat = from.target?.latitude ?: lat
-                        val fromLng = from.target?.longitude ?: lng
-                        tLat = fromLat + (lat - fromLat) * e
-                        tLng = fromLng + (lng - fromLng) * e
-                        tZoom = from.zoom + (tZoom - from.zoom) * e
-                        tTilt = from.tilt + (tTilt - from.tilt) * e
-                        tBearing = from.bearing + shortestDelta(from.bearing, bearing) * e
-                    }
-                }
+        var tLat = lat
+        var tLng = lng
+        var tZoom = if (zoom.isNaN()) map.cameraPosition.zoom else zoom
+        var tTilt = driveTilt
+        var tBearing = bearing
 
-                map.moveCamera(
-                    CameraUpdateFactory.newCameraPosition(
-                        CameraPosition
-                            .Builder()
-                            .target(LatLng(tLat, tLng))
-                            .zoom(tZoom)
-                            .tilt(tTilt)
-                            .bearing(tBearing)
-                            .build(),
-                    ),
-                )
+        val from = blendFrom
+        if (from != null) {
+            val raw = (now - blendStartMs).toDouble() / blendDurationMs
+            if (raw >= 1.0) {
+                blendFrom = null
+            } else {
+                val e = 1.0 - (1.0 - raw).pow(3) // ease-out: moves fast right away, then settles softly
+                val fromLat = from.target?.latitude ?: lat
+                val fromLng = from.target?.longitude ?: lng
+                tLat = fromLat + (lat - fromLat) * e
+                tLng = fromLng + (lng - fromLng) * e
+                tZoom = from.zoom + (tZoom - from.zoom) * e
+                tTilt = from.tilt + (tTilt - from.tilt) * e
+                tBearing = from.bearing + shortestDelta(from.bearing, bearing) * e
             }
         }
+
+        updateArrowHeading(now, tBearing, tTilt)
+        puckSource?.setGeoJson(puckFeature())
+
+        map.moveCamera(
+            CameraUpdateFactory.newCameraPosition(
+                CameraPosition
+                    .Builder()
+                    .target(LatLng(tLat, tLng))
+                    .zoom(tZoom)
+                    .tilt(tTilt)
+                    .bearing(tBearing)
+                    .build(),
+            ),
+        )
     }
 
     private fun shortestDelta(
@@ -267,6 +335,7 @@ class DriveFollower(
     private companion object {
         const val MIN_ANIM_MS = 400L
         const val MAX_ANIM_MS = 1500L
+        const val ARROW_TURN_TAU_S = 0.07 // how quickly the arrow follows the lane direction
         const val JUMP_METERS = 250.0 // teleport / reroute: don't glide across the map
     }
 }
