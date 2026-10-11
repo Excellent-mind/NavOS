@@ -98,6 +98,21 @@ object RoutingService {
         }
     }
 
+    /** Routing servers, tried in order. All speak the OSRM request format.
+     * To use your own server later, put its address FIRST in this list
+     * (it must end with "/route/v1/driving/"). */
+    private val SERVERS =
+        listOf(
+            "https://router.project-osrm.org/route/v1/driving/",
+            "https://routing.openstreetmap.de/routed-car/route/v1/driving/",
+        )
+
+    // The server that worked last is tried first for a few minutes, so a
+    // dead server is not waited on for every single request.
+    private var stickyIndex = 0
+    private var stickyUntilMs = 0L
+    private const val STICKY_MS = 5 * 60 * 1000L
+
     @Throws(Exception::class)
     private fun requestRoutesOnce(
         points: List<RoutePoint>,
@@ -105,9 +120,37 @@ object RoutingService {
         exclude: String?,
     ): List<Route> {
         val coords = points.joinToString(";") { String.format(Locale.US, "%f,%f", it.longitude, it.latitude) }
+        val now = System.currentTimeMillis()
+        val first = if (now < stickyUntilMs) stickyIndex else 0
+        var lastError: Exception? = null
+        for (n in SERVERS.indices) {
+            val i = (first + n) % SERVERS.size
+            try {
+                val routes = requestFromServer(SERVERS[i], coords, alternatives, exclude)
+                if (i != 0 || now < stickyUntilMs) {
+                    stickyIndex = i
+                    stickyUntilMs = now + STICKY_MS
+                }
+                return routes
+            } catch (e: ExcludeUnsupported) {
+                throw e // the caller retries without "exclude"
+            } catch (e: Exception) {
+                lastError = e // this server failed - try the next one
+            }
+        }
+        throw lastError ?: RuntimeException("Route request failed")
+    }
+
+    @Throws(Exception::class)
+    private fun requestFromServer(
+        baseUrl: String,
+        coords: String,
+        alternatives: String,
+        exclude: String?,
+    ): List<Route> {
         val url =
             URL(
-                "https://router.project-osrm.org/route/v1/driving/$coords" +
+                "$baseUrl$coords" +
                     "?overview=full&geometries=polyline&steps=true&annotations=false&alternatives=$alternatives" +
                     (if (exclude != null) "&exclude=$exclude" else ""),
             )
