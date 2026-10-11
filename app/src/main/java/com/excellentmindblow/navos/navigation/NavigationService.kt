@@ -22,7 +22,9 @@ import com.excellentmindblow.navos.Units
 import com.excellentmindblow.navos.location.LiveLocationTracker
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
+import com.excellentmindblow.navos.routing.RouteStop
 import com.excellentmindblow.navos.routing.RoutingService
+import com.excellentmindblow.navos.routing.TripPlanner
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -70,6 +72,15 @@ class NavigationService : Service() {
         /** A recalculation after leaving the route could not get a new
          * route (no signal, server busy). The service keeps retrying. */
         fun onRerouteFailed() {}
+
+        /** The driver reached an intermediate stop of a multi-stop trip. The
+         * service carries on to the next stop by itself; this is for the UI
+         * (drop the stop's pin, say so on screen). */
+        fun onStopReached(stop: RouteStop) {}
+
+        /** Adding or skipping a stop mid-drive could not be applied (no
+         * signal, no GPS fix yet). The drive carries on as before. */
+        fun onStopChangeFailed() {}
     }
 
     inner class LocalBinder : Binder() {
@@ -110,6 +121,11 @@ class NavigationService : Service() {
     private var lastRerouteAttemptMs = 0L
     private var rerouteCount = 0
     private var recalcAnnounced = false
+
+    // Multi-stop trips: how many stops this drive has already reached. Remaining
+    // stops are numbered from here, so the pin that says "3" is always the third
+    // stop of the trip even after earlier ones are gone.
+    private var stopsPassed = 0
     private val mainHandler = Handler(Looper.getMainLooper())
     private var activeRoute: Route? = null
     private var hasStoppedSelf = false
@@ -148,6 +164,7 @@ class NavigationService : Service() {
     fun startNavigation(route: Route) {
         hasStoppedSelf = false
         activeRoute = route
+        stopsPassed = 0
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         Units.load(prefs)
@@ -160,6 +177,10 @@ class NavigationService : Service() {
                 NavigationEngine(
                     onState = { state -> handleState(state) },
                     onAnnounce = { key, text -> voiceNarrator?.speak(key, text) },
+                    onStopReached = { stop ->
+                        stopsPassed += 1
+                        listener?.onStopReached(stop)
+                    },
                 )
         }
         engine?.setRoute(route)
@@ -180,6 +201,10 @@ class NavigationService : Service() {
      * like MainActivity's old in-place reroute did. */
     fun rerouteTo(route: Route) {
         activeRoute = route
+        // The last state belongs to the OLD route's step numbering; keeping it
+        // would make remainingStops() mis-judge which stops are still ahead
+        // until the next GPS fix arrives.
+        lastState = null
         engine?.setRoute(route)
         listener?.onRerouted(route)
     }
@@ -301,6 +326,9 @@ class NavigationService : Service() {
     private fun rerouteFromCurrentLocation() {
         val origin = lastLocation ?: return
         val destination = activeRoute?.geometry?.lastOrNull() ?: return
+        // Stops already visited are gone; the ones still ahead stay on the trip
+        // (otherwise one wrong turn would quietly drop the rest of the stops).
+        val stopsAhead = remainingStops()
         isRerouting = true
 
         // Say "Recalculating" once per wrong turn, not on every retry.
@@ -315,7 +343,7 @@ class NavigationService : Service() {
         executor.execute {
             var routes: List<Route> = emptyList()
             try {
-                routes = RoutingService.calculateRoutes(originPoint, destination)
+                routes = RoutingService.calculateRoutes(originPoint, stopsAhead, destination)
             } catch (e: Exception) {
                 // Empty list just means "stay off-route, try again after the
                 // cooldown" rather than crash the service.
@@ -335,6 +363,81 @@ class NavigationService : Service() {
                     rerouteTo(newRoute)
                 } else if (newRoute == null && activeRoute != null && !hasStoppedSelf) {
                     listener?.onRerouteFailed()
+                }
+            }
+        }
+    }
+
+    // ---- Multi-stop: change the stops of a drive that is already under way ----
+
+    /** Intermediate stops not yet reached, in driving order. */
+    fun remainingStops(): List<RouteStop> {
+        val route = activeRoute ?: return emptyList()
+        val at = lastState?.currentStepIndex ?: 1
+        return route.stops.filter { it.stepIndex >= at }
+    }
+
+    /** Adds [stop] to the drive in front of the destination, at the spot that
+     * costs the least detour among the stops still ahead, and re-plans from where
+     * the driver is now. Reports through [Listener.onStopChangeFailed] if it
+     * cannot. */
+    fun addStop(stop: RouteStop) =
+        changeStops("Stop added") { remaining, origin, destination ->
+            if (remaining.size >= TripPlanner.MAX_STOPS) {
+                null
+            } else {
+                val index =
+                    TripPlanner.cheapestInsertIndex(origin, remaining.map { it.point }, destination, stop.point)
+                remaining.toMutableList().apply { add(index, stop) }
+            }
+        }
+
+    /** Drops the next intermediate stop (closed, no longer needed) and re-plans
+     * from where the driver is now. */
+    fun skipNextStop() =
+        changeStops("Stop skipped") { remaining, _, _ ->
+            if (remaining.isEmpty()) null else remaining.drop(1)
+        }
+
+    private fun changeStops(
+        spoken: String,
+        edit: (remaining: List<RouteStop>, origin: RoutePoint, destination: RoutePoint) -> List<RouteStop>?,
+    ) {
+        val fix = lastLocation
+        val route = activeRoute
+        val destination = route?.geometry?.lastOrNull()
+        if (fix == null || route == null || destination == null || isRerouting || hasStoppedSelf) {
+            listener?.onStopChangeFailed()
+            return
+        }
+        val originPoint = RoutePoint(fix.latitude, fix.longitude)
+        val updated = edit(remainingStops(), originPoint, destination)
+        if (updated == null) {
+            listener?.onStopChangeFailed()
+            return
+        }
+        // Number what is left in driving order, continuing after the stops
+        // already reached.
+        val numbered = updated.mapIndexed { i, s -> s.copy(number = stopsPassed + i + 1, stepIndex = -1, geometryIndex = -1) }
+        isRerouting = true
+        val executor = rerouteExecutor ?: Executors.newSingleThreadExecutor().also { rerouteExecutor = it }
+        executor.execute {
+            var routes: List<Route> = emptyList()
+            try {
+                routes = RoutingService.calculateRoutes(originPoint, numbered, destination)
+            } catch (e: Exception) {
+                // reported below as a failed change
+            }
+            mainHandler.post {
+                isRerouting = false
+                val newRoute = routes.firstOrNull()
+                if (newRoute != null && activeRoute != null && !hasStoppedSelf) {
+                    offRouteStreak = 0
+                    recalcAnnounced = false
+                    rerouteTo(newRoute)
+                    voiceNarrator?.speak("stops-changed-${System.nanoTime()}", spoken)
+                } else if (activeRoute != null && !hasStoppedSelf) {
+                    listener?.onStopChangeFailed()
                 }
             }
         }

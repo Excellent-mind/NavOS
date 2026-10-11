@@ -4,6 +4,8 @@ import com.excellentmindblow.navos.Units
 import com.excellentmindblow.navos.routing.LaneInfo
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
+import com.excellentmindblow.navos.routing.RouteStep
+import com.excellentmindblow.navos.routing.RouteStop
 
 data class NavigationState(
     val currentStepIndex: Int,
@@ -28,6 +30,13 @@ data class NavigationState(
     // longer matches the route while drifting off it), not just a noisy GPS
     // fix. The service reroutes on the very first such fix.
     val offRouteConfirmed: Boolean = false,
+    // Multi-stop trips: how many intermediate stops are still ahead, which
+    // one is next (null when only the final destination is left) and how far
+    // / how long to it. All zero/null on an ordinary A -> B drive.
+    val stopsRemaining: Int = 0,
+    val nextStop: RouteStop? = null,
+    val distanceToNextStopMeters: Double = 0.0,
+    val durationToNextStopSeconds: Double = 0.0,
 )
 
 /**
@@ -42,9 +51,21 @@ data class NavigationState(
 class NavigationEngine(
     private val onState: (NavigationState) -> Unit,
     private val onAnnounce: (key: String, text: String) -> Unit,
+    // Fired once each time the driver reaches an intermediate stop (multi-stop
+    // trips). The engine itself carries on to the next leg automatically.
+    private val onStopReached: (RouteStop) -> Unit = {},
 ) {
     companion object {
         private const val ADVANCE_STEP_METERS = 25.0
+
+        // An intermediate stop counts as reached a little further out than a
+        // turn: the stop may be on a side street or in a car park, and the
+        // driver should not have to hit one exact spot for the trip to carry on.
+        private const val STOP_REACHED_METERS = 40.0
+
+        // Segments of slack either side of the current leg when matching the
+        // GPS fix to the route line on a multi-stop trip.
+        private const val LEG_MATCH_MARGIN_SEGMENTS = 4
         private const val OFF_ROUTE_METERS = 28.0 // was 40: notice a wrong turn sooner
 
         // Faster check for taking another road: slightly off the line AND
@@ -79,10 +100,65 @@ class NavigationEngine(
 
     private var route: Route? = null
     private var stepIndex = 1
+    private var stopsByStep: Map<Int, RouteStop> = emptyMap()
 
     fun setRoute(newRoute: Route?) {
         route = newRoute
         stepIndex = 1
+        stopsByStep = newRoute?.stops?.filter { it.stepIndex >= 0 }?.associateBy { it.stepIndex } ?: emptyMap()
+    }
+
+    /** Distance (m) and time (s) left of the road leading to the step at
+     * [stepIdx]: how far the driver still is from the upcoming maneuver, plus
+     * every full step between that maneuver and [untilStep] (exclusive). */
+    private fun roadTo(
+        steps: List<RouteStep>,
+        idx: Int,
+        untilStep: Int,
+        distToTurn: Double,
+    ): Pair<Double, Double> {
+        var meters = distToTurn
+        var seconds = approachSeconds(steps, idx, distToTurn)
+        for (i in idx until untilStep.coerceAtMost(steps.size)) {
+            meters += steps[i].distanceMeters
+            seconds += steps[i].durationSeconds
+        }
+        return meters to seconds
+    }
+
+    /** Time still needed to drive the remaining straight-line distance to the
+     * upcoming maneuver, estimated from how long the step that leads to it takes. */
+    private fun approachSeconds(
+        steps: List<RouteStep>,
+        idx: Int,
+        distToTurn: Double,
+    ): Double {
+        val prev = steps.getOrNull(idx - 1) ?: return 0.0
+        if (prev.distanceMeters <= 1.0) return 0.0
+        return prev.durationSeconds * (distToTurn / prev.distanceMeters).coerceIn(0.0, 1.0)
+    }
+
+    /** Distance to the route line and the segment it is nearest. On a multi-stop
+     * trip only the CURRENT leg of the line is searched: the way back along a
+     * road already driven out (stop, U-turn, return) lies on the same asphalt but
+     * runs the opposite direction, and matching it would read as a wrong turn. */
+    private fun nearestOnRoute(
+        location: RoutePoint,
+        currentRoute: Route,
+        stepIdx: Int,
+    ): Pair<Double, Int> {
+        val line = currentRoute.geometry
+        val stops = currentRoute.stops
+        if (stops.isEmpty() || stops.any { it.geometryIndex < 0 } || line.size < 2) {
+            return GeoUtils.distanceToPolyline(location, line)
+        }
+        val leg = stops.count { it.stepIndex < stepIdx }
+        val start = if (leg == 0) 0 else stops[leg - 1].geometryIndex
+        val end = if (leg < stops.size) stops[leg].geometryIndex else line.size - 1
+        val first = (start - LEG_MATCH_MARGIN_SEGMENTS).coerceAtLeast(0)
+        val span = (end + LEG_MATCH_MARGIN_SEGMENTS) - first
+        val snap = GeoUtils.snapToPolyline(location, line, first, span)
+        return if (snap != null) snap.distanceMeters to snap.segmentIndex else GeoUtils.distanceToPolyline(location, line)
     }
 
     fun onLocation(
@@ -99,17 +175,24 @@ class NavigationEngine(
 
         // Advance past any steps we've effectively already reached (handles
         // a GPS jump skipping a short step, not just the normal case).
-        while (idx < steps.size - 1 && distToTurn < ADVANCE_STEP_METERS) {
+        val reachedStops = ArrayList<RouteStop>(1)
+        while (idx < steps.size - 1 && distToTurn < (if (stopsByStep.containsKey(idx)) STOP_REACHED_METERS else ADVANCE_STEP_METERS)) {
+            stopsByStep[idx]?.let { reachedStops.add(it) }
             idx += 1
             distToTurn = GeoUtils.distanceMeters(location, steps[idx].point)
         }
         stepIndex = idx
 
-        val remainingSteps = steps.subList(idx, steps.size)
-        val distanceRemaining = distToTurn + remainingSteps.drop(1).sumOf { it.distanceMeters }
-        val durationRemaining = remainingSteps.sumOf { it.durationSeconds }
+        // Distance/time left = the way to the upcoming maneuver plus every step
+        // from that maneuver on (a step's distance is "from its maneuver to the
+        // next one", so the current step's own stretch counts too).
+        val (distanceRemaining, durationRemaining) = roadTo(steps, idx, steps.size, distToTurn)
 
-        val (offLineDistance, segmentIndex) = GeoUtils.distanceToPolyline(location, currentRoute.geometry)
+        val upcomingStops = currentRoute.stops.filter { it.stepIndex >= idx }
+        val nextStop = upcomingStops.firstOrNull()
+        val toNextStop = nextStop?.let { roadTo(steps, idx, it.stepIndex, distToTurn) }
+
+        val (offLineDistance, segmentIndex) = nearestOnRoute(location, currentRoute, idx)
         var headingMismatch = false
         val line = currentRoute.geometry
         if (bearingDegrees != null &&
@@ -142,8 +225,22 @@ class NavigationEngine(
                 nextModifier = nextStep?.modifier,
                 lanes = steps[idx].lanes,
                 offRouteConfirmed = headingMismatch,
+                stopsRemaining = upcomingStops.size,
+                nextStop = nextStop,
+                distanceToNextStopMeters = toNextStop?.first ?: 0.0,
+                durationToNextStopSeconds = toNextStop?.second ?: 0.0,
             ),
         )
+
+        for (stop in reachedStops) {
+            val more = currentRoute.stops.count { it.stepIndex > stop.stepIndex }
+            val label = stop.name.ifBlank { "stop ${stop.number}" }
+            onAnnounce(
+                "stop-reached-${stop.number}",
+                "You have arrived at $label. " + if (more > 0) "Continuing to your next stop." else "Continuing to your destination.",
+            )
+            onStopReached(stop)
+        }
 
         if (!offRoute) {
             announceIfNeeded(idx, distToTurn, steps[idx].instruction, isArrival, speedMetersPerSecond)
