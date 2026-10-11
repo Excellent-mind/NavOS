@@ -93,6 +93,7 @@ import com.excellentmindblow.navos.routing.SpeedLimitService
 import com.excellentmindblow.navos.routing.TripPlanner
 import com.excellentmindblow.navos.search.GeocodeResult
 import com.excellentmindblow.navos.search.GeocodingService
+import com.excellentmindblow.navos.search.IncomingLocation
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -631,6 +632,8 @@ class MainActivity : AppCompatActivity() {
 
         super.onCreate(savedInstanceState)
         uiDarkApplied = isNightConfig(resources.configuration)
+        // Opened from another app (shared location / maps link)? Handled once the map is ready.
+        if (savedInstanceState == null) pendingIncomingIntent = intent
 
         // Classic, opt-in "draw behind the status bar" (available since API
         // 21, fully under our control) for a true full-screen map - NOT the
@@ -2286,6 +2289,57 @@ class MainActivity : AppCompatActivity() {
                 }
             } else {
                 ensureLocationPermissionThenTrack()
+                handlePendingIncomingIntent()
+            }
+        }
+    }
+
+    // ---- Opened from another app (geo: link, Maps link, shared text) -------
+
+    private var pendingIncomingIntent: Intent? = null
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingIncomingIntent = intent
+        if (map?.style != null) handlePendingIncomingIntent()
+    }
+
+    private fun handlePendingIncomingIntent() {
+        val incoming = pendingIncomingIntent ?: return
+        pendingIncomingIntent = null
+        val raw = IncomingLocation.rawFrom(incoming) ?: return
+        Toast.makeText(this, "Opening location\u2026", Toast.LENGTH_SHORT).show()
+        val bias = lastKnownLocation
+        extrasExecutor.execute {
+            val result: GeocodeResult? =
+                try {
+                    when (val target = IncomingLocation.resolve(raw)) {
+                        is IncomingLocation.Target.Coords -> {
+                            val label =
+                                target.label
+                                    ?: try {
+                                        GeocodingService.reverse(target.latitude, target.longitude)?.label
+                                    } catch (e: Exception) {
+                                        null
+                                    }
+                                    ?: "Shared location"
+                            GeocodeResult(label, target.latitude, target.longitude)
+                        }
+                        is IncomingLocation.Target.Query ->
+                            GeocodingService.search(target.text, bias?.latitude, bias?.longitude).firstOrNull()
+                        null -> null
+                    }
+                } catch (e: Exception) {
+                    null
+                }
+            mainHandler.post {
+                if (isDestroyed) return@post
+                if (result == null) {
+                    Toast.makeText(this, "Couldn't read that location", Toast.LENGTH_LONG).show()
+                } else {
+                    onDestinationSelected(result)
+                }
             }
         }
     }
