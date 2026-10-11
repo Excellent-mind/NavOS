@@ -125,6 +125,31 @@ object GeocodingService {
         }
     }
 
+    /** Name of whatever is at a tapped spot on the map (Photon reverse
+     * lookup). Returns the same place moved to the exact tapped point, or
+     * null when nothing nameable is there. Blocking - run off the main
+     * thread. */
+    @Throws(Exception::class)
+    fun reverse(
+        lat: Double,
+        lon: Double,
+    ): GeocodeResult? {
+        val connection =
+            URL("https://photon.komoot.io/reverse?lat=$lat&lon=$lon&limit=1")
+                .openConnection() as HttpURLConnection
+        connection.setRequestProperty("User-Agent", USER_AGENT)
+        connection.connectTimeout = 6_000
+        connection.readTimeout = 6_000
+        try {
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) return null
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            val feature = JSONObject(body).optJSONArray("features")?.optJSONObject(0) ?: return null
+            return parsePhotonFeature(feature)?.copy(latitude = lat, longitude = lon)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     private fun parsePhotonFeature(feature: JSONObject): GeocodeResult? {
         val props = feature.optJSONObject("properties") ?: return null
         // The bbox also clips bits of Singapore/Thailand/Brunei/Indonesia -
