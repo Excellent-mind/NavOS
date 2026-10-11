@@ -136,6 +136,8 @@ private const val MAP_STYLE_URL_DARK = "https://tiles.openfreemap.org/styles/fio
 private const val ROUTE_SOURCE_ID = "navos-route-source"
 private const val ROUTE_CASING_LAYER_ID = "navos-route-casing-layer"
 private const val ROUTE_LAYER_ID = "navos-route-layer"
+private const val ROUTE_CHEVRON_LAYER_ID = "navos-route-chevron-layer"
+private const val ROUTE_CHEVRON_ICON_ID = "navos-route-chevron-icon"
 private const val ROUTE_PASSED_SOURCE_ID = "navos-route-passed-source"
 private const val ROUTE_PASSED_LAYER_ID = "navos-route-passed-layer"
 private const val PASSED_TAIL_POINTS = 150 // how much of the driven route stays visible (faded) behind the arrow
@@ -2711,6 +2713,34 @@ class MainActivity : AppCompatActivity() {
             R.drawable.ic_turn_uturn to 14f,
         )
 
+    /** A bold white chevron pointing RIGHT (east). On a line-placed symbol the
+     * icon's "right" is the direction the line runs, so this points the way
+     * the route goes. A faint dark edge keeps it readable on the blue. */
+    private fun makeRouteChevron(): Bitmap {
+        val size = 64
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val path =
+            android.graphics.Path().apply {
+                moveTo(20f, 14f)
+                lineTo(46f, 32f)
+                lineTo(20f, 50f)
+            }
+        val paint =
+            android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                style = android.graphics.Paint.Style.STROKE
+                strokeCap = android.graphics.Paint.Cap.ROUND
+                strokeJoin = android.graphics.Paint.Join.ROUND
+            }
+        paint.color = Color.argb(70, 10, 70, 120)
+        paint.strokeWidth = 15f
+        canvas.drawPath(path, paint)
+        paint.color = Color.WHITE
+        paint.strokeWidth = 10f
+        canvas.drawPath(path, paint)
+        return bitmap
+    }
+
     /** The same white Waze-style turn arrow as the bottom button, made
      * bolder with a navy outline, and shifted so its tail lies on the road. */
     private fun makeTurnArrow(res: Int): Bitmap? {
@@ -2948,6 +2978,33 @@ class MainActivity : AppCompatActivity() {
             )
         addBelowLabels(layer)
 
+        // White direction chevrons painted INSIDE the blue lane, like Google Maps
+        // and Waze. They are placed along the line itself, so each one is turned
+        // to the exact direction of the lane at its spot (through bends too) and
+        // lies flat on the road with the map's tilt instead of floating upright.
+        style.addImage(ROUTE_CHEVRON_ICON_ID, makeRouteChevron())
+        addBelowLabels(
+            SymbolLayer(ROUTE_CHEVRON_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
+                PropertyFactory.symbolPlacement(Property.SYMBOL_PLACEMENT_LINE),
+                PropertyFactory.symbolSpacing(62f),
+                PropertyFactory.iconImage(ROUTE_CHEVRON_ICON_ID),
+                PropertyFactory.iconSize(
+                    Expression.interpolate(
+                        Expression.linear(),
+                        Expression.zoom(),
+                        Expression.stop(11, 0.22f),
+                        Expression.stop(15, 0.34f),
+                        Expression.stop(19, 0.5f),
+                    ),
+                ),
+                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
+                PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
+                PropertyFactory.iconKeepUpright(false),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+            ),
+        )
+
         // Turn callouts: a white arrow at every corner of the route plus a
         // blue name bubble above it, like Waze. Above the route line, below
         // the destination pin and the driver's arrow (added after this).
@@ -2985,9 +3042,6 @@ class MainActivity : AppCompatActivity() {
                 PropertyFactory.iconIgnorePlacement(true),
             ),
         )
-        makeTurnArrow(R.drawable.ic_turn_straight)?.let {
-            style.addImage(turnIconId(R.drawable.ic_turn_straight), it)
-        }
         val turnSrc = GeoJsonSource(TURN_SOURCE_ID)
         style.addSource(turnSrc)
         turnCalloutSource = turnSrc
@@ -2997,15 +3051,8 @@ class MainActivity : AppCompatActivity() {
         // but its badge stays.
         style.addLayer(
             SymbolLayer(TURN_ARROW_LAYER_ID, TURN_SOURCE_ID).withProperties(
-                PropertyFactory.iconImage(Expression.get("icon")),
-                PropertyFactory.iconSize(0.9f),
-                PropertyFactory.iconRotate(Expression.get("bearing")),
-                PropertyFactory.iconAllowOverlap(false),
-                PropertyFactory.iconIgnorePlacement(false),
-                PropertyFactory.iconPadding(8f),
-                // Lie flat ON the road and turn with it, like Waze.
-                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
-                PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
+                // Road-name bubble only: the direction arrows are the chevrons
+                // inside the blue lane (see ROUTE_CHEVRON_LAYER_ID).
                 PropertyFactory.textField(Expression.get("name")),
                 PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
                 PropertyFactory.textSize(14f),
@@ -3014,8 +3061,8 @@ class MainActivity : AppCompatActivity() {
                 PropertyFactory.textHaloWidth(5f),
                 PropertyFactory.textMaxWidth(9f),
                 PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM),
-                PropertyFactory.textOffset(arrayOf(0f, -1.9f)),
-                PropertyFactory.textOptional(true),
+                PropertyFactory.textOffset(arrayOf(0f, -0.9f)),
+                PropertyFactory.textOptional(false),
                 PropertyFactory.textAllowOverlap(false),
                 PropertyFactory.textPadding(6f),
                 PropertyFactory.textRotationAlignment(Property.TEXT_ROTATION_ALIGNMENT_VIEWPORT),
