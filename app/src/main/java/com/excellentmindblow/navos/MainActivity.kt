@@ -597,6 +597,9 @@ class MainActivity : AppCompatActivity() {
             // itself facing north and was getting clipped). Rotates with the
             // map; tap to turn the map back to north.
             loadedMap.uiSettings.isCompassEnabled = false
+            // No MapLibre logo and no (i) attribution button on the map.
+            loadedMap.uiSettings.isLogoEnabled = false
+            loadedMap.uiSettings.isAttributionEnabled = false
             val compass = findViewById<CompassView>(R.id.compassButton)
             loadedMap.addOnCameraMoveListener {
                 compass.northAngle = (-loadedMap.cameraPosition.bearing).toFloat()
