@@ -2,6 +2,7 @@ package com.excellentmindblow.navos
 
 import android.Manifest
 import android.animation.Animator
+import android.animation.ObjectAnimator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
@@ -76,6 +77,8 @@ import com.excellentmindblow.navos.poi.Poi
 import com.excellentmindblow.navos.poi.PoiKind
 import com.excellentmindblow.navos.poi.PoiService
 import com.excellentmindblow.navos.routing.LaneInfo
+import com.excellentmindblow.navos.routing.RoadPoi
+import com.excellentmindblow.navos.routing.RoadPoiService
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.routing.RouteStep
@@ -151,6 +154,14 @@ private const val TURN_SOURCE_ID = "navos-turn-source"
 private const val TURN_ARROW_LAYER_ID = "navos-turn-arrow-layer"
 private const val TURN_LABEL_LAYER_ID = "navos-turn-label-layer"
 private const val MAX_TURN_CALLOUTS = 12
+
+// Toll plazas / speed cameras drawn on the route, and how many route
+// choices to offer (Waze gives 4-5).
+private const val ROUTE_POI_SOURCE_ID = "navos-route-poi-source"
+private const val ROUTE_POI_LAYER_ID = "navos-route-poi-layer"
+private const val POI_ICON_TOLL = "navos-poi-toll"
+private const val POI_ICON_CAMERA = "navos-poi-camera"
+private const val MAX_ROUTE_OPTIONS = 5
 
 // Smart zoom: pull in as a turn / U-turn / roundabout gets close, ease back
 // out on straights, and open up a little at highway speed.
@@ -233,6 +244,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bottomNavBar: View
     private lateinit var turnDistanceText: TextView
     private lateinit var turnStreetText: TextView
+    private lateinit var recalcPill: View
+    private lateinit var routeViewToggle: View
+    private lateinit var toggleMap: TextView
+    private lateinit var toggleList: TextView
+    private lateinit var routeListOverlay: View
+    private lateinit var routeListItems: LinearLayout
+    private lateinit var recalcText: TextView
+    private var recalcShown = false
+    private var recalcPulse: ObjectAnimator? = null
     private lateinit var etaClockText: TextView
     private lateinit var etaDetailText: TextView
     private lateinit var navStopButton: View
@@ -440,6 +460,10 @@ class MainActivity : AppCompatActivity() {
                 routeOptions = listOf(route)
                 selectedRouteIndex = 0
                 redrawRouteLines()
+                setRecalculating(false)
+                activeRoutePois = emptyList()
+                renderRoutePois()
+                loadActiveRoutePois(route)
                 renderedCalloutStep = -1
                 renderTurnCallouts(1)
                 nextTurnsRenderedIndex = -1
@@ -904,6 +928,15 @@ class MainActivity : AppCompatActivity() {
         }
         turnDistanceText = findViewById(R.id.turnDistanceText)
         turnStreetText = findViewById(R.id.turnStreetText)
+        recalcPill = findViewById(R.id.recalcPill)
+        routeViewToggle = findViewById(R.id.routeViewToggle)
+        toggleMap = findViewById(R.id.toggleMap)
+        toggleList = findViewById(R.id.toggleList)
+        routeListOverlay = findViewById(R.id.routeListOverlay)
+        routeListItems = findViewById(R.id.routeListItems)
+        toggleMap.setOnClickListener { setRouteListVisible(false) }
+        toggleList.setOnClickListener { setRouteListVisible(true) }
+        recalcText = findViewById(R.id.recalcText)
         etaClockText = findViewById(R.id.etaClockText)
         etaDetailText = findViewById(R.id.etaDetailText)
         navStopButton = findViewById(R.id.stopNavigationButton)
@@ -985,7 +1018,9 @@ class MainActivity : AppCompatActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
-                    if (nextTurnsSheet.visibility == View.VISIBLE) {
+                    if (routeListShowing) {
+                        setRouteListVisible(false)
+                    } else if (nextTurnsSheet.visibility == View.VISIBLE) {
                         closeNextTurns()
                     } else {
                         isEnabled = false
@@ -1829,6 +1864,7 @@ class MainActivity : AppCompatActivity() {
                 redrawRouteLines()
                 destinationLatLng?.let { showDestinationMarker(it) }
                 renderPoiPins()
+                renderRoutePois()
                 if (navMode == NavMode.ACTIVE) {
                     renderedCalloutStep = -1
                     renderTurnCallouts(lastNavState?.currentStepIndex ?: 1)
@@ -1859,6 +1895,225 @@ class MainActivity : AppCompatActivity() {
             Expression.stop(20, z20),
         )
 
+    private var routePoiSource: GeoJsonSource? = null
+    private val routePoisByIndex = HashMap<Int, List<RoadPoi>>()
+    private var activeRoutePois: List<RoadPoi> = emptyList()
+
+    @Volatile private var previewToken = 0
+    private var routeListShowing = false
+    private val extrasExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+    private fun makeTollIcon(): Bitmap {
+        val w = 132
+        val h = 92
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        val box = RectF(5f, 5f, w - 5f, h - 5f)
+        p.color = Color.parseColor("#1E5BD8")
+        c.drawRoundRect(box, 22f, 22f, p)
+        p.style = Paint.Style.STROKE
+        p.strokeWidth = 6f
+        p.color = Color.WHITE
+        c.drawRoundRect(box, 22f, 22f, p)
+        p.style = Paint.Style.FILL
+        p.textAlign = Paint.Align.CENTER
+        p.typeface = android.graphics.Typeface.DEFAULT_BOLD
+        p.textSize = 40f
+        c.drawText("TOLL", w / 2f, h / 2f + 14f, p)
+        return bmp
+    }
+
+    private fun makeCameraIcon(): Bitmap {
+        val s = 104
+        val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        val m = s / 2f
+        p.color = Color.parseColor("#E5484D")
+        c.drawCircle(m, m, m - 5f, p)
+        p.style = Paint.Style.STROKE
+        p.strokeWidth = 6f
+        p.color = Color.WHITE
+        c.drawCircle(m, m, m - 5f, p)
+        p.style = Paint.Style.FILL
+        c.drawRoundRect(RectF(26f, 38f, 78f, 70f), 7f, 7f, p) // body
+        c.drawRoundRect(RectF(38f, 30f, 58f, 42f), 4f, 4f, p) // top bump
+        p.color = Color.parseColor("#E5484D")
+        c.drawCircle(52f, 54f, 9f, p) // lens
+        return bmp
+    }
+
+    /** Draws the toll plazas / cameras that lie on the route being looked
+     * at (previewed or driven). */
+    private fun renderRoutePois() {
+        val src = routePoiSource ?: return
+        val pois =
+            when (navMode) {
+                NavMode.ACTIVE -> activeRoutePois
+                NavMode.PREVIEW -> routePoisByIndex[selectedRouteIndex].orEmpty()
+                else -> emptyList()
+            }
+        val features =
+            pois.map { poi ->
+                val f = Feature.fromGeometry(Point.fromLngLat(poi.longitude, poi.latitude))
+                f.addStringProperty("icon", if (poi.kind == "toll") POI_ICON_TOLL else POI_ICON_CAMERA)
+                val price = if (poi.kind == "toll") RoadPoiService.parsePrice(poi.charge) else null
+                f.addStringProperty("label", if (price != null) String.format(Locale.US, "RM%.2f", price) else "")
+                f
+            }
+        src.setGeoJson(FeatureCollection.fromFeatures(features))
+    }
+
+    /** Looks up toll plazas / cameras for [routes] in the background. */
+    private fun loadRoutePois(
+        routes: List<Route>,
+        token: Int,
+    ) {
+        extrasExecutor.execute {
+            val found =
+                try {
+                    RoadPoiService.fetchAlong(routes)
+                } catch (e: Exception) {
+                    emptyMap()
+                }
+            mainHandler.post {
+                if (token != previewToken || navMode != NavMode.PREVIEW) return@post
+                routePoisByIndex.putAll(found)
+                renderRoutePois()
+                updateRoutePreviewSummary()
+                if (routeListShowing) renderRouteList()
+            }
+        }
+    }
+
+    private fun loadActiveRoutePois(route: Route) {
+        extrasExecutor.execute {
+            val found =
+                try {
+                    RoadPoiService.fetchAlong(listOf(route))[0].orEmpty()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            mainHandler.post {
+                if (navMode == NavMode.ACTIVE && activeRoute === route) {
+                    activeRoutePois = found
+                    renderRoutePois()
+                }
+            }
+        }
+    }
+
+    /** "Toll ~RM4.20" (all prices known), "Toll" (plaza on the route but no
+     * price in the map data) or null (no toll found). */
+    private fun tollSummary(pois: List<RoadPoi>?): String? {
+        val tolls = pois?.filter { it.kind == "toll" } ?: return null
+        if (tolls.isEmpty()) return null
+        val prices = tolls.map { RoadPoiService.parsePrice(it.charge) }
+        return if (prices.all { it != null }) {
+            String.format(Locale.US, "Toll ~RM%.2f", prices.sumOf { it ?: 0.0 })
+        } else {
+            "Toll"
+        }
+    }
+
+    private fun formatRouteMinutes(seconds: Double): String {
+        val minutes = Math.round(seconds / 60.0).toInt().coerceAtLeast(1)
+        return if (minutes >= 60) "${minutes / 60} h ${minutes % 60} min" else "$minutes min"
+    }
+
+    private fun styleRouteToggle() {
+        val blue = ContextCompat.getColor(this, R.color.navos_blue)
+        val grey = ContextCompat.getColor(this, R.color.navos_text_secondary)
+        toggleMap.setBackgroundResource(if (routeListShowing) 0 else R.drawable.bg_toggle_selected)
+        toggleList.setBackgroundResource(if (routeListShowing) R.drawable.bg_toggle_selected else 0)
+        toggleMap.setTextColor(if (routeListShowing) grey else blue)
+        toggleList.setTextColor(if (routeListShowing) blue else grey)
+    }
+
+    private fun setRouteListVisible(show: Boolean) {
+        if (navMode != NavMode.PREVIEW) return
+        routeListShowing = show
+        routeListOverlay.visibility = if (show) View.VISIBLE else View.GONE
+        routePreviewCard.visibility = if (show) View.GONE else View.VISIBLE
+        styleRouteToggle()
+        if (show) renderRouteList() else fitSelectedRoute()
+    }
+
+    /** One card per route, quickest first. Tap a card to pick it, Go to start. */
+    private fun renderRouteList() {
+        routeListItems.removeAllViews()
+        val order = routeOptions.indices.sortedBy { routeOptions[it].durationSeconds }
+        for (index in order) {
+            val route = routeOptions[index]
+            val row = LayoutInflater.from(this).inflate(R.layout.item_route_option, routeListItems, false)
+            row.findViewById<TextView>(R.id.routeItemDuration).text = formatRouteMinutes(route.durationSeconds)
+            val arrival = Date(System.currentTimeMillis() + (route.durationSeconds * 1000).toLong())
+            row.findViewById<TextView>(R.id.routeItemMeta).text =
+                SimpleDateFormat("h:mm a", Locale.US).format(arrival) + "  •  " + formatTripDistance(route.distanceMeters)
+            val via = viaRoadName(route)
+            val viaView = row.findViewById<TextView>(R.id.routeItemVia)
+            viaView.text = if (via != null) "Via $via" else ""
+            viaView.visibility = if (via != null) View.VISIBLE else View.GONE
+            val toll = tollSummary(routePoisByIndex[index])
+            val chip = row.findViewById<TextView>(R.id.routeItemToll)
+            chip.text = toll.orEmpty()
+            chip.visibility = if (toll != null) View.VISIBLE else View.GONE
+            if (index == selectedRouteIndex) row.setBackgroundResource(R.drawable.bg_route_card_selected)
+            row.setOnClickListener {
+                selectedRouteIndex = index
+                redrawRouteLines()
+                updateRoutePreviewSummary()
+                renderRouteList()
+            }
+            row.findViewById<View>(R.id.routeItemGo).setOnClickListener {
+                selectedRouteIndex = index
+                beginActiveNavigation()
+            }
+            routeListItems.addView(row)
+        }
+    }
+
+    private fun fitSelectedRoute() {
+        val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
+        val bounds = LatLngBounds.Builder()
+        selected.geometry.forEach { bounds.include(LatLng(it.latitude, it.longitude)) }
+        map?.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 120, 120, 120, dp(380)), 800)
+    }
+
+    private fun hideRouteChooser() {
+        routeListShowing = false
+        routeListOverlay.visibility = View.GONE
+        routeViewToggle.visibility = View.GONE
+    }
+
+    /** Keeps hunting for more route choices after the first ones are shown. */
+    private fun searchMoreRoutes(
+        origin: RoutePoint,
+        destination: RoutePoint,
+        token: Int,
+    ) {
+        val snapshot = routeOptions
+        extrasExecutor.execute {
+            RoutingService.findExtraRoutes(origin, destination, snapshot, MAX_ROUTE_OPTIONS, { token != previewToken }) { found ->
+                mainHandler.post {
+                    if (token == previewToken && navMode == NavMode.PREVIEW) {
+                        routeOptions = routeOptions + found
+                        redrawRouteLines()
+                        updateRoutePreviewSummary()
+                        routeViewToggle.visibility = View.VISIBLE
+                        if (routeListShowing) renderRouteList()
+                    }
+                }
+            }
+            mainHandler.post {
+                if (token == previewToken && navMode == NavMode.PREVIEW && routeOptions.size > snapshot.size) {
+                    loadRoutePois(routeOptions, token)
+                }
+            }
+        }
+    }
+
     private var turnCalloutSource: GeoJsonSource? = null
     private var renderedCalloutStep = -1
 
@@ -1882,25 +2137,77 @@ class MainActivity : AppCompatActivity() {
 
     private fun turnIconId(res: Int): String = "navos-turn-" + resources.getResourceEntryName(res)
 
-    /** Round navy badge with a white ring and the white turn arrow inside -
-     * far easier to read on the blue route line than a bare thin arrow. */
-    private fun makeTurnBadge(res: Int): Bitmap? {
+    // x position (in the icon's 48-unit grid) where each arrow's tail starts.
+    // The arrow is shifted so this tail sits exactly on the icon's centre, i.e.
+    // on the route line, instead of the whole arrow being centred on it.
+    private val TURN_STEM_X =
+        mapOf(
+            R.drawable.ic_turn_left to 36f,
+            R.drawable.ic_turn_right to 12f,
+            R.drawable.ic_turn_sharp_left to 34f,
+            R.drawable.ic_turn_sharp_right to 14f,
+            R.drawable.ic_turn_slight_left to 33f,
+            R.drawable.ic_turn_slight_right to 15f,
+            R.drawable.ic_turn_uturn to 14f,
+        )
+
+    /** The same white Waze-style turn arrow as the bottom button, made
+     * bolder with a navy outline, and shifted so its tail lies on the road. */
+    private fun makeTurnArrow(res: Int): Bitmap? {
         val drawable = ContextCompat.getDrawable(this, res)?.mutate() ?: return null
-        val size = 112
+        val size = 160
+        val glyph = 100
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        val c = size / 2f
-        paint.color = Color.parseColor("#14284B")
-        canvas.drawCircle(c, c, c - 4f, paint)
-        paint.color = Color.WHITE
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 6f
-        canvas.drawCircle(c, c, c - 4f, paint)
-        val inset = 22
-        drawable.setBounds(inset, inset, size - inset, size - inset)
+        val shift = ((24f - (TURN_STEM_X[res] ?: 24f)) / 48f * glyph).toInt()
+        val left = (size - glyph) / 2 + shift
+        val top = (size - glyph) / 2
+        drawable.setBounds(left, top, left + glyph, top + glyph)
+        val dirs =
+            listOf(
+                1f to 0f, 0.71f to 0.71f, 0f to 1f, -0.71f to 0.71f,
+                -1f to 0f, -0.71f to -0.71f, 0f to -1f, 0.71f to -0.71f,
+            )
+
+        fun stamp(
+            color: Int,
+            radius: Float,
+        ) {
+            drawable.setTint(color)
+            for ((dx, dy) in dirs) {
+                canvas.save()
+                canvas.translate(dx * radius, dy * radius)
+                drawable.draw(canvas)
+                canvas.restore()
+            }
+        }
+        stamp(Color.parseColor("#14284B"), 8f) // outline
+        stamp(Color.WHITE, 3f) // fatten the white stroke
+        drawable.setTint(Color.WHITE)
         drawable.draw(canvas)
         return bitmap
+    }
+
+    /** Direction of travel (0 = north) as the route arrives at [point]:
+     * measured from a spot ~6 m back along the route line. */
+    private fun incomingBearing(
+        geometry: List<com.excellentmindblow.navos.routing.RoutePoint>,
+        point: com.excellentmindblow.navos.routing.RoutePoint,
+    ): Double {
+        if (geometry.size < 2) return 0.0
+        var nearest = 0
+        var best = Double.MAX_VALUE
+        for (i in geometry.indices) {
+            val d = GeoUtils.distanceMeters(geometry[i], point)
+            if (d < best) {
+                best = d
+                nearest = i
+            }
+        }
+        if (nearest == 0) return GeoUtils.bearingDegrees(geometry[0], geometry[1])
+        var j = nearest - 1
+        while (j > 0 && GeoUtils.distanceMeters(geometry[j], geometry[nearest]) < 6.0) j--
+        return GeoUtils.bearingDegrees(geometry[j], geometry[nearest])
     }
 
     /** Draws an arrow + road name on the route line at each upcoming turn
@@ -1908,6 +2215,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderTurnCallouts(fromStep: Int) {
         val src = turnCalloutSource ?: return
         val steps = activeRoute?.steps
+        val geometry = activeRoute?.geometry ?: emptyList()
         if (navMode != NavMode.ACTIVE || steps == null) {
             src.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
             return
@@ -1927,6 +2235,7 @@ class MainActivity : AppCompatActivity() {
             feature.addStringProperty("icon", turnIconId(iconForManeuver(s.maneuverType, s.modifier)))
             feature.addStringProperty("name", s.roadName)
             feature.addNumberProperty("order", i)
+            feature.addNumberProperty("bearing", incomingBearing(geometry, s.point))
             features.add(feature)
         }
         src.setGeoJson(FeatureCollection.fromFeatures(features))
@@ -2032,8 +2341,32 @@ class MainActivity : AppCompatActivity() {
         // Turn callouts: a white arrow at every corner of the route plus a
         // blue name bubble above it, like Waze. Above the route line, below
         // the destination pin and the driver's arrow (added after this).
+        // Toll plazas and speed cameras along the route (always visible).
+        style.addImage(POI_ICON_TOLL, makeTollIcon())
+        style.addImage(POI_ICON_CAMERA, makeCameraIcon())
+        val poiSrc = GeoJsonSource(ROUTE_POI_SOURCE_ID)
+        style.addSource(poiSrc)
+        routePoiSource = poiSrc
+        style.addLayer(
+            SymbolLayer(ROUTE_POI_LAYER_ID, ROUTE_POI_SOURCE_ID).withProperties(
+                PropertyFactory.iconImage(Expression.get("icon")),
+                PropertyFactory.iconSize(0.55f),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.textField(Expression.get("label")),
+                PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
+                PropertyFactory.textSize(12f),
+                PropertyFactory.textColor(Color.parseColor("#14284B")),
+                PropertyFactory.textHaloColor(Color.WHITE),
+                PropertyFactory.textHaloWidth(2f),
+                PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
+                PropertyFactory.textOffset(arrayOf(0f, 1.3f)),
+                PropertyFactory.textOptional(true),
+                PropertyFactory.textAllowOverlap(true),
+            ),
+        )
         for (res in TURN_ICON_RES) {
-            makeTurnBadge(res)?.let { style.addImage(turnIconId(res), it) }
+            makeTurnArrow(res)?.let { style.addImage(turnIconId(res), it) }
         }
         val turnSrc = GeoJsonSource(TURN_SOURCE_ID)
         style.addSource(turnSrc)
@@ -2045,12 +2378,14 @@ class MainActivity : AppCompatActivity() {
         style.addLayer(
             SymbolLayer(TURN_ARROW_LAYER_ID, TURN_SOURCE_ID).withProperties(
                 PropertyFactory.iconImage(Expression.get("icon")),
-                PropertyFactory.iconSize(0.7f),
+                PropertyFactory.iconSize(0.9f),
+                PropertyFactory.iconRotate(Expression.get("bearing")),
                 PropertyFactory.iconAllowOverlap(false),
                 PropertyFactory.iconIgnorePlacement(false),
                 PropertyFactory.iconPadding(8f),
-                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
-                PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_VIEWPORT),
+                // Lie flat ON the road and turn with it, like Waze.
+                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
+                PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
                 PropertyFactory.textField(Expression.get("name")),
                 PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
                 PropertyFactory.textSize(14f),
@@ -2190,7 +2525,11 @@ class MainActivity : AppCompatActivity() {
                 if (routes.isNotEmpty()) {
                     routeOptions = routes
                     selectedRouteIndex = 0
+                    previewToken++
+                    routePoisByIndex.clear()
                     showRoutePreview()
+                    loadRoutePois(routes, previewToken)
+                    searchMoreRoutes(originPoint, destinationPoint, previewToken)
                 } else {
                     clearDestinationMarker()
                     followingUser = true
@@ -2320,27 +2659,30 @@ class MainActivity : AppCompatActivity() {
         renderPoiPins() // pins are drive-only
         redrawRouteLines()
 
-        val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
-        val bounds = LatLngBounds.Builder()
-        selected.geometry.forEach { bounds.include(LatLng(it.latitude, it.longitude)) }
-        map?.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 120, 120, 120, dp(380)), 800)
+        routeOptions.getOrNull(selectedRouteIndex) ?: return
+        fitSelectedRoute()
 
         updateRoutePreviewSummary()
         routePreviewCard.visibility = View.VISIBLE
+        routeListShowing = false
+        routeListOverlay.visibility = View.GONE
+        routeViewToggle.visibility = if (routeOptions.size > 1) View.VISIBLE else View.GONE
+        styleRouteToggle()
     }
 
     private fun updateRoutePreviewSummary() {
         val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
         showTripSummary(selected.durationSeconds, selected.distanceMeters, routePreviewEta, routePreviewSummary)
         val via = viaRoadName(selected)
-        routePreviewVia.text = if (via != null) "Via $via" else ""
-        routePreviewVia.visibility = if (via != null) View.VISIBLE else View.GONE
+        val toll = tollSummary(routePoisByIndex[selectedRouteIndex])
+        routePreviewVia.text = (if (via != null) "Via $via" else "") + (if (toll != null) "\n$toll" else "")
+        routePreviewVia.visibility = if (via != null || toll != null) View.VISIBLE else View.GONE
         val destination = destinationName.orEmpty()
         routePreviewDestination.text = destination
         routePreviewDestination.visibility = if (destination.isNotBlank()) View.VISIBLE else View.GONE
         routePreviewHint.text =
             if (routeOptions.size > 1) {
-                "${routeOptions.size} routes found - tap a grey route to switch"
+                "${routeOptions.size} routes found - tap a grey route, or open List"
             } else {
                 "Fastest route available"
             }
@@ -2374,6 +2716,7 @@ class MainActivity : AppCompatActivity() {
         if (selectedPoints.size >= 2) {
             routeSource?.setGeoJson(Feature.fromGeometry(LineString.fromLngLats(selectedPoints)))
         }
+        renderRoutePois()
     }
 
     private fun onMapTapped(
@@ -2406,6 +2749,10 @@ class MainActivity : AppCompatActivity() {
         navMode = NavMode.IDLE
         applyPendingUiRecreate()
         routeOptions = emptyList()
+        previewToken++
+        routePoisByIndex.clear()
+        hideRouteChooser()
+        renderRoutePois()
         routePreviewCard.visibility = View.GONE
         routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
@@ -2434,6 +2781,11 @@ class MainActivity : AppCompatActivity() {
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
 
         activeRoute = route
+        hideRouteChooser()
+        previewToken++
+        activeRoutePois = routePoisByIndex[selectedRouteIndex].orEmpty()
+        renderRoutePois()
+        if (activeRoutePois.isEmpty()) loadActiveRoutePois(route)
         applyNavPadding(true)
         renderedCalloutStep = -1
         renderTurnCallouts(1)
@@ -2690,6 +3042,9 @@ class MainActivity : AppCompatActivity() {
         applyPendingUiRecreate()
         activeRoute = null
         applyNavPadding(false)
+        activeRoutePois = emptyList()
+        renderRoutePois()
+        setRecalculating(false)
         renderedCalloutStep = -1
         renderTurnCallouts(0)
         closeNextTurns()
@@ -2743,7 +3098,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Slides the "Recalculating..." pill in (spinner + pulsing text) or out. */
+    private fun setRecalculating(show: Boolean) {
+        if (show == recalcShown) return
+        recalcShown = show
+        val slide = 24f * resources.displayMetrics.density
+        recalcPill.animate().cancel()
+        if (show) {
+            recalcPill.visibility = View.VISIBLE
+            recalcPill.alpha = 0f
+            recalcPill.translationY = -slide
+            recalcPill.animate().alpha(1f).translationY(0f).setDuration(220L).start()
+            recalcPulse?.cancel()
+            recalcPulse =
+                ObjectAnimator.ofFloat(recalcText, View.ALPHA, 1f, 0.45f).apply {
+                    duration = 700L
+                    repeatMode = ValueAnimator.REVERSE
+                    repeatCount = ValueAnimator.INFINITE
+                    start()
+                }
+        } else {
+            recalcPulse?.cancel()
+            recalcText.alpha = 1f
+            recalcPill
+                .animate()
+                .alpha(0f)
+                .translationY(-slide)
+                .setDuration(180L)
+                .withEndAction { if (!recalcShown) recalcPill.visibility = View.GONE }
+                .start()
+        }
+    }
+
     private fun onNavigationState(state: NavigationState) {
+        setRecalculating(state.offRoute && !state.isArrival)
         lastNavState = state
         val distanceLabel = formatCountdownDistance(state.distanceToNextTurnMeters)
         turnDistanceText.text = if (state.offRoute) "" else distanceLabel
@@ -3140,6 +3528,7 @@ class MainActivity : AppCompatActivity() {
         driveFollower.stop()
         mapView.onDestroy()
         searchExecutor.shutdownNow()
+        extrasExecutor.shutdownNow()
         placeSearchExecutor.shutdownNow()
         poiExecutor.shutdownNow()
         liveSearchRunnable?.let { mainHandler.removeCallbacks(it) }
