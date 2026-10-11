@@ -74,6 +74,8 @@ import com.excellentmindblow.navos.navigation.GeoUtils
 import com.excellentmindblow.navos.navigation.NavigationService
 import com.excellentmindblow.navos.navigation.NavigationState
 import com.excellentmindblow.navos.poi.Poi
+import com.excellentmindblow.navos.poi.PoiCache
+import com.excellentmindblow.navos.poi.PoiIcons
 import com.excellentmindblow.navos.poi.PoiKind
 import com.excellentmindblow.navos.poi.PoiService
 import com.excellentmindblow.navos.routing.LaneInfo
@@ -95,6 +97,7 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.FillExtrusionLayer
+import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.Layer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
@@ -105,6 +108,7 @@ import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
+import org.maplibre.geojson.Polygon
 import java.text.SimpleDateFormat
 import org.json.JSONArray
 import org.json.JSONObject
@@ -126,6 +130,9 @@ private const val MAP_STYLE_URL_DARK = "https://tiles.openfreemap.org/styles/fio
 private const val ROUTE_SOURCE_ID = "navos-route-source"
 private const val ROUTE_CASING_LAYER_ID = "navos-route-casing-layer"
 private const val ROUTE_LAYER_ID = "navos-route-layer"
+private const val ROUTE_PASSED_SOURCE_ID = "navos-route-passed-source"
+private const val ROUTE_PASSED_LAYER_ID = "navos-route-passed-layer"
+private const val PASSED_TAIL_POINTS = 150 // how much of the driven route stays visible (faded) behind the arrow
 private const val ALT_ROUTE_SOURCE_ID = "navos-alt-route-source"
 private const val ALT_ROUTE_LAYER_ID = "navos-alt-route-layer"
 private const val ROUTE_INDEX_PROPERTY = "routeIndex"
@@ -159,6 +166,11 @@ private const val MAX_TURN_CALLOUTS = 12
 // choices to offer (Waze gives 4-5).
 private const val ROUTE_POI_SOURCE_ID = "navos-route-poi-source"
 private const val ROUTE_POI_LAYER_ID = "navos-route-poi-layer"
+private const val CAMERA_ZONE_SOURCE_ID = "navos-camera-zone-source"
+private const val CAMERA_ZONE_FILL_ID = "navos-camera-zone-fill"
+private const val CAMERA_ZONE_LINE_ID = "navos-camera-zone-line"
+private const val ZONE_RADIUS_M = 200.0 // speed-camera alert zone
+private const val AREA_FETCH_MIN_MOVE_M = 2500.0 // idle map: refetch after the view moves this far
 private const val POI_ICON_TOLL = "navos-poi-toll"
 private const val POI_ICON_CAMERA = "navos-poi-camera"
 private const val MAX_ROUTE_OPTIONS = 5
@@ -407,6 +419,12 @@ class MainActivity : AppCompatActivity() {
     private var lastNavState: NavigationState? = null
 
     private var routeSource: GeoJsonSource? = null
+    private var routePassedSource: GeoJsonSource? = null
+
+    /** Where the previous GPS fix landed on the route. The blue line is
+     * trimmed to HERE (not to the newest fix), so the faded "already
+     * driven" part never runs ahead of the arrow while it glides. */
+    private var lastTrimSnap: GeoUtils.RouteSnap? = null
     private var altRouteSource: GeoJsonSource? = null
     private var destinationSource: GeoJsonSource? = null
 
@@ -442,6 +460,7 @@ class MainActivity : AppCompatActivity() {
                 // Arrow + camera are animated together by driveFollower.
                 updateNavCamera(location)
                 maybeFetchPois(location)
+                checkCameraZone(location)
                 val kmh = if (location.hasSpeed()) (location.speed * 3.6).toInt() else 0
                 speedBadge.text = "$kmh\nkm/h"
             }
@@ -462,6 +481,7 @@ class MainActivity : AppCompatActivity() {
                 redrawRouteLines()
                 setRecalculating(false)
                 activeRoutePois = emptyList()
+                cameraRouteIndex.clear()
                 renderRoutePois()
                 loadActiveRoutePois(route)
                 renderedCalloutStep = -1
@@ -569,6 +589,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             loadedMap.addOnMapClickListener { latLng -> onMapTapped(loadedMap, latLng) }
+            loadedMap.addOnCameraIdleListener { onMapIdle() }
 
             // A manual pan/rotate/tilt means the driver wants to look
             // elsewhere - stop auto-recentering (in whichever mode is
@@ -947,6 +968,9 @@ class MainActivity : AppCompatActivity() {
         speedBadge = findViewById(R.id.speedBadge)
         recenterButton = findViewById(R.id.recenterButton)
         nextTurnsSheet = findViewById(R.id.nextTurnsSheet)
+        cameraAlert = findViewById(R.id.cameraAlert)
+        cameraAlertTitle = findViewById(R.id.cameraAlertTitle)
+        cameraAlertSub = findViewById(R.id.cameraAlertSub)
         nextTurnsList = findViewById(R.id.nextTurnsList)
         reportButton = findViewById(R.id.reportButton)
         nextTurnStrip = findViewById(R.id.nextTurnStrip)
@@ -1412,7 +1436,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderPoiPins() {
         val src = poiSource ?: return
         val features =
-            if (navMode != NavMode.ACTIVE) {
+            if (navMode == NavMode.PREVIEW) {
                 emptyList()
             } else {
                 nearbyPois.filter { isPoiKindShown(it.kind) }.map { poi ->
@@ -1442,7 +1466,10 @@ class MainActivity : AppCompatActivity() {
         poiExecutor.execute {
             val pois =
                 try {
-                    PoiService.fetchNearby(fetchAt.latitude, fetchAt.longitude)
+                    PoiCache.loadFuelEv(cacheDir, fetchAt.latitude, fetchAt.longitude)
+                        ?: PoiService.fetchNearby(fetchAt.latitude, fetchAt.longitude).also {
+                            PoiCache.saveFuelEv(cacheDir, fetchAt.latitude, fetchAt.longitude, it)
+                        }
                 } catch (e: Exception) {
                     null
                 }
@@ -1896,6 +1923,20 @@ class MainActivity : AppCompatActivity() {
         )
 
     private var routePoiSource: GeoJsonSource? = null
+    private var cameraZoneSource: GeoJsonSource? = null
+
+    /** Toll plazas / cameras around the plain (idle) map view. */
+    private var areaRoadPois: List<RoadPoi> = emptyList()
+    private var areaFetchInFlight = false
+    private var lastAreaFetchCenter: LatLng? = null
+    private var idlePoiFetchInFlight = false
+    private var lastIdlePoiCenter: LatLng? = null
+
+    private lateinit var cameraAlert: View
+    private lateinit var cameraAlertTitle: TextView
+    private lateinit var cameraAlertSub: TextView
+    private val alertedCameraKeys = HashSet<String>()
+    private val cameraRouteIndex = HashMap<String, Int>()
     private val routePoisByIndex = HashMap<Int, List<RoadPoi>>()
     private var activeRoutePois: List<RoadPoi> = emptyList()
 
@@ -1903,66 +1944,258 @@ class MainActivity : AppCompatActivity() {
     private var routeListShowing = false
     private val extrasExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
-    private fun makeTollIcon(): Bitmap {
-        val w = 132
-        val h = 92
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val c = Canvas(bmp)
-        val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        val box = RectF(5f, 5f, w - 5f, h - 5f)
-        p.color = Color.parseColor("#1E5BD8")
-        c.drawRoundRect(box, 22f, 22f, p)
-        p.style = Paint.Style.STROKE
-        p.strokeWidth = 6f
-        p.color = Color.WHITE
-        c.drawRoundRect(box, 22f, 22f, p)
-        p.style = Paint.Style.FILL
-        p.textAlign = Paint.Align.CENTER
-        p.typeface = android.graphics.Typeface.DEFAULT_BOLD
-        p.textSize = 40f
-        c.drawText("TOLL", w / 2f, h / 2f + 14f, p)
-        return bmp
+    private fun poiKey(poi: RoadPoi): String = String.format(Locale.US, "%.5f,%.5f", poi.latitude, poi.longitude)
+
+    private fun currentRoadPois(): List<RoadPoi> =
+        when (navMode) {
+            NavMode.ACTIVE -> activeRoutePois
+            NavMode.PREVIEW -> routePoisByIndex[selectedRouteIndex].orEmpty()
+            else -> areaRoadPois
+        }
+
+    /** A price the driver entered for this plaza (saved on the phone). */
+    private fun userTollPrice(poi: RoadPoi): Double? = prefs.getFloat("toll_price_" + poiKey(poi), -1f).takeIf { it >= 0f }?.toDouble()
+
+    /** Price shown for a plaza: the driver's own entry first, else the map
+     * data's `charge` tag, else unknown. */
+    private fun tollPrice(poi: RoadPoi): Double? = userTollPrice(poi) ?: RoadPoiService.parsePrice(poi.charge)
+
+    /** 200 m ring around a camera: the alert zone. */
+    private fun zoneFeature(poi: RoadPoi): Feature {
+        val dLat = ZONE_RADIUS_M / 111_320.0
+        val dLon = ZONE_RADIUS_M / (111_320.0 * Math.cos(Math.toRadians(poi.latitude)).coerceAtLeast(0.2))
+        val ring = ArrayList<Point>()
+        for (i in 0..48) {
+            val a = 2.0 * Math.PI * i / 48.0
+            ring.add(Point.fromLngLat(poi.longitude + dLon * Math.cos(a), poi.latitude + dLat * Math.sin(a)))
+        }
+        return Feature.fromGeometry(Polygon.fromLngLats(listOf(ring)))
     }
 
-    private fun makeCameraIcon(): Bitmap {
-        val s = 104
-        val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
-        val c = Canvas(bmp)
-        val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        val m = s / 2f
-        p.color = Color.parseColor("#E5484D")
-        c.drawCircle(m, m, m - 5f, p)
-        p.style = Paint.Style.STROKE
-        p.strokeWidth = 6f
-        p.color = Color.WHITE
-        c.drawCircle(m, m, m - 5f, p)
-        p.style = Paint.Style.FILL
-        c.drawRoundRect(RectF(26f, 38f, 78f, 70f), 7f, 7f, p) // body
-        c.drawRoundRect(RectF(38f, 30f, 58f, 42f), 4f, 4f, p) // top bump
-        p.color = Color.parseColor("#E5484D")
-        c.drawCircle(52f, 54f, 9f, p) // lens
-        return bmp
-    }
-
-    /** Draws the toll plazas / cameras that lie on the route being looked
-     * at (previewed or driven). */
+    /** Draws the toll plazas / speed cameras (and each camera's 200 m
+     * zone) for whatever the map is showing: the route being previewed or
+     * driven, or - on the plain map - the ones around the view. */
     private fun renderRoutePois() {
         val src = routePoiSource ?: return
-        val pois =
-            when (navMode) {
-                NavMode.ACTIVE -> activeRoutePois
-                NavMode.PREVIEW -> routePoisByIndex[selectedRouteIndex].orEmpty()
-                else -> emptyList()
-            }
+        val pois = currentRoadPois()
         val features =
             pois.map { poi ->
                 val f = Feature.fromGeometry(Point.fromLngLat(poi.longitude, poi.latitude))
                 f.addStringProperty("icon", if (poi.kind == "toll") POI_ICON_TOLL else POI_ICON_CAMERA)
-                val price = if (poi.kind == "toll") RoadPoiService.parsePrice(poi.charge) else null
-                f.addStringProperty("label", if (price != null) String.format(Locale.US, "RM%.2f", price) else "")
+                f.addStringProperty("key", poiKey(poi))
+                val price = if (poi.kind == "toll") tollPrice(poi) else null
+                f.addStringProperty("label", if (price != null) String.format(Locale.US, "RM %.2f", price) else "")
                 f
             }
         src.setGeoJson(FeatureCollection.fromFeatures(features))
+        cameraZoneSource?.setGeoJson(FeatureCollection.fromFeatures(pois.filter { it.kind == "camera" }.map { zoneFeature(it) }))
+    }
+
+    /** Tap on a toll plaza / camera icon. */
+    private fun handleRoadPoiTap(
+        map: MapLibreMap,
+        latLng: LatLng,
+    ): Boolean {
+        val pt = map.projection.toScreenLocation(latLng)
+        val slop = dp(24).toFloat()
+        val hits =
+            try {
+                map.queryRenderedFeatures(RectF(pt.x - slop, pt.y - slop, pt.x + slop, pt.y + slop), ROUTE_POI_LAYER_ID)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        val key = hits.firstNotNullOfOrNull { it.getStringProperty("key") } ?: return false
+        val poi = currentRoadPois().firstOrNull { poiKey(it) == key } ?: return false
+        if (poi.kind == "toll") showTollDialog(poi) else showCameraInfo(poi)
+        return true
+    }
+
+    private fun showCameraInfo(poi: RoadPoi) {
+        val limit = poi.maxspeed?.filter { it.isDigit() }?.toIntOrNull()
+        val text = "Speed camera - alert zone ${ZONE_RADIUS_M.toInt()} m" + (if (limit != null) ", limit $limit km/h" else "")
+        Toast.makeText(this, text, Toast.LENGTH_LONG).show()
+    }
+
+    /** Plaza name + price. The price comes from the map data when it has
+     * one; otherwise the driver can enter what they pay and it is remembered
+     * (and added to the route's toll total). */
+    private fun showTollDialog(poi: RoadPoi) {
+        val mapPrice = RoadPoiService.parsePrice(poi.charge)
+        val mine = userTollPrice(poi)
+        val shown = mine ?: mapPrice
+        val message =
+            when {
+                mine != null -> String.format(Locale.US, "Toll: RM %.2f (your price)", mine)
+                mapPrice != null -> String.format(Locale.US, "Toll: RM %.2f (from map data)", mapPrice)
+                else -> "No price is published in the map data for this plaza. Enter what you pay and NavOS will remember it and include it in your route's toll total."
+            }
+        val input =
+            EditText(this).apply {
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+                hint = "Price in RM, e.g. 4.20"
+                shown?.let { setText(String.format(Locale.US, "%.2f", it)) }
+                setSingleLine()
+            }
+        val box =
+            android.widget.FrameLayout(this).apply {
+                setPadding(dp(22), dp(6), dp(22), 0)
+                addView(input)
+            }
+        AlertDialog
+            .Builder(this)
+            .setTitle(poi.name.ifBlank { "Toll plaza" })
+            .setMessage(message)
+            .setView(box)
+            .setPositiveButton("Save") { _, _ ->
+                val value = input.text.toString().replace(',', '.').toFloatOrNull()
+                if (value != null && value >= 0f) {
+                    prefs.edit().putFloat("toll_price_" + poiKey(poi), value).apply()
+                    renderRoutePois()
+                    if (navMode == NavMode.PREVIEW) updateRoutePreviewSummary()
+                }
+            }.setNeutralButton("Clear") { _, _ ->
+                prefs.edit().remove("toll_price_" + poiKey(poi)).apply()
+                renderRoutePois()
+                if (navMode == NavMode.PREVIEW) updateRoutePreviewSummary()
+            }.setNegativeButton("Close", null)
+            .show()
+    }
+
+    // ---- Speed-camera zone (200 m) ------------------------------------
+
+    private fun angleDiff(
+        a: Double,
+        b: Double,
+    ): Double {
+        var d = ((a - b) % 360.0 + 360.0) % 360.0
+        if (d > 180.0) d -= 360.0
+        return Math.abs(d)
+    }
+
+    /** Alerts when the driver ENTERS a camera's 200 m zone on the route:
+     * pop-up banner + one spoken warning per camera, with the distance
+     * counting down until it's passed. */
+    private fun checkCameraZone(location: Location) {
+        val geometry = activeRoute?.geometry
+        val cameras = activeRoutePois.filter { it.kind == "camera" }
+        if (geometry == null || cameras.isEmpty()) {
+            hideCameraAlert()
+            return
+        }
+        val here = RoutePoint(location.latitude, location.longitude)
+        var nearest: RoadPoi? = null
+        var nearestD = Double.MAX_VALUE
+        for (cam in cameras) {
+            val camPoint = RoutePoint(cam.latitude, cam.longitude)
+            val d = GeoUtils.distanceMeters(here, camPoint)
+            if (d > ZONE_RADIUS_M) continue
+            val seg = cameraRouteIndex.getOrPut(poiKey(cam)) { GeoUtils.snapToPolyline(camPoint, geometry)?.segmentIndex ?: -1 }
+            if (seg < 0 || seg < snapSegmentIndex - 1) continue // not on this route, or already passed
+            val heading = smoothedBearing
+            if (heading != null && d > 15.0 && angleDiff(GeoUtils.bearingDegrees(here, camPoint), heading) > 100.0) continue // behind us
+            if (d < nearestD) {
+                nearest = cam
+                nearestD = d
+            }
+        }
+        val cam = nearest
+        if (cam == null) {
+            hideCameraAlert()
+            return
+        }
+        val key = poiKey(cam)
+        if (alertedCameraKeys.add(key)) navigationService?.announce("camera-$key", "Speed camera ahead")
+        val limit = cam.maxspeed?.filter { it.isDigit() }?.toIntOrNull()
+        val kmh = if (location.hasSpeed()) (location.speed * 3.6).toInt() else 0
+        val distance = "${(Math.round(nearestD / 10.0) * 10).toInt().coerceAtLeast(10)} m"
+        cameraAlertTitle.text = if (limit != null && kmh > limit) "Slow down - speed camera" else "Speed camera ahead"
+        cameraAlertSub.text = if (limit != null) "$distance  -  limit $limit km/h" else distance
+        cameraAlert.visibility = View.VISIBLE
+    }
+
+    private fun hideCameraAlert() {
+        if (::cameraAlert.isInitialized) cameraAlert.visibility = View.GONE
+    }
+
+    // ---- Idle map: POIs around the view, instant from the cache ---------
+
+    private fun onMapIdle() {
+        val m = map ?: return
+        if (navMode != NavMode.IDLE) return
+        val cam = m.cameraPosition
+        val center = cam.target ?: return
+        if (cam.zoom < 9.0) return
+        maybeFetchAreaPois(center)
+        maybeFetchIdlePois(center)
+    }
+
+    private fun movedFar(
+        last: LatLng?,
+        now: LatLng,
+    ): Boolean =
+        last == null ||
+            GeoUtils.distanceMeters(RoutePoint(last.latitude, last.longitude), RoutePoint(now.latitude, now.longitude)) >= AREA_FETCH_MIN_MOVE_M
+
+    /** Toll plazas + speed cameras around [center]: the saved copy shows
+     * immediately; only when there is none (or it is a day old) does the
+     * network get asked. */
+    private fun maybeFetchAreaPois(center: LatLng) {
+        if (!movedFar(lastAreaFetchCenter, center)) return
+        val cached = PoiCache.loadRoad(cacheDir, center.latitude, center.longitude)
+        if (cached != null) {
+            areaRoadPois = cached
+            lastAreaFetchCenter = center
+            if (navMode == NavMode.IDLE) renderRoutePois()
+            return
+        }
+        if (areaFetchInFlight) return
+        areaFetchInFlight = true
+        extrasExecutor.execute {
+            val found =
+                try {
+                    RoadPoiService.fetchArea(center.latitude, center.longitude)
+                } catch (e: Exception) {
+                    null
+                }
+            if (found != null) PoiCache.saveRoad(cacheDir, center.latitude, center.longitude, found)
+            mainHandler.post {
+                areaFetchInFlight = false
+                if (isDestroyed || found == null) return@post
+                areaRoadPois = found
+                lastAreaFetchCenter = center
+                if (navMode == NavMode.IDLE) renderRoutePois()
+            }
+        }
+    }
+
+    /** Petrol stations + EV chargers around [center] for the plain map. */
+    private fun maybeFetchIdlePois(center: LatLng) {
+        if (!movedFar(lastIdlePoiCenter, center)) return
+        val cached = PoiCache.loadFuelEv(cacheDir, center.latitude, center.longitude)
+        if (cached != null) {
+            nearbyPois = cached
+            lastIdlePoiCenter = center
+            renderPoiPins()
+            return
+        }
+        if (idlePoiFetchInFlight) return
+        idlePoiFetchInFlight = true
+        poiExecutor.execute {
+            val pois =
+                try {
+                    PoiService.fetchNearby(center.latitude, center.longitude)
+                } catch (e: Exception) {
+                    null
+                }
+            if (pois != null) PoiCache.saveFuelEv(cacheDir, center.latitude, center.longitude, pois)
+            mainHandler.post {
+                idlePoiFetchInFlight = false
+                if (isDestroyed || pois == null) return@post
+                nearbyPois = pois
+                lastIdlePoiCenter = center
+                renderPoiPins()
+            }
+        }
     }
 
     /** Looks up toll plazas / cameras for [routes] in the background. */
@@ -2009,7 +2242,7 @@ class MainActivity : AppCompatActivity() {
     private fun tollSummary(pois: List<RoadPoi>?): String? {
         val tolls = pois?.filter { it.kind == "toll" } ?: return null
         if (tolls.isEmpty()) return null
-        val prices = tolls.map { RoadPoiService.parsePrice(it.charge) }
+        val prices = tolls.map { tollPrice(it) }
         return if (prices.all { it != null }) {
             String.format(Locale.US, "Toll ~RM%.2f", prices.sumOf { it ?: 0.0 })
         } else {
@@ -2188,6 +2421,28 @@ class MainActivity : AppCompatActivity() {
         return bitmap
     }
 
+    /** Direction the route line heads just AFTER [point] (0 = north),
+     * measured to a spot ~10 m further along it. */
+    private fun outgoingBearing(
+        geometry: List<com.excellentmindblow.navos.routing.RoutePoint>,
+        point: com.excellentmindblow.navos.routing.RoutePoint,
+    ): Double {
+        if (geometry.size < 2) return 0.0
+        var nearest = 0
+        var best = Double.MAX_VALUE
+        for (i in geometry.indices) {
+            val d = GeoUtils.distanceMeters(geometry[i], point)
+            if (d < best) {
+                best = d
+                nearest = i
+            }
+        }
+        if (nearest >= geometry.size - 1) return GeoUtils.bearingDegrees(geometry[geometry.size - 2], geometry[geometry.size - 1])
+        var j = nearest + 1
+        while (j < geometry.size - 1 && GeoUtils.distanceMeters(geometry[nearest], geometry[j]) < 10.0) j++
+        return GeoUtils.bearingDegrees(geometry[nearest], geometry[j])
+    }
+
     /** Direction of travel (0 = north) as the route arrives at [point]:
      * measured from a spot ~6 m back along the route line. */
     private fun incomingBearing(
@@ -2232,10 +2487,12 @@ class MainActivity : AppCompatActivity() {
                     (mod.isNotEmpty() && mod != "straight")
             if (!turnLike) continue
             val feature = Feature.fromGeometry(Point.fromLngLat(s.point.longitude, s.point.latitude))
-            feature.addStringProperty("icon", turnIconId(iconForManeuver(s.maneuverType, s.modifier)))
+            // A plain arrow lying along the route line (not the turn-sign
+            // glyph): it points the way the line goes at this spot.
+            feature.addStringProperty("icon", turnIconId(R.drawable.ic_turn_straight))
             feature.addStringProperty("name", s.roadName)
             feature.addNumberProperty("order", i)
-            feature.addNumberProperty("bearing", incomingBearing(geometry, s.point))
+            feature.addNumberProperty("bearing", outgoingBearing(geometry, s.point))
             features.add(feature)
         }
         src.setGeoJson(FeatureCollection.fromFeatures(features))
@@ -2258,7 +2515,18 @@ class MainActivity : AppCompatActivity() {
         // of the route, matching how Google Maps/Waze draw it. (The
         // destination pin is deliberately NOT inserted this way - it's
         // meant to sit on top of labels too, like a real map pin.)
-        val firstSymbolLayerId = style.layers.firstOrNull { it is SymbolLayer }?.id
+        // The base style also has icon-only symbol layers (one-way arrows)
+        // that sit BEFORE its bridge road layers. Anchoring to the first
+        // symbol layer of any kind therefore put the route underneath the
+        // bridges, which painted over it - the blue line "vanished" on every
+        // bridge/flyover. Anchor to the first symbol layer AFTER the last
+        // bridge layer instead, so the route draws over bridges but still
+        // under the street-name labels.
+        val allLayers = style.layers
+        val lastBridgeIndex = allLayers.indexOfLast { it.id.contains("bridge", ignoreCase = true) }
+        val firstSymbolLayerId =
+            allLayers.drop(lastBridgeIndex + 1).firstOrNull { it is SymbolLayer }?.id
+                ?: allLayers.firstOrNull { it is SymbolLayer }?.id
         fun addBelowLabels(layer: Layer) {
             if (firstSymbolLayerId != null) {
                 style.addLayerBelow(layer, firstSymbolLayerId)
@@ -2320,10 +2588,25 @@ class MainActivity : AppCompatActivity() {
 
         // A white casing under the blue line, same two-tone look Google
         // Maps draws its route in, instead of a single flat line.
+        // The part of the route already driven: same width, but faded, drawn
+        // beneath the live line (see trimRoute).
+        val passedSource = GeoJsonSource(ROUTE_PASSED_SOURCE_ID)
+        style.addSource(passedSource)
+        routePassedSource = passedSource
+        val passedLayer =
+            LineLayer(ROUTE_PASSED_LAYER_ID, ROUTE_PASSED_SOURCE_ID).withProperties(
+                PropertyFactory.lineColor(Color.parseColor("#8FA3B5")),
+                PropertyFactory.lineOpacity(0.55f),
+                PropertyFactory.lineWidth(routeWidthByZoom(6f, 11f, 19f, 29f)),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            )
+        addBelowLabels(passedLayer)
+
         val routeCasingLayer =
             LineLayer(ROUTE_CASING_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
                 PropertyFactory.lineColor(Color.WHITE),
-                PropertyFactory.lineWidth(routeWidthByZoom(6.5f, 10.5f, 16f, 22f)),
+                PropertyFactory.lineWidth(routeWidthByZoom(9f, 15f, 26f, 38f)),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
@@ -2332,7 +2615,7 @@ class MainActivity : AppCompatActivity() {
         val layer =
             LineLayer(ROUTE_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
                 PropertyFactory.lineColor(Color.parseColor("#1CB0F6")),
-                PropertyFactory.lineWidth(routeWidthByZoom(4f, 7f, 11f, 16f)),
+                PropertyFactory.lineWidth(routeWidthByZoom(6f, 11f, 19f, 29f)),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
@@ -2342,31 +2625,49 @@ class MainActivity : AppCompatActivity() {
         // blue name bubble above it, like Waze. Above the route line, below
         // the destination pin and the driver's arrow (added after this).
         // Toll plazas and speed cameras along the route (always visible).
-        style.addImage(POI_ICON_TOLL, makeTollIcon())
-        style.addImage(POI_ICON_CAMERA, makeCameraIcon())
+        style.addImage(POI_ICON_TOLL, PoiIcons.toll(this))
+        style.addImage(POI_ICON_CAMERA, PoiIcons.camera(this))
         val poiSrc = GeoJsonSource(ROUTE_POI_SOURCE_ID)
         style.addSource(poiSrc)
         routePoiSource = poiSrc
+        // 200 m alert zone around each speed camera (under the icons).
+        val zoneSrc = GeoJsonSource(CAMERA_ZONE_SOURCE_ID)
+        style.addSource(zoneSrc)
+        cameraZoneSource = zoneSrc
+        addBelowLabels(
+            FillLayer(CAMERA_ZONE_FILL_ID, CAMERA_ZONE_SOURCE_ID).withProperties(
+                PropertyFactory.fillColor(Color.parseColor("#E5484D")),
+                PropertyFactory.fillOpacity(0.13f),
+            ),
+        )
+        addBelowLabels(
+            LineLayer(CAMERA_ZONE_LINE_ID, CAMERA_ZONE_SOURCE_ID).withProperties(
+                PropertyFactory.lineColor(Color.parseColor("#E5484D")),
+                PropertyFactory.lineWidth(2f),
+                PropertyFactory.lineOpacity(0.75f),
+                PropertyFactory.lineDasharray(arrayOf(2f, 2f)),
+            ),
+        )
         style.addLayer(
             SymbolLayer(ROUTE_POI_LAYER_ID, ROUTE_POI_SOURCE_ID).withProperties(
                 PropertyFactory.iconImage(Expression.get("icon")),
-                PropertyFactory.iconSize(0.55f),
+                PropertyFactory.iconSize(1.0f),
                 PropertyFactory.iconAllowOverlap(true),
                 PropertyFactory.iconIgnorePlacement(true),
                 PropertyFactory.textField(Expression.get("label")),
                 PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
-                PropertyFactory.textSize(12f),
-                PropertyFactory.textColor(Color.parseColor("#14284B")),
-                PropertyFactory.textHaloColor(Color.WHITE),
-                PropertyFactory.textHaloWidth(2f),
+                PropertyFactory.textSize(13f),
+                PropertyFactory.textColor(Color.WHITE),
+                PropertyFactory.textHaloColor(Color.parseColor("#1744B5")),
+                PropertyFactory.textHaloWidth(3f),
                 PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
-                PropertyFactory.textOffset(arrayOf(0f, 1.3f)),
+                PropertyFactory.textOffset(arrayOf(0f, 2.2f)),
                 PropertyFactory.textOptional(true),
                 PropertyFactory.textAllowOverlap(true),
             ),
         )
-        for (res in TURN_ICON_RES) {
-            makeTurnArrow(res)?.let { style.addImage(turnIconId(res), it) }
+        makeTurnArrow(R.drawable.ic_turn_straight)?.let {
+            style.addImage(turnIconId(R.drawable.ic_turn_straight), it)
         }
         val turnSrc = GeoJsonSource(TURN_SOURCE_ID)
         style.addSource(turnSrc)
@@ -2716,6 +3017,7 @@ class MainActivity : AppCompatActivity() {
         if (selectedPoints.size >= 2) {
             routeSource?.setGeoJson(Feature.fromGeometry(LineString.fromLngLats(selectedPoints)))
         }
+        clearPassedRoute()
         renderRoutePois()
     }
 
@@ -2723,7 +3025,8 @@ class MainActivity : AppCompatActivity() {
         map: MapLibreMap,
         latLng: LatLng,
     ): Boolean {
-        if (navMode == NavMode.ACTIVE) return onDriveMapTapped(map, latLng)
+        if (handleRoadPoiTap(map, latLng)) return true
+        if (navMode == NavMode.ACTIVE || navMode == NavMode.IDLE) return onDriveMapTapped(map, latLng)
         if (navMode != NavMode.PREVIEW) return false
         val screenPoint = map.projection.toScreenLocation(latLng)
         val tapped =
@@ -2773,6 +3076,10 @@ class MainActivity : AppCompatActivity() {
         lastNavState = null
         navFollowing = true
         snapSegmentIndex = 0
+        lastTrimSnap = null
+        alertedCameraKeys.clear()
+        cameraRouteIndex.clear()
+        hideCameraAlert()
         topBar.visibility = View.GONE
         recenterButton.visibility = View.GONE
         routePreviewCard.visibility = View.GONE
@@ -2877,10 +3184,14 @@ class MainActivity : AppCompatActivity() {
         var lat = location.latitude
         var lng = location.longitude
         var rawBearing = if (location.hasBearing()) location.bearing.toDouble() else null
+        var fromLane = false
 
         // Snap the arrow onto the blue line (GPS drifts a few metres off
-        // the road, which is why it sat beside the line) and take the
-        // heading from the line itself so the arrow points along it.
+        // the road) and take the heading from the LANE itself - looking a
+        // little way ahead along it - never from the phone/GPS heading.
+        // That way the arrow follows the line through bends and keeps
+        // turning even when you're crawling or stopped (GPS heading is
+        // meaningless below walking speed, which is why it used to freeze).
         val geometry = activeRoute?.geometry
         if (geometry != null) {
             val snap =
@@ -2894,17 +3205,50 @@ class MainActivity : AppCompatActivity() {
                 lat = snap.point.latitude
                 lng = snap.point.longitude
                 snapSegmentIndex = snap.segmentIndex
-                rawBearing = snap.bearing
+                val speedMs = if (location.hasSpeed()) location.speed.toDouble() else 0.0
+                val ahead = (8.0 + speedMs * 1.2).coerceIn(10.0, 35.0)
+                rawBearing = GeoUtils.bearingAhead(geometry, snap, ahead)
+                fromLane = true
                 // Start already facing along the route, not north.
-                if (smoothedBearing == null) smoothedBearing = snap.bearing
+                if (smoothedBearing == null) smoothedBearing = rawBearing
+                // Fade the part of the line already driven (trails one fix
+                // behind so it never gets ahead of the gliding arrow).
+                lastTrimSnap?.let { trimRoute(it, geometry) }
+                lastTrimSnap = snap
             }
         }
 
-        val bearing = smoothedNavBearing(rawBearing, location)
+        val bearing = smoothedNavBearing(rawBearing, location, fromLane)
         // Start the glide BEFORE the new fix is pushed, so even a big jump
         // is eased instead of snapping the camera in one frame.
         if (durationMs > NAV_FOLLOW_EASE_MS) driveFollower.beginCameraBlend(durationMs.toLong())
         driveFollower.pushFix(lat, lng, bearing, smartNavZoom(location))
+    }
+
+    /** Splits the route at [snap]: everything ahead stays the bright blue
+     * line, a short tail behind it is drawn faded. */
+    private fun trimRoute(
+        snap: GeoUtils.RouteSnap,
+        geometry: List<RoutePoint>,
+    ) {
+        val i = snap.segmentIndex.coerceIn(0, geometry.size - 2)
+        val head = Point.fromLngLat(snap.point.longitude, snap.point.latitude)
+
+        val remaining = ArrayList<Point>(geometry.size - i)
+        remaining.add(head)
+        for (k in i + 1 until geometry.size) remaining.add(Point.fromLngLat(geometry[k].longitude, geometry[k].latitude))
+        if (remaining.size >= 2) routeSource?.setGeoJson(Feature.fromGeometry(LineString.fromLngLats(remaining)))
+
+        val tailStart = (i - PASSED_TAIL_POINTS).coerceAtLeast(0)
+        val passed = ArrayList<Point>()
+        for (k in tailStart..i) passed.add(Point.fromLngLat(geometry[k].longitude, geometry[k].latitude))
+        passed.add(head)
+        if (passed.size >= 2) routePassedSource?.setGeoJson(Feature.fromGeometry(LineString.fromLngLats(passed)))
+    }
+
+    private fun clearPassedRoute() {
+        lastTrimSnap = null
+        routePassedSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
     }
 
     /** Zoom for the follow camera: cruising zoom, nudged by speed (a little
@@ -3020,11 +3364,17 @@ class MainActivity : AppCompatActivity() {
      * unwrapped running bearing, always step toward the new reading via the
      * shortest signed angle, and only take a fraction of that step per
      * update so the turn reads as a smooth ease rather than a jump. */
-    private fun smoothedNavBearing(rawBearing: Double?, location: Location): Double {
+    private fun smoothedNavBearing(
+        rawBearing: Double?,
+        location: Location,
+        fromLane: Boolean = false,
+    ): Double {
         val current = smoothedBearing ?: map?.cameraPosition?.bearing ?: 0.0
         // GPS heading is unreliable while nearly stationary - ignore it
-        // rather than let the camera jitter in place at a red light.
-        val reliable = rawBearing != null && (!location.hasSpeed() || location.speed > 1.0f)
+        // rather than let the camera jitter in place at a red light. A
+        // heading taken from the route line itself is always reliable, so
+        // it skips that gate.
+        val reliable = rawBearing != null && (fromLane || !location.hasSpeed() || location.speed > 1.0f)
         if (!reliable) return current
 
         val currentHeading = ((current % 360.0) + 360.0) % 360.0
@@ -3032,7 +3382,7 @@ class MainActivity : AppCompatActivity() {
         if (delta > 180.0) delta -= 360.0
         if (delta < -180.0) delta += 360.0
 
-        val next = current + delta * 0.35
+        val next = current + delta * (if (fromLane) 0.6 else 0.35)
         smoothedBearing = next
         return next
     }
@@ -3047,6 +3397,11 @@ class MainActivity : AppCompatActivity() {
         setRecalculating(false)
         renderedCalloutStep = -1
         renderTurnCallouts(0)
+        clearPassedRoute()
+        hideCameraAlert()
+        alertedCameraKeys.clear()
+        cameraRouteIndex.clear()
+        renderPoiPins()
         closeNextTurns()
         topNavBar.visibility = View.GONE
         bottomNavBar.visibility = View.GONE
@@ -3452,6 +3807,9 @@ class MainActivity : AppCompatActivity() {
             }
 
         if (!hasCenteredOnFirstFix) {
+            val here = LatLng(location.latitude, location.longitude)
+            maybeFetchAreaPois(here)
+            maybeFetchIdlePois(here)
             hasCenteredOnFirstFix = true
             driveFollower.holdCamera(650L)
             driveFollower.pushFix(location.latitude, location.longitude, bearing, Double.NaN)
