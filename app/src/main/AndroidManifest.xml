@@ -37,6 +37,94 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Lets NavOS appear in "Open with" when another app opens a map
+                 location (WhatsApp / Telegram shared location, map links).
+                 App-style links first. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="geo" />
+                <data android:scheme="google.navigation" />
+                <data android:scheme="waze" />
+            </intent-filter>
+
+            <!-- Google Maps: long and short links (maps.app.goo.gl, goo.gl/maps,
+                 g.co/kgs) on the main domain and common country domains. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+                <data android:host="maps.google.com" />
+                <data android:host="maps.app.goo.gl" />
+                <data android:host="share.google" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+                <data android:host="www.google.com" />
+                <data android:host="google.com" />
+                <data android:host="www.google.com.my" />
+                <data android:host="www.google.com.sg" />
+                <data android:host="www.google.co.id" />
+                <data android:host="www.google.co.uk" />
+                <data android:host="www.google.com.au" />
+                <data android:host="www.google.co.in" />
+                <data android:host="goo.gl" />
+                <data android:host="g.co" />
+                <data android:pathPrefix="/maps" />
+                <data android:pathPrefix="/kgs" />
+            </intent-filter>
+
+            <!-- Waze (waze.com/ul?..., waze.com/ul/h<short code>, live-map). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+                <data android:host="waze.com" />
+                <data android:host="www.waze.com" />
+                <data android:host="ul.waze.com" />
+                <data android:pathPrefix="/ul" />
+                <data android:pathPrefix="/live-map" />
+            </intent-filter>
+
+            <!-- Apple Maps, OpenStreetMap, Bing Maps, HERE. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+                <data android:host="maps.apple.com" />
+                <data android:host="www.openstreetmap.org" />
+                <data android:host="openstreetmap.org" />
+                <data android:host="share.here.com" />
+                <data android:host="wego.here.com" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+                <data android:host="www.bing.com" />
+                <data android:host="bing.com" />
+                <data android:pathPrefix="/maps" />
+            </intent-filter>
+            <!-- "Share" a place or address to NavOS. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
         </activity>
 
         <!-- Not exported - only this app ever starts/binds it (from
