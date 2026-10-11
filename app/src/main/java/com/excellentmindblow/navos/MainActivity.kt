@@ -18,6 +18,7 @@ import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.PointF
 import android.graphics.Paint
 import android.graphics.RectF
 import android.location.Location
@@ -628,22 +629,45 @@ class MainActivity : AppCompatActivity() {
             // you've panned away. Only during PREVIEW is a manual gesture
             // left alone entirely - that screen has no camera-follow of
             // its own to pause.
+            // Pinch-zoom while following: zoom AROUND THE ARROW (not around
+            // the fingers) so the arrow stays exactly where it is on screen,
+            // and keep following afterwards. Panning/rotating still stops
+            // the follow as before.
+            loadedMap.addOnScaleListener(
+                object : MapLibreMap.OnScaleListener {
+                    override fun onScaleBegin(detector: org.maplibre.android.gestures.StandardScaleGestureDetector) {
+                        val following =
+                            (navMode == NavMode.ACTIVE && navFollowing) ||
+                                (navMode == NavMode.IDLE && followingUser)
+                        if (following && driveFollower.hasPosition()) {
+                            val pt = loadedMap.projection.toScreenLocation(LatLng(driveFollower.arrowLat, driveFollower.arrowLng))
+                            loadedMap.uiSettings.focalPoint = PointF(pt.x, pt.y)
+                            pinchKeepsFollow = true
+                        } else {
+                            pinchKeepsFollow = false
+                        }
+                        driveFollower.pinching = true
+                    }
+
+                    override fun onScale(detector: org.maplibre.android.gestures.StandardScaleGestureDetector) {}
+
+                    override fun onScaleEnd(detector: org.maplibre.android.gestures.StandardScaleGestureDetector) {
+                        loadedMap.uiSettings.focalPoint = null
+                        driveFollower.onPinchEnd(keepOffset = pinchKeepsFollow && navMode == NavMode.ACTIVE)
+                        pinchKeepsFollow = false
+                        updateArrowOverlay()
+                    }
+                },
+            )
+
             loadedMap.addOnCameraMoveStartedListener { reason ->
                 if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
-                    when (navMode) {
-                        NavMode.ACTIVE -> {
-                            navFollowing = false
-                            placeRecenterButton(drivingLayout = true)
-                            recenterButton.visibility = View.VISIBLE
-                        }
-                        NavMode.IDLE -> {
-                            followingUser = false
-                            placeRecenterButton(drivingLayout = false)
-                            recenterButton.visibility = View.VISIBLE
-                        }
-                        NavMode.PREVIEW -> {}
+                    // A pinch while following keeps following (decided one
+                    // message later, so it does not matter whether the map
+                    // reports the gesture start or the pinch start first).
+                    mainHandler.post {
+                        if (!pinchKeepsFollow) stopFollowingForGesture()
                     }
-                    refreshCompassMode()
                 }
             }
 
@@ -658,6 +682,29 @@ class MainActivity : AppCompatActivity() {
         setUpSavedPlaces()
         setUpSettingsExtras()
         setUpImeInsetHandling()
+    }
+
+    /** True while a pinch started during follow mode: that pinch zooms
+     * around the arrow and must not switch following off. */
+    private var pinchKeepsFollow = false
+
+    /** A pan / rotate / tilt means the person wants to look elsewhere:
+     * stop auto-recentering and show the Recenter button. */
+    private fun stopFollowingForGesture() {
+        when (navMode) {
+            NavMode.ACTIVE -> {
+                navFollowing = false
+                placeRecenterButton(drivingLayout = true)
+                recenterButton.visibility = View.VISIBLE
+            }
+            NavMode.IDLE -> {
+                followingUser = false
+                placeRecenterButton(drivingLayout = false)
+                recenterButton.visibility = View.VISIBLE
+            }
+            NavMode.PREVIEW -> {}
+        }
+        refreshCompassMode()
     }
 
     /** The driver's arrow. It is an ordinary view laid over the map, not a
@@ -3156,6 +3203,7 @@ class MainActivity : AppCompatActivity() {
         smoothedNavZoom = null
         lastNavState = null
         navFollowing = true
+        driveFollower.clearManualZoom()
         snapSegmentIndex = 0
         lastTrimSnap = null
         alertedCameraKeys.clear()
@@ -3422,6 +3470,7 @@ class MainActivity : AppCompatActivity() {
      * was in before the driver panned away. */
     private fun recenterCamera() {
         val location = lastKnownLocation
+        driveFollower.clearManualZoom()
         if (navMode == NavMode.ACTIVE) {
             navFollowing = true
             smoothedNavZoom = null
