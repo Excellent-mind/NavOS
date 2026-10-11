@@ -87,7 +87,7 @@ class NavigationService : Service() {
         // failed request (no signal, OSRM busy/rate-limited) would be
         // retried every second.
         private const val OFF_ROUTE_FIXES_BEFORE_REROUTE = 2
-        private const val REROUTE_RETRY_COOLDOWN_MS = 5_000L
+        private const val REROUTE_RETRY_COOLDOWN_MS = 3_000L
 
         private const val PREFS_NAME = "navos_prefs"
         private const val KEY_VOICE_ENABLED = "voice_enabled"
@@ -243,6 +243,7 @@ class NavigationService : Service() {
                 engine?.onLocation(
                     RoutePoint(location.latitude, location.longitude),
                     if (location.hasSpeed()) location.speed.toDouble() else null,
+                    if (location.hasBearing()) location.bearing.toDouble() else null,
                 )
             }
         locationTracker = tracker
@@ -266,7 +267,8 @@ class NavigationService : Service() {
         offRouteStreak += 1
         val now = android.os.SystemClock.elapsedRealtime()
         if (!isRerouting &&
-            offRouteStreak >= OFF_ROUTE_FIXES_BEFORE_REROUTE &&
+            // One fix is enough when the heading proves it's a wrong turn.
+            offRouteStreak >= (if (state.offRouteConfirmed) 1 else OFF_ROUTE_FIXES_BEFORE_REROUTE) &&
             now - lastRerouteAttemptMs >= REROUTE_RETRY_COOLDOWN_MS
         ) {
             lastRerouteAttemptMs = now

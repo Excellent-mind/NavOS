@@ -23,6 +23,10 @@ data class NavigationState(
     // Lane guidance for the upcoming turn - null/empty when the road isn't
     // lane-tagged in OSM, which is most roads, so this is routinely absent.
     val lanes: List<LaneInfo>? = null,
+    // True when we're sure the driver took a different road (heading no
+    // longer matches the route while drifting off it), not just a noisy GPS
+    // fix. The service reroutes on the very first such fix.
+    val offRouteConfirmed: Boolean = false,
 )
 
 /**
@@ -40,7 +44,13 @@ class NavigationEngine(
 ) {
     companion object {
         private const val ADVANCE_STEP_METERS = 25.0
-        private const val OFF_ROUTE_METERS = 40.0
+        private const val OFF_ROUTE_METERS = 28.0 // was 40: notice a wrong turn sooner
+
+        // Faster check for taking another road: slightly off the line AND
+        // pointing a different way than the route is already a wrong turn.
+        private const val HEADING_OFF_ROUTE_METERS = 14.0
+        private const val HEADING_MISMATCH_DEGREES = 55.0
+        private const val HEADING_MIN_SPEED_MPS = 2.0
 
         // Fixed-distance fallback for when speed isn't known (first fix,
         // or a GPS provider that doesn't report it).
@@ -77,6 +87,7 @@ class NavigationEngine(
     fun onLocation(
         location: RoutePoint,
         speedMetersPerSecond: Double? = null,
+        bearingDegrees: Double? = null,
     ) {
         val currentRoute = route ?: return
         val steps = currentRoute.steps
@@ -97,8 +108,20 @@ class NavigationEngine(
         val distanceRemaining = distToTurn + remainingSteps.drop(1).sumOf { it.distanceMeters }
         val durationRemaining = remainingSteps.sumOf { it.durationSeconds }
 
-        val offLineDistance = GeoUtils.distanceToPolyline(location, currentRoute.geometry).first
-        val offRoute = offLineDistance > OFF_ROUTE_METERS
+        val (offLineDistance, segmentIndex) = GeoUtils.distanceToPolyline(location, currentRoute.geometry)
+        var headingMismatch = false
+        val line = currentRoute.geometry
+        if (bearingDegrees != null &&
+            (speedMetersPerSecond ?: 0.0) > HEADING_MIN_SPEED_MPS &&
+            offLineDistance > HEADING_OFF_ROUTE_METERS &&
+            segmentIndex + 1 < line.size
+        ) {
+            val routeBearing = GeoUtils.bearingDegrees(line[segmentIndex], line[segmentIndex + 1])
+            var diff = Math.abs(bearingDegrees - routeBearing) % 360.0
+            if (diff > 180.0) diff = 360.0 - diff
+            headingMismatch = diff > HEADING_MISMATCH_DEGREES
+        }
+        val offRoute = offLineDistance > OFF_ROUTE_METERS || headingMismatch
         val isArrival = idx == steps.size - 1
         val nextStep = steps.getOrNull(idx + 1)
 
@@ -117,6 +140,7 @@ class NavigationEngine(
                 nextManeuverType = nextStep?.maneuverType,
                 nextModifier = nextStep?.modifier,
                 lanes = steps[idx].lanes,
+                offRouteConfirmed = headingMismatch,
             ),
         )
 
