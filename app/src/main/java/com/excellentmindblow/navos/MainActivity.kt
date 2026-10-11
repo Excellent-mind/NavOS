@@ -189,9 +189,6 @@ private const val NAV_FOLLOW_EASE_MS = 350
 private const val SNAP_MAX_METERS = 35.0 // beyond this the fix isn't "on" the route
 private const val SNAP_LOOKAHEAD_SEGMENTS = 150
 private const val SNAP_LOOKBACK_SEGMENTS = 5
-private const val PUCK_SOURCE_ID = "navos-puck-source"
-private const val PUCK_LAYER_ID = "navos-puck-layer"
-private const val PUCK_ICON_ID = "navos-puck-icon"
 private const val NAV_RECENTER_EASE_MS = 450 // quick, soft glide back to the arrow
 private const val IDLE_RECENTER_ZOOM = 16.5
 
@@ -417,7 +414,10 @@ class MainActivity : AppCompatActivity() {
                     NavMode.PREVIEW -> DriveFollower.Follow.OFF
                 }
             },
-        ).also { it.driveTilt = NAV_TILT_DEGREES }
+        ).also {
+            it.driveTilt = NAV_TILT_DEGREES
+            it.onFrame = { updateArrowOverlay() }
+        }
     private var smoothedNavZoom: Double? = null
     private var lastNavState: NavigationState? = null
 
@@ -569,6 +569,7 @@ class MainActivity : AppCompatActivity() {
 
         mapView = findViewById(R.id.mapView)
         mapView.onCreate(savedInstanceState)
+        setUpArrowOverlay()
 
         mapView.getMapAsync { loadedMap ->
             map = loadedMap
@@ -580,6 +581,7 @@ class MainActivity : AppCompatActivity() {
             val compass = findViewById<CompassView>(R.id.compassButton)
             loadedMap.addOnCameraMoveListener {
                 compass.northAngle = (-loadedMap.cameraPosition.bearing).toFloat()
+                updateArrowOverlay()
             }
             // Two views, like other navigation apps: tap to switch between
             // "north up" and "heading up" (map turns to the way you're going).
@@ -638,6 +640,52 @@ class MainActivity : AppCompatActivity() {
         setUpSavedPlaces()
         setUpSettingsExtras()
         setUpImeInsetHandling()
+    }
+
+    /** The driver's arrow. It is an ordinary view laid over the map, not a
+     * map layer: a layer is refreshed asynchronously (a few frames late)
+     * while the camera moves instantly, so a layer arrow always trailed the
+     * camera and slid off the blue line. Here the view is put exactly where
+     * the map's own projection says the arrow's position is, in the same
+     * frame the camera moved, so it cannot drift. */
+    private lateinit var arrowView: ImageView
+    private var arrowSizePx = 0
+
+    private fun setUpArrowOverlay() {
+        val bitmap = PuckIcon.create(this)
+        arrowSizePx = bitmap.width
+        arrowView =
+            ImageView(this).apply {
+                setImageBitmap(bitmap)
+                visibility = View.INVISIBLE
+                isClickable = false
+                isFocusable = false
+            }
+        val parent = mapView.parent as ViewGroup
+        // Right above the map, below every other control and sheet.
+        parent.addView(arrowView, parent.indexOfChild(mapView) + 1, ViewGroup.LayoutParams(arrowSizePx, arrowSizePx))
+    }
+
+    private fun updateArrowOverlay() {
+        val m = map ?: return
+        if (!::arrowView.isInitialized || !driveFollower.hasPosition()) return
+        val pt = m.projection.toScreenLocation(LatLng(driveFollower.arrowLat, driveFollower.arrowLng))
+        val cam = m.cameraPosition
+
+        // The lane's direction on screen. A ground direction at angle d from
+        // the camera heading is foreshortened along the view axis by
+        // cos(tilt), so on a tilted map it leans further from vertical than
+        // d itself - this keeps the arrow lying along the blue line.
+        var d = (driveFollower.arrowHeading - cam.bearing) % 360.0
+        if (d > 180.0) d -= 360.0
+        if (d < -180.0) d += 360.0
+        val dr = Math.toRadians(d)
+        val screenAngle = Math.toDegrees(Math.atan2(Math.sin(dr), Math.cos(dr) * Math.cos(Math.toRadians(cam.tilt))))
+
+        arrowView.x = mapView.x + pt.x - arrowSizePx / 2f
+        arrowView.y = mapView.y + pt.y - arrowSizePx / 2f
+        arrowView.rotation = screenAngle.toFloat()
+        if (arrowView.visibility != View.VISIBLE) arrowView.visibility = View.VISIBLE
     }
 
     /** Pushes the home sheet up above the on-screen keyboard while it's
@@ -2736,23 +2784,6 @@ class MainActivity : AppCompatActivity() {
                 PropertyFactory.iconAllowOverlap(true),
             )
         style.addLayer(destLayer)
-
-        // The driver's 3D arrow - drawn above everything (labels, pin),
-        // upright to the screen like Waze's, rotated to the heading.
-        style.addImage(PUCK_ICON_ID, PuckIcon.create(this))
-        val puckSrc = GeoJsonSource(PUCK_SOURCE_ID)
-        style.addSource(puckSrc)
-        val puckLayer =
-            SymbolLayer(PUCK_LAYER_ID, PUCK_SOURCE_ID).withProperties(
-                PropertyFactory.iconImage(PUCK_ICON_ID),
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true),
-                PropertyFactory.iconRotate(Expression.get("bearing")),
-                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
-                PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_VIEWPORT),
-            )
-        style.addLayer(puckLayer)
-        driveFollower.puckSource = puckSrc // also redraws it after a restyle
 
         // Incident reports ("What do you see?") - also on top of labels,
         // same as the destination pin. One source holds every reported
