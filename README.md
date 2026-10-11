@@ -53,15 +53,15 @@ real launch is a later step.
 
 ## Status
 
-This is a fresh start on the native side - currently just the map screen,
-rebuilding confidence that the core (map rendering) works cleanly on the
-target device before porting over:
+Built: map, destination search (Photon + Nominatim), OSRM routes with
+alternatives, turn-by-turn with lane guidance, live GPS, spoken guidance
+(ducks other audio), off-route rerouting, background navigation service,
+speed-camera alerts, toll plaza markers (no prices), petrol / EV pins,
+posted speed limit + over-limit warning (OpenStreetMap data), km / miles,
+avoid tolls / highways, Share ETA.
 
-- [ ] Destination search (Nominatim)
-- [ ] Route calculation + turn-by-turn steps (OSRM)
-- [ ] Live GPS tracking
-- [ ] Spoken turn announcements (Android `TextToSpeech`)
-- [ ] Off-route detection / re-routing
+Deliberately not built (no free, serverless source): live traffic and
+crowdsourced incident reports. ETAs are "typical time, no live traffic".
 
 ## Known limits / next steps
 
@@ -69,6 +69,8 @@ target device before porting over:
   meant for production traffic. Fine for development; a real launch should
   move to a self-hosted OSRM instance or a paid routing API.
 - **Destination search**: Nominatim's public instance, same caveat.
-- **Lane guidance / speed limits / offline maps**: not built yet.
+- **Speed limits** only appear where OpenStreetMap has a `maxspeed` tag.
+- **Avoid tolls / highways** needs a routing server built with OSRM's `exclude` support; the public demo server may refuse it (the app says so).
+- **Offline maps, multi-stop trips, depart-at, motorcycle mode, Android Auto**: not built yet.
 - Placeholder launcher icon (a simple generated compass glyph) - swap for
   real Excellent Mindblow branding whenever ready.
