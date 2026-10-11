@@ -18,6 +18,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import com.excellentmindblow.navos.MainActivity
 import com.excellentmindblow.navos.R
+import com.excellentmindblow.navos.Units
 import com.excellentmindblow.navos.location.LiveLocationTracker
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
@@ -65,6 +66,10 @@ class NavigationService : Service() {
          * polyline on the map, which this service has no map to do
          * itself. */
         fun onRerouted(route: Route)
+
+        /** A recalculation after leaving the route could not get a new
+         * route (no signal, server busy). The service keeps retrying. */
+        fun onRerouteFailed() {}
     }
 
     inner class LocalBinder : Binder() {
@@ -104,6 +109,7 @@ class NavigationService : Service() {
     private var offRouteStreak = 0
     private var lastRerouteAttemptMs = 0L
     private var rerouteCount = 0
+    private var recalcAnnounced = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private var activeRoute: Route? = null
     private var hasStoppedSelf = false
@@ -144,6 +150,7 @@ class NavigationService : Service() {
         activeRoute = route
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        Units.load(prefs)
 
         if (voiceNarrator == null) {
             voiceNarrator = VoiceNarrator(this).also { it.enabled = prefs.getBoolean(KEY_VOICE_ENABLED, true) }
@@ -271,6 +278,7 @@ class NavigationService : Service() {
 
         if (!state.offRoute) {
             offRouteStreak = 0
+            recalcAnnounced = false
             return
         }
         offRouteStreak += 1
@@ -295,8 +303,12 @@ class NavigationService : Service() {
         val destination = activeRoute?.geometry?.lastOrNull() ?: return
         isRerouting = true
 
-        rerouteCount += 1
-        voiceNarrator?.speak("reroute-$rerouteCount", "Recalculating")
+        // Say "Recalculating" once per wrong turn, not on every retry.
+        if (!recalcAnnounced) {
+            recalcAnnounced = true
+            rerouteCount += 1
+            voiceNarrator?.speak("reroute-$rerouteCount", "Recalculating")
+        }
 
         val executor = rerouteExecutor ?: Executors.newSingleThreadExecutor().also { rerouteExecutor = it }
         val originPoint = RoutePoint(origin.latitude, origin.longitude)
@@ -319,7 +331,10 @@ class NavigationService : Service() {
                 val newRoute = routes.firstOrNull()
                 if (newRoute != null && activeRoute != null && !hasStoppedSelf) {
                     offRouteStreak = 0
+                    recalcAnnounced = false
                     rerouteTo(newRoute)
+                } else if (newRoute == null && activeRoute != null && !hasStoppedSelf) {
+                    listener?.onRerouteFailed()
                 }
             }
         }
@@ -409,12 +424,7 @@ class NavigationService : Service() {
         if (key == lastNotifiedKey) return
         lastNotifiedKey = key
 
-        val distanceLabel =
-            if (state.distanceToNextTurnMeters >= 1000) {
-                String.format("%.1f km", state.distanceToNextTurnMeters / 1000)
-            } else {
-                "$roundedMeters m"
-            }
+        val distanceLabel = Units.short(state.distanceToNextTurnMeters)
         val notification = buildNotification(state.instruction, distanceLabel)
         try {
             NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification)

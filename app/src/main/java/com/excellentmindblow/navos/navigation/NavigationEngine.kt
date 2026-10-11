@@ -1,5 +1,6 @@
 package com.excellentmindblow.navos.navigation
 
+import com.excellentmindblow.navos.Units
 import com.excellentmindblow.navos.routing.LaneInfo
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
@@ -162,10 +163,9 @@ class NavigationEngine(
         if (distanceToTurn <= nearThreshold) {
             onAnnounce("$stepIndex-near", instruction)
         } else if (distanceToTurn <= farThreshold) {
-            val rounded = (Math.round(distanceToTurn / 10) * 10).toInt()
             onAnnounce(
                 "$stepIndex-far",
-                "In $rounded meters, ${instruction.replaceFirstChar { it.lowercase() }}",
+                "In ${Units.spoken(distanceToTurn)}, ${instruction.replaceFirstChar { it.lowercase() }}",
             )
         }
         if (isArrival && distanceToTurn <= nearThreshold) {
