@@ -10,16 +10,11 @@ import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
-import org.maplibre.android.style.sources.GeoJsonSource
-import org.maplibre.geojson.Feature
-import org.maplibre.geojson.Point
 import kotlin.math.abs
-import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.pow
-import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
@@ -34,11 +29,18 @@ import kotlin.math.sqrt
  * it stays exactly on the blue line through bends (a straight slide cuts
  * the inside of every corner). That same distance also gives, every frame:
  *  - the arrow's own heading: the local direction of the lane under it,
- *    corrected for the 3D tilt, so it turns with the line;
+ *    so it turns with the line;
  *  - the camera heading: where the road is going a little further ahead,
  *    eased softly so the view swings into a bend instead of stepping;
  *  - the zoom: eased toward the target on a time constant (not per GPS
  *    fix), so it breathes in and out smoothly even while you are stopped.
+ *
+ * The arrow itself is NOT a map layer any more: after every camera move
+ * [onFrame] fires and the activity places a plain view at the arrow's exact
+ * projected screen position. A map layer is updated asynchronously (a few
+ * frames late) while the camera moves instantly, so a layer arrow always
+ * trailed the camera and drifted off the lane; a view placed from the
+ * camera's own projection cannot.
  */
 class DriveFollower(
     private val mapProvider: () -> MapLibreMap?,
@@ -46,12 +48,16 @@ class DriveFollower(
 ) {
     enum class Follow { OFF, CENTER, DRIVE_3D }
 
-    /** The GeoJSON source behind the arrow layer (re-set after a restyle). */
-    var puckSource: GeoJsonSource? = null
-        set(value) {
-            field = value
-            redrawPuck()
-        }
+    /** Fired at the end of every frame, after the camera has been moved. */
+    var onFrame: (() -> Unit)? = null
+
+    /** Where the arrow is (valid once [hasPosition]) and which way the lane
+     * under it points (deg, 0 = north). */
+    fun hasPosition(): Boolean = !lat.isNaN()
+
+    val arrowLat: Double get() = lat
+    val arrowLng: Double get() = lng
+    val arrowHeading: Double get() = if (laneBearing.isNaN()) currentBearing() else laneBearing
 
     var driveTilt = 55.0
 
@@ -98,10 +104,8 @@ class DriveFollower(
     private var toLng = 0.0
     private var toBearing = 0.0
 
-    // Arrow heading actually drawn (smoothed lane direction) and what was
-    // last sent to the map after the tilt correction.
+    // Arrow heading actually drawn (smoothed lane direction).
     private var laneBearing = Double.NaN
-    private var shownBearing = 0.0
     private var lastFrameMs = 0L
 
     private var animator: ValueAnimator? = null
@@ -206,7 +210,7 @@ class DriveFollower(
 
     fun redrawPuck() {
         if (lat.isNaN()) return
-        puckSource?.setGeoJson(puckFeature())
+        onFrame?.invoke()
     }
 
     /** Forget the smoothed arrow heading (navigation started / ended). */
@@ -298,20 +302,8 @@ class DriveFollower(
         return tr.bearingAt(prog, lookahead)
     }
 
-    private fun puckFeature(): Feature =
-        Feature.fromGeometry(Point.fromLngLat(lng, lat)).apply {
-            addNumberProperty("bearing", ((shownBearing % 360.0) + 360.0) % 360.0)
-        }
-
-    /** Works out the heading to draw the arrow with for this frame.
-     * [camBearing] / [camTilt] are the camera's heading and tilt when the
-     * frame follows in 3D (the arrow is then corrected for perspective),
-     * or null when the arrow is simply rotated with the map. */
-    private fun updateArrowHeading(
-        dt: Double,
-        camBearing: Double?,
-        camTilt: Double,
-    ) {
+    /** Smooths the heading of the lane under the arrow for this frame. */
+    private fun updateArrowHeading(dt: Double) {
         val tr = track
         val lane = if (tr != null && !prog.isNaN()) tr.bearingAt(prog, ARROW_LOOKAHEAD_M) else null
         val target = lane ?: bearing
@@ -322,18 +314,6 @@ class DriveFollower(
             laneBearing += shortestDelta(laneBearing, target) * alpha
         }
         laneBearing = ((laneBearing % 360.0) + 360.0) % 360.0
-
-        shownBearing =
-            if (camBearing == null || lane == null) {
-                laneBearing
-            } else {
-                // A ground direction at angle d from the camera heading is
-                // foreshortened along the view axis by cos(tilt), so on
-                // screen it leans further from vertical than d itself.
-                val d = Math.toRadians(shortestDelta(camBearing, laneBearing))
-                val screen = Math.toDegrees(atan2(sin(d), cos(d) * cos(Math.toRadians(camTilt))))
-                camBearing + screen
-            }
     }
 
     private fun render() {
@@ -358,12 +338,11 @@ class DriveFollower(
         val drive3d = mode == Follow.DRIVE_3D
         val turnWithHeading = mode == Follow.CENTER && idleHeadingUp
 
+        updateArrowHeading(dt)
+
         if (frozen || !(drive3d || turnWithHeading)) {
-            // Rotated together with the map: no perspective correction.
-            updateArrowHeading(dt, null, 0.0)
-            puckSource?.setGeoJson(puckFeature())
-            if (frozen) return
-            if (mode == Follow.CENTER) map.moveCamera(CameraUpdateFactory.newLatLng(LatLng(lat, lng)))
+            if (!frozen && mode == Follow.CENTER) map.moveCamera(CameraUpdateFactory.newLatLng(LatLng(lat, lng)))
+            onFrame?.invoke()
             return
         }
 
@@ -394,9 +373,6 @@ class DriveFollower(
             }
         }
 
-        updateArrowHeading(dt, tBearing, tTilt)
-        puckSource?.setGeoJson(puckFeature())
-
         map.moveCamera(
             CameraUpdateFactory.newCameraPosition(
                 CameraPosition
@@ -408,6 +384,7 @@ class DriveFollower(
                     .build(),
             ),
         )
+        onFrame?.invoke()
     }
 
     private fun shortestDelta(
