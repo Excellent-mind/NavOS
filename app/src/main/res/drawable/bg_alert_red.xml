@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Red pop-up pill for the speed-camera zone alert. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#E5484D" />
+    <corners android:radius="30dp" />
+</shape>
