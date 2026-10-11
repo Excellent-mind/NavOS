@@ -79,12 +79,15 @@ import com.excellentmindblow.navos.poi.PoiCache
 import com.excellentmindblow.navos.poi.PoiKind
 import com.excellentmindblow.navos.poi.PoiService
 import com.excellentmindblow.navos.routing.LaneInfo
+import com.excellentmindblow.navos.routing.RoadLimit
 import com.excellentmindblow.navos.routing.RoadPoi
 import com.excellentmindblow.navos.routing.RoadPoiService
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
+import com.excellentmindblow.navos.routing.RoutePrefs
 import com.excellentmindblow.navos.routing.RouteStep
 import com.excellentmindblow.navos.routing.RoutingService
+import com.excellentmindblow.navos.routing.SpeedLimitService
 import com.excellentmindblow.navos.search.GeocodeResult
 import com.excellentmindblow.navos.search.GeocodingService
 import org.maplibre.android.MapLibre
@@ -140,14 +143,6 @@ private const val ROUTE_INDEX_PROPERTY = "routeIndex"
 private const val DESTINATION_SOURCE_ID = "navos-destination-source"
 private const val DESTINATION_LAYER_ID = "navos-destination-layer"
 private const val DESTINATION_ICON_ID = "navos-destination-icon"
-
-private const val INCIDENTS_SOURCE_ID = "navos-incidents-source"
-private const val INCIDENTS_LAYER_ID = "navos-incidents-layer"
-private const val INCIDENT_ICON_PROPERTY = "icon"
-private const val TRAFFIC_ICON_ID = "navos-icon-traffic"
-private const val POLICE_ICON_ID = "navos-icon-police"
-private const val HAZARD_ICON_ID = "navos-icon-hazard"
-private const val CRASH_ICON_ID = "navos-icon-crash"
 
 // Drive camera: 3D tilted view, heading-up, the arrow sitting in the lower
 // part of the screen so more road ahead is visible.
@@ -227,6 +222,16 @@ private const val POI_REFETCH_DISTANCE_M = 2000f
  * and a failed lookup also waits this long before retrying. */
 private const val POI_MIN_REFETCH_MS = 60_000L
 
+/** Posted speed limits: download the roads around the driver again once they
+ * have moved this far from the last download (the download covers 1.5 km)... */
+private const val SPEED_REFETCH_DISTANCE_M = 700f
+
+/** ...but never more often than this, and a failed download waits this long too. */
+private const val SPEED_MIN_REFETCH_MS = 20_000L
+
+/** Speeding alert tolerance, so GPS noise doesn't flash the badge red. */
+private const val SPEEDING_MARGIN_KMH = 3.0
+
 /** Where the app currently is in the search -> preview -> drive flow. */
 private enum class NavMode { IDLE, PREVIEW, ACTIVE }
 
@@ -280,7 +285,6 @@ class MainActivity : AppCompatActivity() {
      * distance label (updated every GPS fix without rebuilding the list). */
     private var nextTurnsRenderedIndex = -1
     private var nextTurnsFirstDistance: TextView? = null
-    private lateinit var reportButton: ImageButton
     private lateinit var homeButton: View
     private lateinit var homeButtonLabel: TextView
     private lateinit var workButton: View
@@ -376,9 +380,6 @@ class MainActivity : AppCompatActivity() {
      * know to bring the nav UI back instead of just hiding the search. */
     private var searchOpenedFromNav = false
 
-    private var incidentsSource: GeoJsonSource? = null
-    private val incidentFeatures = mutableListOf<Feature>()
-
     private var map: MapLibreMap? = null
     private var locationTracker: LiveLocationTracker? = null
     private var hasCenteredOnFirstFix = false
@@ -464,8 +465,9 @@ class MainActivity : AppCompatActivity() {
                 updateNavCamera(location)
                 maybeFetchPois(location)
                 checkCameraZone(location)
-                val kmh = if (location.hasSpeed()) (location.speed * 3.6).toInt() else 0
-                speedBadge.text = "$kmh\nkm/h"
+                val currentKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
+                speedBadge.text = "${Units.speed(currentKmh)}\n${Units.speedUnit}"
+                updateSpeedLimit(location, currentKmh)
             }
 
             override fun onNavState(state: NavigationState) {
@@ -474,6 +476,13 @@ class MainActivity : AppCompatActivity() {
 
             override fun onNavigationEnded() {
                 if (navMode == NavMode.ACTIVE) endActiveNavigation()
+            }
+
+            override fun onRerouteFailed() {
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastRerouteFailToastMs < 10_000L) return
+                lastRerouteFailToastMs = now
+                Toast.makeText(this@MainActivity, "Can't find a new route - check your connection", Toast.LENGTH_SHORT).show()
             }
 
             override fun onRerouted(route: Route) {
@@ -524,6 +533,15 @@ class MainActivity : AppCompatActivity() {
     // Station lookups can take several seconds - own thread, so they never
     // hold up a place search or a route calculation.
     private val poiExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+    // Posted speed limit (OpenStreetMap maxspeed) for the road being driven.
+    private val speedExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private lateinit var speedLimitSign: TextView
+    private var speedRoads: List<RoadLimit> = emptyList()
+    private var speedRoadsCenter: Location? = null
+    private var speedFetchInFlight = false
+    private var lastSpeedFetchAtMs = 0L
+    private var lastRerouteFailToastMs = 0L
     private var currentResults: List<GeocodeResult> = emptyList()
 
     private val requestLocationPermission =
@@ -752,6 +770,9 @@ class MainActivity : AppCompatActivity() {
         homeSheet.paddingTop + dp(24) + dp(52) + homeSheetBasePaddingBottom
 
     private fun setUpSettings() {
+        Units.load(prefs)
+        RoutePrefs.load(prefs)
+        findViewById<View>(R.id.navPrefsRow).setOnClickListener { showNavPreferencesDialog() }
         findViewById<Switch>(R.id.voiceGuidanceSwitch).apply {
             isChecked = prefs.getBoolean(KEY_VOICE_ENABLED, true)
             setOnCheckedChangeListener { _, isChecked ->
@@ -1025,13 +1046,13 @@ class MainActivity : AppCompatActivity() {
         routePreviewDestination = findViewById(R.id.routePreviewDestination)
         turnIcon = findViewById(R.id.turnIcon)
         speedBadge = findViewById(R.id.speedBadge)
+        speedLimitSign = findViewById(R.id.speedLimitSign)
         recenterButton = findViewById(R.id.recenterButton)
         nextTurnsSheet = findViewById(R.id.nextTurnsSheet)
         cameraAlert = findViewById(R.id.cameraAlert)
         cameraAlertTitle = findViewById(R.id.cameraAlertTitle)
         cameraAlertSub = findViewById(R.id.cameraAlertSub)
         nextTurnsList = findViewById(R.id.nextTurnsList)
-        reportButton = findViewById(R.id.reportButton)
         nextTurnStrip = findViewById(R.id.nextTurnStrip)
         laneContainer = findViewById(R.id.laneContainer)
         nextTurnIcon = findViewById(R.id.nextTurnIcon)
@@ -1080,11 +1101,9 @@ class MainActivity : AppCompatActivity() {
         navStopButton.setOnClickListener {
             endActiveNavigation()
         }
+        findViewById<View>(R.id.shareEtaButton).setOnClickListener { shareEta() }
         setUpNavSheetToggle()
         recenterButton.setOnClickListener { recenterCamera() }
-        reportButton.setOnClickListener {
-            showReportDialog()
-        }
         findViewById<ImageButton>(R.id.bottomSearchButton).setOnClickListener {
             enterSearchFromNav()
         }
@@ -1350,7 +1369,7 @@ class MainActivity : AppCompatActivity() {
         topNavBar.visibility = View.GONE
         bottomNavBar.visibility = View.GONE
         speedBadge.visibility = View.GONE
-        reportButton.visibility = View.GONE
+        clearSpeedLimit(resetData = false)
         poiToggleColumn.visibility = View.GONE
         hidePoiCard()
         nextTurnStrip.visibility = View.GONE
@@ -1373,54 +1392,152 @@ class MainActivity : AppCompatActivity() {
         if (navMode == NavMode.ACTIVE) {
             bottomNavBar.visibility = View.VISIBLE
             speedBadge.visibility = View.VISIBLE
-            reportButton.visibility = View.VISIBLE
             poiToggleColumn.visibility = View.VISIBLE
         }
     }
 
-    // ---- Incident reporting ----------------------------------------------
+    // ---- Speed limit ----------------------------------------------------
 
-    /** Shows the "What do you see?" grid; each tap reports that type at
-     * the current location and dismisses the dialog. */
-    private fun showReportDialog() {
-        val view = LayoutInflater.from(this).inflate(R.layout.dialog_report, null)
-        val dialog = AlertDialog.Builder(this).setView(view).create()
-
-        val typeToViewId =
-            mapOf(
-                "Traffic" to R.id.reportTraffic,
-                "Police" to R.id.reportPolice,
-                "Hazard" to R.id.reportHazard,
-                "Crash" to R.id.reportCrash,
-            )
-        typeToViewId.forEach { (type, viewId) ->
-            view.findViewById<View>(viewId).setOnClickListener {
-                reportIncident(type)
-                dialog.dismiss()
-            }
-        }
-
-        dialog.show()
-    }
-
-    private fun reportIncident(type: String) {
-        val location = lastKnownLocation
-        if (location == null) {
-            Toast.makeText(this, "Still waiting for a GPS fix", Toast.LENGTH_SHORT).show()
+    /** Shows the posted limit of the road being driven (round sign) and turns the
+     * speed badge red while the driver is over it. Roads with no mapped limit
+     * show nothing - a limit is never guessed. */
+    private fun updateSpeedLimit(
+        location: Location,
+        currentKmh: Double,
+    ) {
+        maybeFetchSpeedLimits(location)
+        val limit = SpeedLimitService.limitAt(speedRoads, RoutePoint(location.latitude, location.longitude))
+        if (limit == null || speedBadge.visibility != View.VISIBLE) {
+            speedLimitSign.visibility = View.GONE
+            speedBadge.setTextColor(getColor(R.color.navos_text))
             return
         }
-        val iconId =
-            when (type) {
-                "Traffic" -> TRAFFIC_ICON_ID
-                "Police" -> POLICE_ICON_ID
-                "Hazard" -> HAZARD_ICON_ID
-                else -> CRASH_ICON_ID
+        speedLimitSign.text = Units.speed(limit.toDouble()).toString()
+        speedLimitSign.visibility = View.VISIBLE
+        val speeding = currentKmh > limit + SPEEDING_MARGIN_KMH
+        speedBadge.setTextColor(if (speeding) Color.parseColor("#E5484D") else getColor(R.color.navos_text))
+    }
+
+    /** Downloads the limited roads around the driver on the first fix of a drive, then
+     * again every 700 m - at most every 20 s (Overpass is a free shared server). */
+    private fun maybeFetchSpeedLimits(location: Location) {
+        if (navMode != NavMode.ACTIVE || speedFetchInFlight) return
+        val now = SystemClock.elapsedRealtime()
+        if (lastSpeedFetchAtMs != 0L && now - lastSpeedFetchAtMs < SPEED_MIN_REFETCH_MS) return
+        val last = speedRoadsCenter
+        if (last != null && last.distanceTo(location) < SPEED_REFETCH_DISTANCE_M) return
+
+        speedFetchInFlight = true
+        lastSpeedFetchAtMs = now
+        val fetchAt = Location(location)
+        speedExecutor.execute {
+            val roads =
+                try {
+                    SpeedLimitService.fetchAround(fetchAt.latitude, fetchAt.longitude)
+                } catch (e: Exception) {
+                    null
+                }
+            mainHandler.post {
+                speedFetchInFlight = false
+                if (isDestroyed || navMode != NavMode.ACTIVE || roads == null) return@post
+                speedRoads = roads
+                speedRoadsCenter = fetchAt
             }
-        val feature = Feature.fromGeometry(Point.fromLngLat(location.longitude, location.latitude))
-        feature.addStringProperty(INCIDENT_ICON_PROPERTY, iconId)
-        incidentFeatures.add(feature)
-        incidentsSource?.setGeoJson(FeatureCollection.fromFeatures(incidentFeatures))
-        Toast.makeText(this, "$type reported - thanks!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun clearSpeedLimit(resetData: Boolean) {
+        if (::speedLimitSign.isInitialized) speedLimitSign.visibility = View.GONE
+        if (::speedBadge.isInitialized) speedBadge.setTextColor(getColor(R.color.navos_text))
+        if (resetData) {
+            speedRoads = emptyList()
+            speedRoadsCenter = null
+            lastSpeedFetchAtMs = 0L
+        }
+    }
+
+    // ---- Share ETA --------------------------------------------------------
+
+    /** Sends a plain-text "on my way, arriving about..." message through the
+     * phone's share sheet. It is a snapshot, not live location sharing (that
+     * would need a server). */
+    private fun shareEta() {
+        val state = lastNavState ?: return
+        val arrival = Date(System.currentTimeMillis() + (state.durationRemainingSeconds * 1000).toLong())
+        val time = SimpleDateFormat("h:mm a", Locale.US).format(arrival)
+        val place = destinationName?.takeIf { it.isNotBlank() }
+        val text =
+            "I'm on my way" + (if (place != null) " to $place" else "") +
+                " - arriving around $time (${Units.short(state.distanceRemainingMeters)} to go)."
+        val send =
+            Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, text)
+            }
+        startActivity(Intent.createChooser(send, "Share ETA"))
+    }
+
+    // ---- Navigation preferences (units, avoid tolls / highways) ------------
+
+    private fun showNavPreferencesDialog() {
+        val textColor = getColor(R.color.navos_text)
+        val column =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(22), dp(8), dp(22), 0)
+            }
+
+        fun heading(label: String) =
+            TextView(this).apply {
+                text = label
+                textSize = 15f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(textColor)
+                setPadding(0, dp(10), 0, dp(4))
+            }
+
+        column.addView(heading("Distance units"))
+        val group = RadioGroup(this)
+        val kmButton = RadioButton(this).apply { id = View.generateViewId(); text = "Kilometers"; setTextColor(textColor) }
+        val miButton = RadioButton(this).apply { id = View.generateViewId(); text = "Miles"; setTextColor(textColor) }
+        group.addView(kmButton)
+        group.addView(miButton)
+        group.check(if (Units.miles) miButton.id else kmButton.id)
+        group.setOnCheckedChangeListener { _, checkedId -> Units.save(prefs, checkedId == miButton.id) }
+        column.addView(group)
+
+        column.addView(heading("Route preferences"))
+        val tolls =
+            android.widget.CheckBox(this).apply {
+                text = "Avoid tolls"
+                isChecked = RoutePrefs.avoidTolls
+                setTextColor(textColor)
+            }
+        val highways =
+            android.widget.CheckBox(this).apply {
+                text = "Avoid highways"
+                isChecked = RoutePrefs.avoidHighways
+                setTextColor(textColor)
+            }
+        tolls.setOnCheckedChangeListener { _, checked -> RoutePrefs.save(prefs, checked, RoutePrefs.avoidHighways) }
+        highways.setOnCheckedChangeListener { _, checked -> RoutePrefs.save(prefs, RoutePrefs.avoidTolls, checked) }
+        column.addView(tolls)
+        column.addView(highways)
+        column.addView(
+            TextView(this).apply {
+                text = "Route preferences apply the next time you search for a route."
+                textSize = 12f
+                setTextColor(getColor(R.color.navos_hint))
+                setPadding(0, dp(6), 0, dp(4))
+            },
+        )
+
+        AlertDialog
+            .Builder(this)
+            .setTitle("Navigation preferences")
+            .setView(column)
+            .setPositiveButton("Done", null)
+            .show()
     }
 
     // ---- Petrol / EV charging pins (active drive) ---------------------------
@@ -1875,7 +1992,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun formatDistance(meters: Float): String =
-        when {
+        if (Units.miles) Units.short(meters.toDouble()) else when {
             meters < 1000f -> "${(Math.round(meters / 10f) * 10)} m"
             meters < 100_000f -> String.format(java.util.Locale.US, "%.1f km", meters / 1000f)
             else -> "${Math.round(meters / 1000f)} km"
@@ -1955,9 +2072,6 @@ class MainActivity : AppCompatActivity() {
                     renderedCalloutStep = -1
                     renderTurnCallouts(lastNavState?.currentStepIndex ?: 1)
                 }
-                if (incidentFeatures.isNotEmpty()) {
-                    incidentsSource?.setGeoJson(FeatureCollection.fromFeatures(incidentFeatures))
-                }
             } else {
                 ensureLocationPermissionThenTrack()
             }
@@ -2012,13 +2126,6 @@ class MainActivity : AppCompatActivity() {
             else -> areaRoadPois
         }
 
-    /** A price the driver entered for this plaza (saved on the phone). */
-    private fun userTollPrice(poi: RoadPoi): Double? = prefs.getFloat("toll_price_" + poiKey(poi), -1f).takeIf { it >= 0f }?.toDouble()
-
-    /** Price shown for a plaza: the driver's own entry first, else the map
-     * data's `charge` tag, else unknown. */
-    private fun tollPrice(poi: RoadPoi): Double? = userTollPrice(poi) ?: RoadPoiService.parsePrice(poi.charge)
-
     /** 200 m ring around a camera: the alert zone. */
     private fun zoneFeature(poi: RoadPoi): Feature {
         val dLat = ZONE_RADIUS_M / 111_320.0
@@ -2042,8 +2149,6 @@ class MainActivity : AppCompatActivity() {
                 val f = Feature.fromGeometry(Point.fromLngLat(poi.longitude, poi.latitude))
                 f.addStringProperty("icon", if (poi.kind == "toll") POI_ICON_TOLL else POI_ICON_CAMERA)
                 f.addStringProperty("key", poiKey(poi))
-                val price = if (poi.kind == "toll") tollPrice(poi) else null
-                f.addStringProperty("label", if (price != null) String.format(Locale.US, "RM %.2f", price) else "")
                 f
             }
         src.setGeoJson(FeatureCollection.fromFeatures(features))
@@ -2065,59 +2170,21 @@ class MainActivity : AppCompatActivity() {
             }
         val key = hits.firstNotNullOfOrNull { it.getStringProperty("key") } ?: return false
         val poi = currentRoadPois().firstOrNull { poiKey(it) == key } ?: return false
-        if (poi.kind == "toll") showTollDialog(poi) else showCameraInfo(poi)
+        if (poi.kind == "toll") showTollInfo(poi) else showCameraInfo(poi)
         return true
     }
 
     private fun showCameraInfo(poi: RoadPoi) {
         val limit = poi.maxspeed?.filter { it.isDigit() }?.toIntOrNull()
-        val text = "Speed camera - alert zone ${ZONE_RADIUS_M.toInt()} m" + (if (limit != null) ", limit $limit km/h" else "")
+        val text =
+            "Speed camera - alert zone ${Units.short(ZONE_RADIUS_M)}" +
+                (if (limit != null) ", limit ${Units.speed(limit.toDouble())} ${Units.speedUnit}" else "")
         Toast.makeText(this, text, Toast.LENGTH_LONG).show()
     }
 
-    /** Plaza name + price. The price comes from the map data when it has
-     * one; otherwise the driver can enter what they pay and it is remembered
-     * (and added to the route's toll total). */
-    private fun showTollDialog(poi: RoadPoi) {
-        val mapPrice = RoadPoiService.parsePrice(poi.charge)
-        val mine = userTollPrice(poi)
-        val shown = mine ?: mapPrice
-        val message =
-            when {
-                mine != null -> String.format(Locale.US, "Toll: RM %.2f (your price)", mine)
-                mapPrice != null -> String.format(Locale.US, "Toll: RM %.2f (from map data)", mapPrice)
-                else -> "No price is published in the map data for this plaza. Enter what you pay and NavOS will remember it and include it in your route's toll total."
-            }
-        val input =
-            EditText(this).apply {
-                inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-                hint = "Price in RM, e.g. 4.20"
-                shown?.let { setText(String.format(Locale.US, "%.2f", it)) }
-                setSingleLine()
-            }
-        val box =
-            android.widget.FrameLayout(this).apply {
-                setPadding(dp(22), dp(6), dp(22), 0)
-                addView(input)
-            }
-        AlertDialog
-            .Builder(this)
-            .setTitle(poi.name.ifBlank { "Toll plaza" })
-            .setMessage(message)
-            .setView(box)
-            .setPositiveButton("Save") { _, _ ->
-                val value = input.text.toString().replace(',', '.').toFloatOrNull()
-                if (value != null && value >= 0f) {
-                    prefs.edit().putFloat("toll_price_" + poiKey(poi), value).apply()
-                    renderRoutePois()
-                    if (navMode == NavMode.PREVIEW) updateRoutePreviewSummary()
-                }
-            }.setNeutralButton("Clear") { _, _ ->
-                prefs.edit().remove("toll_price_" + poiKey(poi)).apply()
-                renderRoutePois()
-                if (navMode == NavMode.PREVIEW) updateRoutePreviewSummary()
-            }.setNegativeButton("Close", null)
-            .show()
+    /** Tap on a toll plaza: just its name (prices are intentionally not shown). */
+    private fun showTollInfo(poi: RoadPoi) {
+        Toast.makeText(this, poi.name.ifBlank { "Toll plaza" }, Toast.LENGTH_SHORT).show()
     }
 
     // ---- Speed-camera zone (200 m) ------------------------------------
@@ -2166,9 +2233,9 @@ class MainActivity : AppCompatActivity() {
         if (alertedCameraKeys.add(key)) navigationService?.announce("camera-$key", "Speed camera ahead")
         val limit = cam.maxspeed?.filter { it.isDigit() }?.toIntOrNull()
         val kmh = if (location.hasSpeed()) (location.speed * 3.6).toInt() else 0
-        val distance = "${(Math.round(nearestD / 10.0) * 10).toInt().coerceAtLeast(10)} m"
+        val distance = Units.short(nearestD.coerceAtLeast(10.0))
         cameraAlertTitle.text = if (limit != null && kmh > limit) "Slow down - speed camera" else "Speed camera ahead"
-        cameraAlertSub.text = if (limit != null) "$distance  -  limit $limit km/h" else distance
+        cameraAlertSub.text = if (limit != null) "$distance  -  limit ${Units.speed(limit.toDouble())} ${Units.speedUnit}" else distance
         cameraAlert.visibility = View.VISIBLE
     }
 
@@ -2296,18 +2363,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** "Toll ~RM4.20" (all prices known), "Toll" (plaza on the route but no
-     * price in the map data) or null (no toll found). */
-    private fun tollSummary(pois: List<RoadPoi>?): String? {
-        val tolls = pois?.filter { it.kind == "toll" } ?: return null
-        if (tolls.isEmpty()) return null
-        val prices = tolls.map { tollPrice(it) }
-        return if (prices.all { it != null }) {
-            String.format(Locale.US, "Toll ~RM%.2f", prices.sumOf { it ?: 0.0 })
-        } else {
-            "Toll"
-        }
-    }
+    /** "Toll" when a toll plaza is on the route, else null. No price. */
+    private fun tollSummary(pois: List<RoadPoi>?): String? =
+        if (pois?.any { it.kind == "toll" } == true) "Toll" else null
 
     private fun formatRouteMinutes(seconds: Double): String {
         val minutes = Math.round(seconds / 60.0).toInt().coerceAtLeast(1)
@@ -2685,8 +2743,8 @@ class MainActivity : AppCompatActivity() {
         // the destination pin and the driver's arrow (added after this).
         // Toll plazas and speed cameras along the route (always visible).
         // Same pin look as the petrol / EV pins (see setUpPoiLayer).
-        registerIncidentIcon(style, POI_ICON_TOLL, R.drawable.ic_poi_toll_pin)
-        registerIncidentIcon(style, POI_ICON_CAMERA, R.drawable.ic_poi_camera_pin)
+        registerMapIcon(style, POI_ICON_TOLL, R.drawable.ic_poi_toll_pin)
+        registerMapIcon(style, POI_ICON_CAMERA, R.drawable.ic_poi_camera_pin)
         val poiSrc = GeoJsonSource(ROUTE_POI_SOURCE_ID)
         style.addSource(poiSrc)
         routePoiSource = poiSrc
@@ -2715,16 +2773,6 @@ class MainActivity : AppCompatActivity() {
                 PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM), // pin tip on the spot, like the petrol pins
                 PropertyFactory.iconAllowOverlap(true),
                 PropertyFactory.iconIgnorePlacement(true),
-                PropertyFactory.textField(Expression.get("label")),
-                PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
-                PropertyFactory.textSize(13f),
-                PropertyFactory.textColor(Color.WHITE),
-                PropertyFactory.textHaloColor(Color.parseColor("#1744B5")),
-                PropertyFactory.textHaloWidth(3f),
-                PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
-                PropertyFactory.textOffset(arrayOf(0f, 0.4f)), // just under the pin tip
-                PropertyFactory.textOptional(true),
-                PropertyFactory.textAllowOverlap(true),
             ),
         )
         makeTurnArrow(R.drawable.ic_turn_straight)?.let {
@@ -2785,34 +2833,14 @@ class MainActivity : AppCompatActivity() {
             )
         style.addLayer(destLayer)
 
-        // Incident reports ("What do you see?") - also on top of labels,
-        // same as the destination pin. One source holds every reported
-        // type; each feature carries which icon to draw via a data
-        // expression instead of needing a separate layer per type.
-        registerIncidentIcon(style, TRAFFIC_ICON_ID, R.drawable.ic_report_traffic)
-        registerIncidentIcon(style, POLICE_ICON_ID, R.drawable.ic_report_police)
-        registerIncidentIcon(style, HAZARD_ICON_ID, R.drawable.ic_report_hazard)
-        registerIncidentIcon(style, CRASH_ICON_ID, R.drawable.ic_report_crash)
-
-        val incidentsSrc = GeoJsonSource(INCIDENTS_SOURCE_ID)
-        style.addSource(incidentsSrc)
-        incidentsSource = incidentsSrc
-
-        val incidentsLayer =
-            SymbolLayer(INCIDENTS_LAYER_ID, INCIDENTS_SOURCE_ID).withProperties(
-                PropertyFactory.iconImage(Expression.get(INCIDENT_ICON_PROPERTY)),
-                PropertyFactory.iconAllowOverlap(true),
-            )
-        style.addLayer(incidentsLayer)
-
         setUpPoiLayer(style)
     }
 
     /** Petrol (orange) and EV (green) pins - above street labels but below
      * the destination pin, so the destination always stays on top. */
     private fun setUpPoiLayer(style: Style) {
-        registerIncidentIcon(style, FUEL_PIN_ICON_ID, R.drawable.ic_poi_fuel_pin)
-        registerIncidentIcon(style, EV_PIN_ICON_ID, R.drawable.ic_poi_ev_pin)
+        registerMapIcon(style, FUEL_PIN_ICON_ID, R.drawable.ic_poi_fuel_pin)
+        registerMapIcon(style, EV_PIN_ICON_ID, R.drawable.ic_poi_ev_pin)
 
         val src = GeoJsonSource(POI_SOURCE_ID)
         style.addSource(src)
@@ -2828,7 +2856,7 @@ class MainActivity : AppCompatActivity() {
         renderPoiPins()
     }
 
-    private fun registerIncidentIcon(
+    private fun registerMapIcon(
         style: Style,
         iconId: String,
         drawableRes: Int,
@@ -2861,12 +2889,17 @@ class MainActivity : AppCompatActivity() {
 
         searchExecutor.execute {
             var routes: List<Route> = emptyList()
+            RoutePrefs.excludeUnsupported = false
             try {
                 routes = RoutingService.calculateRoutes(originPoint, destinationPoint)
             } catch (e: Exception) {
                 // handled below - empty list means "couldn't route"
             }
+            val couldNotAvoid = RoutePrefs.excludeUnsupported
             mainHandler.post {
+                if (couldNotAvoid && routes.isNotEmpty()) {
+                    Toast.makeText(this, "The routing server can't avoid tolls or highways yet - showing normal routes", Toast.LENGTH_LONG).show()
+                }
                 if (routes.isNotEmpty()) {
                     routeOptions = routes
                     selectedRouteIndex = 0
@@ -2930,7 +2963,7 @@ class MainActivity : AppCompatActivity() {
      * grown past its collapsed height, so they stay just above the card
      * instead of being covered when the Stop pill is revealed. */
     private fun updateNavFloatingOffset() {
-        val floating = listOf(speedBadge, reportButton, poiToggleColumn, recenterButton, poiCard)
+        val floating = listOf(speedBadge, speedLimitSign, poiToggleColumn, recenterButton, poiCard)
         if (bottomNavBar.visibility != View.VISIBLE || navBarRow.height == 0) {
             floating.forEach { if (it.translationY != 0f) it.translationY = 0f }
             return
@@ -2947,6 +2980,7 @@ class MainActivity : AppCompatActivity() {
         navSheetExpanded = expanded
         TransitionManager.beginDelayedTransition(bottomNavBar as ViewGroup, AutoTransition().setDuration(220))
         navStopButton.visibility = if (expanded) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.shareEtaButton).visibility = if (expanded) View.VISIBLE else View.GONE
     }
 
     /** "3:38 PM" (arrival clock time, big) and "1:11 h • 61 km" (time left
@@ -2972,7 +3006,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun formatTripDistance(meters: Double): String =
-        when {
+        if (Units.miles) Units.short(meters) else when {
             meters < 1000 -> "${meters.toInt()} m"
             meters < 10_000 -> String.format(Locale.US, "%.1f km", meters / 1000.0)
             else -> String.format(Locale.US, "%.0f km", meters / 1000.0)
@@ -2996,7 +3030,7 @@ class MainActivity : AppCompatActivity() {
         // Also reachable mid-drive via the drive bar's alt-route icon, so
         // clear the ACTIVE-only chrome too (harmless no-ops if already gone).
         speedBadge.visibility = View.GONE
-        reportButton.visibility = View.GONE
+        clearSpeedLimit(resetData = false)
         poiToggleColumn.visibility = View.GONE
         hidePoiCard()
         nextTurnStrip.visibility = View.GONE
@@ -3027,9 +3061,9 @@ class MainActivity : AppCompatActivity() {
         routePreviewDestination.visibility = if (destination.isNotBlank()) View.VISIBLE else View.GONE
         routePreviewHint.text =
             if (routeOptions.size > 1) {
-                "${routeOptions.size} routes found - tap a grey route, or open List"
+                "${routeOptions.size} routes found - tap a grey route, or open List\nTypical time - no live traffic"
             } else {
-                "Fastest route available"
+                "Typical time - no live traffic"
             }
     }
 
@@ -3145,13 +3179,13 @@ class MainActivity : AppCompatActivity() {
         renderTurnCallouts(1)
         bottomNavBar.visibility = View.VISIBLE
         speedBadge.visibility = View.VISIBLE
-        reportButton.visibility = View.VISIBLE
         poiToggleColumn.visibility = View.VISIBLE
         turnDistanceText.text = ""
         turnStreetText.text = "Starting navigation..."
         showTripSummary(route.durationSeconds, route.distanceMeters, etaClockText, etaDetailText)
         navSheetExpanded = false
         navStopButton.visibility = View.GONE
+        findViewById<View>(R.id.shareEtaButton).visibility = View.GONE
 
         // Waze-style 3D follow camera, driven by driveFollower on every
         // display frame together with the arrow (not by LocationComponent's
@@ -3485,7 +3519,7 @@ class MainActivity : AppCompatActivity() {
         topNavBar.visibility = View.GONE
         bottomNavBar.visibility = View.GONE
         speedBadge.visibility = View.GONE
-        reportButton.visibility = View.GONE
+        clearSpeedLimit(resetData = true)
         poiToggleColumn.visibility = View.GONE
         hidePoiCard()
         nextTurnStrip.visibility = View.GONE
@@ -3663,14 +3697,16 @@ class MainActivity : AppCompatActivity() {
      * 1 km up, then 950 m, 900 m ... 100 m in 50 m steps, then 10 m steps
      * for the last stretch. */
     private fun formatCountdownDistance(meters: Double): String =
-        when {
+        if (Units.miles) Units.short(meters) else when {
             meters >= 1000 -> String.format(Locale.US, "%.1f km", meters / 1000)
             meters >= 100 -> "${(Math.round(meters / 50.0) * 50).toInt().coerceAtMost(950)} m"
             else -> "${(Math.round(meters / 10.0) * 10).toInt().coerceAtLeast(10)} m"
         }
 
     private fun formatTurnDistance(meters: Double): String =
-        if (meters >= 1000) {
+        if (Units.miles) {
+            Units.short(meters)
+        } else if (meters >= 1000) {
             String.format(Locale.US, "%.1f km", meters / 1000)
         } else {
             // Round to 10 m like Waze's list so it doesn't flicker every fix.
@@ -3969,6 +4005,7 @@ class MainActivity : AppCompatActivity() {
         extrasExecutor.shutdownNow()
         placeSearchExecutor.shutdownNow()
         poiExecutor.shutdownNow()
+        speedExecutor.shutdownNow()
         liveSearchRunnable?.let { mainHandler.removeCallbacks(it) }
         unbindNavigationService()
         super.onDestroy()
