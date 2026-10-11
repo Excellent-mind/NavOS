@@ -51,6 +51,18 @@ class DriveFollower(
 
     var driveTilt = 55.0
 
+    /** Compass "north" mode while driving: the 3D follow camera keeps
+     * tracking the arrow but stays pointed north instead of turning with
+     * the heading. */
+    var northUp = false
+
+    /** Compass "heading" mode on the plain map: while the camera follows
+     * the arrow it also turns to the direction you are travelling. */
+    var idleHeadingUp = false
+
+    /** The direction the arrow is currently travelling (deg, 0..360). */
+    fun currentBearing(): Double = ((bearing % 360.0) + 360.0) % 360.0
+
     /** Returns the direction (deg, 0 = north) of the route lane at a
      * position, or null when the position is not on the route. */
     var laneBearingProvider: ((Double, Double) -> Double?)? = null
@@ -260,24 +272,27 @@ class DriveFollower(
         val now = SystemClock.uptimeMillis()
         val mode = followProvider()
         val frozen = now < holdCameraUntilMs
+        val drive3d = mode == Follow.DRIVE_3D
+        val turnWithHeading = mode == Follow.CENTER && idleHeadingUp
 
-        if (mode != Follow.DRIVE_3D || frozen) {
+        if (frozen || !(drive3d || turnWithHeading)) {
             // Rotated together with the map: no perspective correction.
             updateArrowHeading(now, null, 0.0)
             puckSource?.setGeoJson(puckFeature())
             if (frozen) return
-            when (mode) {
-                Follow.CENTER -> map.moveCamera(CameraUpdateFactory.newLatLng(LatLng(lat, lng)))
-                else -> Unit
-            }
+            if (mode == Follow.CENTER) map.moveCamera(CameraUpdateFactory.newLatLng(LatLng(lat, lng)))
             return
         }
 
+        // Where the camera should end up. Driving: the tilted follow view.
+        // Plain map in heading mode: keep whatever zoom / tilt the person
+        // has and only turn with the heading.
+        val camHeading = if (drive3d && northUp) 0.0 else bearing
         var tLat = lat
         var tLng = lng
-        var tZoom = if (zoom.isNaN()) map.cameraPosition.zoom else zoom
-        var tTilt = driveTilt
-        var tBearing = bearing
+        var tZoom = if (drive3d && !zoom.isNaN()) zoom else map.cameraPosition.zoom
+        var tTilt = if (drive3d) driveTilt else map.cameraPosition.tilt
+        var tBearing = camHeading
 
         val from = blendFrom
         if (from != null) {
@@ -292,7 +307,7 @@ class DriveFollower(
                 tLng = fromLng + (lng - fromLng) * e
                 tZoom = from.zoom + (tZoom - from.zoom) * e
                 tTilt = from.tilt + (tTilt - from.tilt) * e
-                tBearing = from.bearing + shortestDelta(from.bearing, bearing) * e
+                tBearing = from.bearing + shortestDelta(from.bearing, camHeading) * e
             }
         }
 
