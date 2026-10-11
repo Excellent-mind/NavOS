@@ -185,6 +185,15 @@ class NavigationService : Service() {
             .apply()
     }
 
+    /** One-off spoken alert from the UI (e.g. entering a speed-camera zone),
+     * respecting the Voice guidance setting. */
+    fun announce(
+        key: String,
+        text: String,
+    ) {
+        voiceNarrator?.speak(key, text)
+    }
+
     fun setListener(l: Listener?) {
         listener = l
         // Replay the last known fix/state/route immediately so a freshly
