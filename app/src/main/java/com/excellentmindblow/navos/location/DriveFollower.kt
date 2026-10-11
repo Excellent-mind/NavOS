@@ -365,6 +365,18 @@ class DriveFollower(
 
         updateArrowHeading(dt)
 
+        // Fingers on the map: they win over everything automatic. Drop any
+        // start-of-route glide (it kept pulling the zoom back toward where
+        // the camera was, so a pinch-out seemed to do nothing) and keep the
+        // person's zoom as an offset on the drive zoom WHILE they pinch, not
+        // only when they let go, so nothing can snap it back mid-gesture.
+        if (pinching) {
+            blendFrom = null
+            if (drive3d && !zoom.isNaN()) {
+                manualZoomOffset = (map.cameraPosition.zoom - zoom).coerceIn(-6.0, 6.0)
+            }
+        }
+
         if (frozen || !(drive3d || turnWithHeading)) {
             if (!frozen && !pinching && mode == Follow.CENTER) map.moveCamera(CameraUpdateFactory.newLatLng(LatLng(lat, lng)))
             onFrame?.invoke()
