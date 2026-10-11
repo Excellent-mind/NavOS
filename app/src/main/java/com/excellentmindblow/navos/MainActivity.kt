@@ -366,6 +366,14 @@ class MainActivity : AppCompatActivity() {
     private var poiSource: GeoJsonSource? = null
     private var nearbyPois: List<Poi> = emptyList()
     private var selectedPoi: Poi? = null
+
+    // "Tap any spot on the map to route there": the dropped pin reuses the
+    // POI card. droppedPinResult is the destination (its name is filled in
+    // by a reverse lookup a moment after the pin lands).
+    private var droppedPin: LatLng? = null
+    private var droppedPinResult: GeocodeResult? = null
+    private var pinSeq = 0
+    private lateinit var poiFootnote: View
     private var lastPoiFetchLocation: Location? = null
     private var lastPoiFetchAtMs = 0L
     private var poiFetchInFlight = false
@@ -623,6 +631,15 @@ class MainActivity : AppCompatActivity() {
             }
 
             loadedMap.addOnMapClickListener { latLng -> onMapTapped(loadedMap, latLng) }
+            // Long-press also drops a pin (same as Google Maps / Waze).
+            loadedMap.addOnMapLongClickListener { latLng ->
+                if (navMode == NavMode.IDLE && homeSheetState == HomeSheetState.COLLAPSED) {
+                    dropPin(latLng)
+                    true
+                } else {
+                    false
+                }
+            }
             loadedMap.addOnCameraIdleListener { onMapIdle() }
 
             // A manual pan/rotate/tilt means the driver wants to look
@@ -1192,6 +1209,7 @@ class MainActivity : AppCompatActivity() {
      * whole sheet and drive their own bottom sheets instead. */
     private fun setHomeSheetState(state: HomeSheetState) {
         homeSheetState = state
+        if (state != HomeSheetState.COLLAPSED && droppedPin != null) hidePoiCard()
         homeSheetCollapsedRow.visibility = if (state == HomeSheetState.COLLAPSED) View.VISIBLE else View.GONE
         homeSheetExpandedRow.visibility = if (state == HomeSheetState.COLLAPSED) View.GONE else View.VISIBLE
         homeSearchInputContainer.visibility = if (state == HomeSheetState.SEARCH) View.VISIBLE else View.GONE
@@ -1603,6 +1621,7 @@ class MainActivity : AppCompatActivity() {
         poiMeta = findViewById(R.id.poiMeta)
         poiSpec = findViewById(R.id.poiSpec)
         poiChips = findViewById(R.id.poiChips)
+        poiFootnote = findViewById(R.id.poiFootnote)
 
         showFuelPins = prefs.getBoolean(KEY_SHOW_FUEL, true)
         showEvPins = prefs.getBoolean(KEY_SHOW_EV, true)
@@ -1621,6 +1640,12 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.poiCloseButton).setOnClickListener { hidePoiCard() }
         findViewById<View>(R.id.poiGoButton).setOnClickListener {
+            val pin = droppedPinResult
+            if (droppedPin != null && pin != null) {
+                hidePoiCard()
+                onDestinationSelected(pin)
+                return@setOnClickListener
+            }
             val poi = selectedPoi ?: return@setOnClickListener
             hidePoiCard()
             // Same path as picking a search result: ends this drive and
@@ -1728,7 +1753,8 @@ class MainActivity : AppCompatActivity() {
         val id = hits.firstNotNullOfOrNull { feature -> feature.getStringProperty(POI_ID_PROPERTY) }
         val poi = id?.let { poiId -> nearbyPois.firstOrNull { it.id == poiId } }
         if (poi == null) {
-            if (poiCard.visibility == View.VISIBLE) {
+            // A dropped pin is moved by the caller, not closed by an empty tap.
+            if (poiCard.visibility == View.VISIBLE && droppedPin == null) {
                 hidePoiCard()
                 return true
             }
@@ -1739,6 +1765,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showPoiCard(poi: Poi) {
+        if (droppedPin != null) {
+            droppedPin = null
+            droppedPinResult = null
+            clearDestinationMarker()
+        }
+        poiLogoIcon.clearColorFilter()
+        poiFootnote.visibility = View.VISIBLE
         selectedPoi = poi
         val isFuel = poi.kind == PoiKind.FUEL
         poiLogo.backgroundTintList = ColorStateList.valueOf(Color.parseColor(if (isFuel) FUEL_COLOR else EV_COLOR))
@@ -1792,7 +1825,68 @@ class MainActivity : AppCompatActivity() {
 
     private fun hidePoiCard() {
         selectedPoi = null
+        if (droppedPin != null) {
+            droppedPin = null
+            droppedPinResult = null
+            pinSeq++
+            clearDestinationMarker()
+        }
         poiCard.visibility = View.GONE
+    }
+
+    /** Drops a pin where the person tapped / long-pressed and shows a card
+     * with its address and a "Go here" button (like Google Maps / Waze).
+     * Tapping elsewhere moves the pin; the X removes it. */
+    private fun dropPin(latLng: LatLng) {
+        val pinId = ++pinSeq
+        droppedPin = latLng
+        selectedPoi = null
+        droppedPinResult =
+            GeocodeResult(
+                java.lang.String.format(java.util.Locale.US, "Pin %.5f, %.5f", latLng.latitude, latLng.longitude),
+                latLng.latitude,
+                latLng.longitude,
+                "Dropped pin",
+                "",
+            )
+        showDestinationMarker(latLng)
+
+        poiLogo.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#1EA3EA"))
+        poiLogoIcon.setImageResource(R.drawable.ic_place_pin)
+        poiLogoIcon.setColorFilter(Color.WHITE)
+        poiName.text = "Dropped pin"
+        updatePinMeta(latLng, null)
+        poiSpec.visibility = View.GONE
+        poiChips.removeAllViews()
+        poiFootnote.visibility = View.GONE
+        poiCard.visibility = View.VISIBLE
+
+        extrasExecutor.execute {
+            val found =
+                try {
+                    GeocodingService.reverse(latLng.latitude, latLng.longitude)
+                } catch (e: Exception) {
+                    null
+                }
+            mainHandler.post {
+                if (isDestroyed || pinId != pinSeq || droppedPin == null || found == null) return@post
+                droppedPinResult = found
+                poiName.text = found.name.ifBlank { found.label }
+                updatePinMeta(latLng, found.address)
+            }
+        }
+    }
+
+    private fun updatePinMeta(
+        at: LatLng,
+        address: String?,
+    ) {
+        val here = lastKnownLocation
+        val away =
+            here?.let {
+                "${formatDistance(GeocodingService.distanceMeters(it.latitude, it.longitude, at.latitude, at.longitude))} away"
+            }
+        poiMeta.text = listOfNotNull(address?.takeIf { it.isNotBlank() }, away).joinToString(" \u00b7 ")
     }
 
     // ---- Saved places (Home/Work) -----------------------------------------
@@ -2049,6 +2143,7 @@ class MainActivity : AppCompatActivity() {
         }
 
     private fun onDestinationSelected(result: GeocodeResult) {
+        if (droppedPin != null) hidePoiCard()
         liveSearchRunnable?.let { mainHandler.removeCallbacks(it) }
         liveSearchRunnable = null
         searchSeq++ // a late search reply must not reopen the results list
@@ -3154,7 +3249,15 @@ class MainActivity : AppCompatActivity() {
         latLng: LatLng,
     ): Boolean {
         if (handleRoadPoiTap(map, latLng)) return true
-        if (navMode == NavMode.ACTIVE || navMode == NavMode.IDLE) return onDriveMapTapped(map, latLng)
+        if (navMode == NavMode.ACTIVE || navMode == NavMode.IDLE) {
+            if (onDriveMapTapped(map, latLng)) return true
+            // Not driving, search sheet closed: tapping empty map drops a pin.
+            if (navMode == NavMode.IDLE && homeSheetState == HomeSheetState.COLLAPSED) {
+                dropPin(latLng)
+                return true
+            }
+            return false
+        }
         if (navMode != NavMode.PREVIEW) return false
         val screenPoint = map.projection.toScreenLocation(latLng)
         val tapped =
