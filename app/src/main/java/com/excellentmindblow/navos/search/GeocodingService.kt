@@ -57,7 +57,7 @@ object GeocodingService {
     private const val LIVE_LOCAL_RADIUS_DEGREES = 0.3 // roughly city-sized (~30km)
     private const val MIN_LIVE_LOCAL_RESULTS = 5
     private const val LIVE_RESULT_LIMIT = 15
-    const val MIN_LIVE_QUERY_LENGTH = 2
+    const val MIN_LIVE_QUERY_LENGTH = 1
 
     /** Live (as-you-type) search via Photon. Local results come back sorted
      * nearest-first; if there are too few nearby, Malaysia-wide matches are
