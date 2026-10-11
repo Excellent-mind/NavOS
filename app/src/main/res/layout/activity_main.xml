@@ -1382,6 +1382,56 @@
         </LinearLayout>
 
 
+        <!-- Speed-camera zone pop-up: appears the moment you enter a
+             camera's 200 m zone and counts the distance down. -->
+        <LinearLayout
+            android:id="@+id/cameraAlert"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="56dp"
+            android:background="@drawable/bg_alert_red"
+            android:elevation="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="14dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="22dp"
+            android:paddingBottom="10dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_alert_camera" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/cameraAlertTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Speed camera ahead"
+                    android:textColor="@color/white"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/cameraAlertSub"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/white"
+                    android:textSize="15sp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
         <!-- "Next turns" sheet (Waze-style): every upcoming maneuver with
              its arrow, distance and street. Opened from the drive bar's
              round button; covers the drive UI until closed. -->
