@@ -1,5 +1,6 @@
 package com.excellentmindblow.navos.routing
 
+import com.excellentmindblow.navos.navigation.GeoUtils
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -64,25 +65,29 @@ object RoutingService {
 
     /** Returns every route OSRM offers - index 0 is always its preferred
      * ("fastest") one, any further entries are alternatives (OSRM doesn't
-     * always have one to offer, so this can come back with just 1). */
+     * always have one to offer, so this can come back with just 1). More,
+     * genuinely different routes are found afterwards by [findExtraRoutes]. */
     @Throws(Exception::class)
     fun calculateRoutes(
         origin: RoutePoint,
         destination: RoutePoint,
+    ): List<Route> =
+        try {
+            requestRoutes(listOf(origin, destination), "3")
+        } catch (e: Exception) {
+            requestRoutes(listOf(origin, destination), "true")
+        }
+
+    @Throws(Exception::class)
+    private fun requestRoutes(
+        points: List<RoutePoint>,
+        alternatives: String,
     ): List<Route> {
-        val coords =
-            String.format(
-                Locale.US,
-                "%f,%f;%f,%f",
-                origin.longitude,
-                origin.latitude,
-                destination.longitude,
-                destination.latitude,
-            )
+        val coords = points.joinToString(";") { String.format(Locale.US, "%f,%f", it.longitude, it.latitude) }
         val url =
             URL(
                 "https://router.project-osrm.org/route/v1/driving/$coords" +
-                    "?overview=full&geometries=polyline&steps=true&annotations=false&alternatives=true",
+                    "?overview=full&geometries=polyline&steps=true&annotations=false&alternatives=$alternatives",
             )
         val connection = url.openConnection() as HttpURLConnection
         connection.setRequestProperty("User-Agent", USER_AGENT)
@@ -110,6 +115,132 @@ object RoutingService {
         }
     }
 
+    /**
+     * Finds extra, genuinely different routes (Waze offers 4-5): OSRM only
+     * volunteers 1-2 alternatives, so this forces the trip through detour
+     * points to either side of the main route, keeps results that are
+     * reasonably quick and clearly differ from what we already have, and
+     * reports each one through [onFound] as soon as it is found. Blocking.
+     */
+    fun findExtraRoutes(
+        origin: RoutePoint,
+        destination: RoutePoint,
+        existing: List<Route>,
+        maxTotal: Int,
+        isCancelled: () -> Boolean,
+        onFound: (Route) -> Unit,
+    ) {
+        val base = existing.firstOrNull() ?: return
+        if (base.geometry.size < 2 || base.distanceMeters < 1500.0) return
+        val kept = existing.toMutableList()
+        val bestDuration = existing.minOf { it.durationSeconds }
+        // (how far along the main route, how far to the side as a share of its length)
+        val plan =
+            listOf(
+                0.5 to 0.18, 0.5 to -0.18, 0.5 to 0.32, 0.5 to -0.32,
+                0.3 to 0.15, 0.3 to -0.15, 0.7 to 0.15, 0.7 to -0.15,
+                0.4 to 0.45, 0.6 to -0.45,
+            )
+        for ((fraction, side) in plan) {
+            if (kept.size >= maxTotal || isCancelled()) break
+            val (anchor, bearing) = pointAtFraction(base.geometry, fraction)
+            val meters = (Math.abs(side) * base.distanceMeters).coerceIn(600.0, 25_000.0)
+            val via = offsetPoint(anchor, bearing + if (side > 0) 90.0 else -90.0, meters)
+            val found =
+                try {
+                    requestRoutes(listOf(origin, via, destination), "false").firstOrNull()
+                } catch (e: Exception) {
+                    null
+                }
+            val candidate = found ?: continue
+            val reasonable =
+                candidate.durationSeconds <= bestDuration * 1.5 + 300.0 &&
+                    candidate.distanceMeters <= base.distanceMeters * 1.6 &&
+                    candidate.steps.none { it.modifier == "uturn" }
+            if (reasonable && kept.none { overlapFraction(candidate.geometry, it.geometry) > 0.85 }) {
+                kept.add(candidate)
+                onFound(candidate)
+            }
+            try {
+                Thread.sleep(250)
+            } catch (e: InterruptedException) {
+                return
+            }
+        }
+    }
+
+    private fun pointAtFraction(
+        geometry: List<RoutePoint>,
+        fraction: Double,
+    ): Pair<RoutePoint, Double> {
+        val seg = DoubleArray(geometry.size - 1) { GeoUtils.distanceMeters(geometry[it], geometry[it + 1]) }
+        val target = seg.sum() * fraction
+        var run = 0.0
+        for (i in seg.indices) {
+            if (run + seg[i] >= target) {
+                val t = if (seg[i] == 0.0) 0.0 else (target - run) / seg[i]
+                val a = geometry[i]
+                val b = geometry[i + 1]
+                val p = RoutePoint(a.latitude + (b.latitude - a.latitude) * t, a.longitude + (b.longitude - a.longitude) * t)
+                return p to GeoUtils.bearingDegrees(a, b)
+            }
+            run += seg[i]
+        }
+        val n = geometry.size
+        return geometry[n - 1] to GeoUtils.bearingDegrees(geometry[n - 2], geometry[n - 1])
+    }
+
+    private fun offsetPoint(
+        p: RoutePoint,
+        bearingDeg: Double,
+        meters: Double,
+    ): RoutePoint {
+        val d = meters / 6371000.0
+        val b = Math.toRadians(bearingDeg)
+        val lat1 = Math.toRadians(p.latitude)
+        val lon1 = Math.toRadians(p.longitude)
+        val lat2 = Math.asin(Math.sin(lat1) * Math.cos(d) + Math.cos(lat1) * Math.sin(d) * Math.cos(b))
+        val lon2 =
+            lon1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(lat1), Math.cos(d) - Math.sin(lat1) * Math.sin(lat2))
+        return RoutePoint(Math.toDegrees(lat2), Math.toDegrees(lon2))
+    }
+
+    private fun thin(
+        points: List<RoutePoint>,
+        spacing: Double,
+    ): List<RoutePoint> {
+        val out = ArrayList<RoutePoint>()
+        var last: RoutePoint? = null
+        for (p in points) {
+            if (last == null || GeoUtils.distanceMeters(last, p) >= spacing) {
+                out.add(p)
+                last = p
+            }
+        }
+        return out
+    }
+
+    /** Share of [candidate] that runs along [other] (0 = totally different). */
+    private fun overlapFraction(
+        candidate: List<RoutePoint>,
+        other: List<RoutePoint>,
+    ): Double {
+        val samples = thin(candidate, 150.0)
+        val line = thin(other, 40.0)
+        if (samples.isEmpty() || line.isEmpty()) return 0.0
+        var near = 0
+        for (s in samples) {
+            var best = Double.MAX_VALUE
+            for (o in line) {
+                if (Math.abs(o.latitude - s.latitude) > 0.002 || Math.abs(o.longitude - s.longitude) > 0.002) continue
+                val d = GeoUtils.distanceMeters(s, o)
+                if (d < best) best = d
+            }
+            if (best <= 70.0) near++
+        }
+        return near.toDouble() / samples.size
+    }
+
     private fun parseRoute(route: JSONObject): Route {
         val geometry = PolylineDecoder.decode(route.getString("geometry"))
 
@@ -122,6 +253,10 @@ object RoutingService {
                 val maneuver = step.getJSONObject("maneuver")
                 val location = maneuver.getJSONArray("location")
                 val type = maneuver.optString("type", "turn")
+                // A detour point splits the trip into legs; drop the fake
+                // "arrive" / "depart" steps at the joins so it stays one trip.
+                if (type == "arrive" && legIndex < legs.length() - 1) continue
+                if (type == "depart" && legIndex > 0) continue
                 val modifier = if (maneuver.has("modifier")) maneuver.getString("modifier") else null
                 val roadName = step.optString("name", "")
 
