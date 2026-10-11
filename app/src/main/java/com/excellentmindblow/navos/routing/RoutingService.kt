@@ -94,12 +94,15 @@ object RoutingService {
     fun calculateRoutes(
         origin: RoutePoint,
         destination: RoutePoint,
-    ): List<Route> =
-        try {
-            requestRoutes(listOf(origin, destination), "3")
-        } catch (e: Exception) {
-            requestRoutes(listOf(origin, destination), "true")
-        }
+    ): List<Route> {
+        val routes =
+            try {
+                requestRoutes(listOf(origin, destination), "3")
+            } catch (e: Exception) {
+                requestRoutes(listOf(origin, destination), "true")
+            }
+        return withConnectors(routes, origin, destination)
+    }
 
     /** Multi-stop trip: origin -> [stops] (in this order) -> destination, as ONE
      * route. OSRM only offers alternatives for two-point requests, so a trip with
@@ -113,7 +116,7 @@ object RoutingService {
     ): List<Route> {
         if (stops.isEmpty()) return calculateRoutes(origin, destination)
         val points = listOf(origin) + stops.map { it.point } + destination
-        return requestRoutes(points, "false", stops)
+        return withConnectors(requestRoutes(points, "false", stops), origin, destination)
     }
 
     /** Thrown when the server rejects the `exclude` option (not every OSRM build supports it). */
@@ -130,12 +133,33 @@ object RoutingService {
     ): List<Route> {
         val exclude = RoutePrefs.excludeParam()
         return try {
-            requestRoutesOnce(points, alternatives, exclude, stops)
+            requestWithSnapping(points, alternatives, exclude, stops)
         } catch (e: ExcludeUnsupported) {
             RoutePrefs.excludeUnsupported = true
-            requestRoutesOnce(points, alternatives, null, stops)
+            requestWithSnapping(points, alternatives, null, stops)
         }
     }
+
+    /** First asks OSRM to snap the start / end to ANY road (`snapping=any`), so a
+     * destination on a small private road - an apartment's lobby road, a car park
+     * aisle, a driveway - is reached instead of being pulled back to the nearest
+     * main road. If that gets no route (old server that doesn't know the option,
+     * or the spot sits on a tiny road island cut off from the rest), asks again
+     * the ordinary way. */
+    @Throws(Exception::class)
+    private fun requestWithSnapping(
+        points: List<RoutePoint>,
+        alternatives: String,
+        exclude: String?,
+        stops: List<RouteStop>,
+    ): List<Route> =
+        try {
+            requestRoutesOnce(points, alternatives, exclude, stops, snapAny = true)
+        } catch (e: ExcludeUnsupported) {
+            throw e
+        } catch (e: Exception) {
+            requestRoutesOnce(points, alternatives, exclude, stops, snapAny = false)
+        }
 
     /** Routing servers, tried in order. All speak the OSRM request format.
      * To use your own server later, put its address FIRST in this list
@@ -158,6 +182,7 @@ object RoutingService {
         alternatives: String,
         exclude: String?,
         stops: List<RouteStop> = emptyList(),
+        snapAny: Boolean = false,
     ): List<Route> {
         val coords = points.joinToString(";") { String.format(Locale.US, "%f,%f", it.longitude, it.latitude) }
         val now = System.currentTimeMillis()
@@ -166,7 +191,7 @@ object RoutingService {
         for (n in SERVERS.indices) {
             val i = (first + n) % SERVERS.size
             try {
-                val routes = requestFromServer(SERVERS[i], coords, alternatives, exclude, stops)
+                val routes = requestFromServer(SERVERS[i], coords, alternatives, exclude, stops, snapAny)
                 if (i != 0 || now < stickyUntilMs) {
                     stickyIndex = i
                     stickyUntilMs = now + STICKY_MS
@@ -188,12 +213,14 @@ object RoutingService {
         alternatives: String,
         exclude: String?,
         stops: List<RouteStop> = emptyList(),
+        snapAny: Boolean = false,
     ): List<Route> {
         val url =
             URL(
                 "$baseUrl$coords" +
                     "?overview=full&geometries=polyline&steps=true&annotations=false&alternatives=$alternatives" +
-                    (if (exclude != null) "&exclude=$exclude" else ""),
+                    (if (exclude != null) "&exclude=$exclude" else "") +
+                    (if (snapAny) "&snapping=any" else ""),
             )
         val connection = url.openConnection() as HttpURLConnection
         connection.setRequestProperty("User-Agent", USER_AGENT)
@@ -267,7 +294,7 @@ object RoutingService {
                 } catch (e: Exception) {
                     null
                 }
-            val candidate = found ?: continue
+            val candidate = found?.let { withConnectors(listOf(it), origin, destination).first() } ?: continue
             val reasonable =
                 candidate.durationSeconds <= bestDuration * 1.5 + 300.0 &&
                     candidate.distanceMeters <= base.distanceMeters * 1.6 &&
@@ -283,6 +310,44 @@ object RoutingService {
             }
         }
     }
+
+    // Where the routing server's road network ends (it snaps to the nearest road it
+    // allows) and where the driver really is / is going can differ by a few metres
+    // to a few hundred: an apartment lobby road, a car park, a private driveway.
+    // The blue line is stretched to the real start and the real destination so it
+    // reaches them instead of stopping on the nearest main road.
+    private const val CONNECTOR_MIN_METERS = 4.0
+    private const val CONNECTOR_MAX_METERS = 500.0
+    private const val CONNECTOR_SPEED_MPS = 4.0
+
+    private fun withConnectors(
+        routes: List<Route>,
+        origin: RoutePoint,
+        destination: RoutePoint,
+    ): List<Route> =
+        routes.map { route ->
+            val line = route.geometry
+            if (line.size < 2) return@map route
+            val startGap = GeoUtils.distanceMeters(origin, line.first())
+            val endGap = GeoUtils.distanceMeters(line.last(), destination)
+            val addStart = startGap in CONNECTOR_MIN_METERS..CONNECTOR_MAX_METERS
+            val addEnd = endGap in CONNECTOR_MIN_METERS..CONNECTOR_MAX_METERS
+            if (!addStart && !addEnd) return@map route
+
+            val extended = ArrayList<RoutePoint>(line.size + 2)
+            if (addStart) extended.add(origin)
+            extended.addAll(line)
+            if (addEnd) extended.add(destination)
+            val extra = (if (addStart) startGap else 0.0) + (if (addEnd) endGap else 0.0)
+            // A start connector shifts every vertex by one, so the stops' positions on the line move too.
+            val shift = if (addStart) 1 else 0
+            route.copy(
+                geometry = extended,
+                distanceMeters = route.distanceMeters + extra,
+                durationSeconds = route.durationSeconds + extra / CONNECTOR_SPEED_MPS,
+                stops = route.stops.map { if (it.geometryIndex >= 0) it.copy(geometryIndex = it.geometryIndex + shift) else it },
+            )
+        }
 
     private fun pointAtFraction(
         geometry: List<RoutePoint>,
