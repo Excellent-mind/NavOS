@@ -61,7 +61,6 @@ object PoiCache {
                     latitude = o.getDouble("lat"),
                     longitude = o.getDouble("lon"),
                     name = o.optString("name"),
-                    charge = o.optString("charge").ifBlank { null },
                     maxspeed = o.optString("maxspeed").ifBlank { null },
                 ),
             )
@@ -80,7 +79,7 @@ object PoiCache {
             arr.put(
                 JSONObject()
                     .put("kind", p.kind).put("lat", p.latitude).put("lon", p.longitude)
-                    .put("name", p.name).put("charge", p.charge ?: "").put("maxspeed", p.maxspeed ?: ""),
+                    .put("name", p.name).put("maxspeed", p.maxspeed ?: ""),
             )
         }
         write(file(dir, "road", lat, lon), arr)
