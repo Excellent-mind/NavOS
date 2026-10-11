@@ -581,14 +581,21 @@ class MainActivity : AppCompatActivity() {
             loadedMap.addOnCameraMoveListener {
                 compass.northAngle = (-loadedMap.cameraPosition.bearing).toFloat()
             }
+            // Two views, like other navigation apps: tap to switch between
+            // "north up" and "heading up" (map turns to the way you're going).
             compass.setOnClickListener {
                 if (navMode == NavMode.ACTIVE) {
-                    navFollowing = false
-                    placeRecenterButton(drivingLayout = true)
-                    recenterButton.visibility = View.VISIBLE
+                    driveFollower.northUp = !driveFollower.northUp
+                    recenterCamera() // resumes following, easing to the new view
+                } else if (driveFollower.idleHeadingUp) {
+                    driveFollower.idleHeadingUp = false
+                    driveFollower.holdCamera(450L)
+                    loadedMap.easeCamera(CameraUpdateFactory.bearingTo(0.0), 400)
+                } else {
+                    driveFollower.idleHeadingUp = true
+                    recenterCamera()
                 }
-                driveFollower.holdCamera(600L)
-                loadedMap.easeCamera(CameraUpdateFactory.bearingTo(0.0), 400)
+                refreshCompassMode()
             }
 
             loadedMap.addOnMapClickListener { latLng -> onMapTapped(loadedMap, latLng) }
@@ -616,6 +623,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         NavMode.PREVIEW -> {}
                     }
+                    refreshCompassMode()
                 }
             }
 
@@ -3077,6 +3085,8 @@ class MainActivity : AppCompatActivity() {
 
         navMode = NavMode.ACTIVE
         driveFollower.resetArrowHeading()
+        driveFollower.northUp = false // every drive starts heading-up
+        refreshCompassMode()
         smoothedBearing = null
         smoothedNavZoom = null
         lastNavState = null
@@ -3356,6 +3366,7 @@ class MainActivity : AppCompatActivity() {
             navFollowing = true
             smoothedNavZoom = null
             recenterButton.visibility = View.GONE
+            refreshCompassMode()
             if (location != null) {
                 updateNavCamera(location, durationMs = NAV_RECENTER_EASE_MS)
             }
@@ -3366,22 +3377,33 @@ class MainActivity : AppCompatActivity() {
 
         followingUser = true
         recenterButton.visibility = View.GONE
+        refreshCompassMode()
         if (location == null) {
             Toast.makeText(this, "Waiting for GPS...", Toast.LENGTH_SHORT).show()
             return
         }
         driveFollower.holdCamera(NAV_RECENTER_EASE_MS + 50L)
-        map?.easeCamera(
-            CameraUpdateFactory.newCameraPosition(
-                CameraPosition
-                    .Builder()
-                    .target(LatLng(location.latitude, location.longitude))
-                    .tilt(0.0)
-                    .zoom(IDLE_RECENTER_ZOOM)
-                    .build(),
-            ),
-            NAV_RECENTER_EASE_MS,
-        )
+        val camera =
+            CameraPosition
+                .Builder()
+                .target(LatLng(location.latitude, location.longitude))
+                .tilt(0.0)
+                .zoom(IDLE_RECENTER_ZOOM)
+        // Heading mode: come back facing the way you're travelling.
+        if (driveFollower.idleHeadingUp) camera.bearing(driveFollower.currentBearing())
+        map?.easeCamera(CameraUpdateFactory.newCameraPosition(camera.build()), NAV_RECENTER_EASE_MS)
+    }
+
+    /** Compass ring is blue while the camera is following AND turning with
+     * your heading, navy in north-up (or when you've panned away). */
+    private fun refreshCompassMode() {
+        val heading =
+            when (navMode) {
+                NavMode.ACTIVE -> navFollowing && !driveFollower.northUp
+                NavMode.IDLE -> followingUser && driveFollower.idleHeadingUp
+                NavMode.PREVIEW -> false
+            }
+        findViewById<CompassView>(R.id.compassButton)?.headingMode = heading
     }
 
     /** Softens the nav camera's heading so it eases into turns instead of
@@ -3417,6 +3439,7 @@ class MainActivity : AppCompatActivity() {
     private fun endActiveNavigation() {
         navMode = NavMode.IDLE
         driveFollower.resetArrowHeading()
+        driveFollower.northUp = false
         applyPendingUiRecreate()
         activeRoute = null
         applyNavPadding(false)
@@ -3463,6 +3486,7 @@ class MainActivity : AppCompatActivity() {
 
         followingUser = true
         navFollowing = true
+        refreshCompassMode()
 
         val location = lastKnownLocation
         if (location != null) {

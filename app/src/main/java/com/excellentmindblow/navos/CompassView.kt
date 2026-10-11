@@ -14,6 +14,7 @@ import kotlin.math.min
  * north, grey = south). Only the needle turns - the circle stays put - and
  * it is drawn entirely inside the view, so nothing can be clipped. Light
  * circle on purpose: it reads on both the dark and the light map.
+ * Tap it to switch between north-up and heading-up (blue ring).
  */
 class CompassView
     @JvmOverloads
@@ -23,6 +24,14 @@ class CompassView
     ) : View(context, attrs) {
         /** Direction of north on screen, in degrees clockwise (= -map bearing). */
         var northAngle: Float = 0f
+            set(value) {
+                field = value
+                invalidate()
+            }
+
+        /** True while the map turns with your heading (ring turns blue);
+         * false in north-up mode (navy ring). */
+        var headingMode: Boolean = false
             set(value) {
                 field = value
                 invalidate()
@@ -61,6 +70,8 @@ class CompassView
 
             canvas.drawCircle(cx, cy, radius, shadow)
             canvas.drawCircle(cx, cy, radius, fill)
+            ring.color = Color.parseColor(if (headingMode) "#1CB0F6" else "#14284B")
+            ring.strokeWidth = (if (headingMode) 3f else 1.5f) * density
             canvas.drawCircle(cx, cy, radius, ring)
 
             val length = radius * 0.72f
