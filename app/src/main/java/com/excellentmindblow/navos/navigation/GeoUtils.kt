@@ -143,4 +143,38 @@ object GeoUtils {
         }
         return best
     }
+
+    /** Heading of the route line itself a little way AHEAD of [snap] - the
+     * direction the lane is about to go, not the direction of the tiny
+     * segment underfoot. Looking ahead makes the arrow/camera start turning
+     * into a corner before the arrow reaches it, and stops the heading from
+     * flicking at every vertex. Works at any speed (stationary included). */
+    fun bearingAhead(
+        line: List<RoutePoint>,
+        snap: RouteSnap,
+        aheadMeters: Double,
+    ): Double {
+        var from = snap.point
+        var travelled = 0.0
+        var i = snap.segmentIndex + 1
+        var target = from
+        while (i < line.size) {
+            val next = line[i]
+            val d = distanceMeters(from, next)
+            if (travelled + d >= aheadMeters) {
+                val t = if (d == 0.0) 0.0 else (aheadMeters - travelled) / d
+                target =
+                    RoutePoint(
+                        latitude = from.latitude + (next.latitude - from.latitude) * t,
+                        longitude = from.longitude + (next.longitude - from.longitude) * t,
+                    )
+                return bearingDegrees(snap.point, target)
+            }
+            travelled += d
+            from = next
+            target = next
+            i++
+        }
+        return if (target == snap.point) snap.bearing else bearingDegrees(snap.point, target)
+    }
 }
