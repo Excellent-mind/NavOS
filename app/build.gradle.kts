@@ -31,9 +31,25 @@ android {
         }
     }
 
+    // Release signing. The keystore and its passwords come from environment
+    // variables (set by the GitHub Actions release workflow from your repo
+    // secrets), so no secret is ever stored in the code.
+    signingConfigs {
+        create("release") {
+            val storePath = System.getenv("KEYSTORE_PATH")
+            if (storePath != null && file(storePath).exists()) {
+                storeFile = file(storePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
