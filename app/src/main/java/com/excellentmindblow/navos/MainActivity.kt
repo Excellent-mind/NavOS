@@ -14,7 +14,10 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.RectF
 import android.location.Location
 import android.location.LocationManager
@@ -100,6 +103,8 @@ import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 import java.text.SimpleDateFormat
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ExecutorService
@@ -134,12 +139,12 @@ private const val POLICE_ICON_ID = "navos-icon-police"
 private const val HAZARD_ICON_ID = "navos-icon-hazard"
 private const val CRASH_ICON_ID = "navos-icon-crash"
 
-// Waze-style drive camera: flat top-down map, heading-up, the arrow sitting
-// in the lower part of the screen so more road ahead is visible.
-private const val NAV_TILT_DEGREES = 0.0
-private const val NAV_ZOOM = 17.2 // cruising zoom
+// Drive camera: 3D tilted view, heading-up, the arrow sitting in the lower
+// part of the screen so more road ahead is visible.
+private const val NAV_TILT_DEGREES = 55.0
+private const val NAV_ZOOM = 18.4 // cruising zoom
 private const val NAV_TOP_PADDING_FRACTION = 0.40 // puts the arrow ~70% down the screen
-private const val SHOW_3D_BUILDINGS = false // Waze shows a flat map; set true to bring the blocks back
+private const val SHOW_3D_BUILDINGS = true
 
 // Turn callouts on the route line (arrow + road name at every corner).
 private const val TURN_SOURCE_ID = "navos-turn-source"
@@ -178,7 +183,10 @@ private const val MAP_STYLE_DARK = "dark"
 
 /** Pause after the last keystroke before a live search fires - long
  * enough not to query on every letter, short enough to feel instant. */
-private const val LIVE_SEARCH_DEBOUNCE_MS = 350L
+private const val LIVE_SEARCH_DEBOUNCE_MS = 120L
+private const val KEY_RECENT_PLACES = "recent_places"
+private const val MAX_RECENTS_STORED = 10
+private const val MAX_RECENTS_SHOWN = 5
 
 // Petrol station / EV charger pins during a drive.
 private const val POI_SOURCE_ID = "navos-poi-source"
@@ -522,9 +530,9 @@ class MainActivity : AppCompatActivity() {
             // itself facing north and was getting clipped). Rotates with the
             // map; tap to turn the map back to north.
             loadedMap.uiSettings.isCompassEnabled = false
-            val compass = findViewById<View>(R.id.compassButton)
+            val compass = findViewById<CompassView>(R.id.compassButton)
             loadedMap.addOnCameraMoveListener {
-                compass.rotation = (-loadedMap.cameraPosition.bearing).toFloat()
+                compass.northAngle = (-loadedMap.cameraPosition.bearing).toFloat()
             }
             compass.setOnClickListener {
                 if (navMode == NavMode.ACTIVE) {
@@ -778,6 +786,11 @@ class MainActivity : AppCompatActivity() {
         homeSearchInput = findViewById(R.id.homeSearchInput)
         homeSearchResultsList = findViewById(R.id.homeSearchResultsList)
         homeSearchInputContainer = findViewById(R.id.homeSearchInputContainer)
+        homeRecentsContainer = findViewById(R.id.homeRecentsContainer)
+        findViewById<View>(R.id.homeRecentsClear).setOnClickListener {
+            prefs.edit().remove(KEY_RECENT_PLACES).apply()
+            renderRecents()
+        }
         homeSearchClearButton = findViewById(R.id.homeSearchClearButton)
         searchClearButton = findViewById(R.id.searchClearButton)
 
@@ -823,6 +836,19 @@ class MainActivity : AppCompatActivity() {
 
                     activeSearchInput = input
                     activeSearchResultsList = resultsList
+
+                    // Instant: a repeat query comes straight from the cache,
+                    // otherwise show matches from recents / the previous
+                    // results right now while the network request runs.
+                    val cached = searchCache[text.trim().lowercase()]
+                    if (cached != null) {
+                        searchSeq++
+                        showSearchResults(cached)
+                        return
+                    }
+                    val instant = instantMatches(text)
+                    if (instant.isNotEmpty()) showSearchResults(instant)
+
                     val pending = Runnable { runSearch(text, live = true) }
                     liveSearchRunnable = pending
                     mainHandler.postDelayed(pending, LIVE_SEARCH_DEBOUNCE_MS)
@@ -990,6 +1016,7 @@ class MainActivity : AppCompatActivity() {
         if (state == HomeSheetState.SEARCH) {
             activeSearchInput = homeSearchInput
             activeSearchResultsList = homeSearchResultsList
+            if (homeSearchInput.text.isNullOrEmpty()) renderRecents()
             homeSearchInput.requestFocus()
             imm.showSoftInput(homeSearchInput, InputMethodManager.SHOW_IMPLICIT)
         } else {
@@ -1569,6 +1596,11 @@ class MainActivity : AppCompatActivity() {
                 if (!live && results.isEmpty()) {
                     Toast.makeText(this, "No places found", Toast.LENGTH_SHORT).show()
                 }
+                if (live && results.isNotEmpty()) {
+                    lastLiveResults = results
+                    searchCache[trimmed.lowercase()] = results
+                    if (searchCache.size > 40) searchCache.remove(searchCache.keys.first())
+                }
                 showSearchResults(results)
             }
         }
@@ -1593,6 +1625,95 @@ class MainActivity : AppCompatActivity() {
         val v = if (visible) View.VISIBLE else View.GONE
         homeButton.visibility = v
         workButton.visibility = v
+        if (visible) renderRecents() else homeRecentsContainer.visibility = View.GONE
+    }
+
+    // ---- Search helpers: instant matches + recent searches --------------
+
+    private val searchCache = LinkedHashMap<String, List<GeocodeResult>>()
+    private var lastLiveResults: List<GeocodeResult> = emptyList()
+    private lateinit var homeRecentsContainer: LinearLayout
+
+    /** Matches shown the moment a key is pressed, before the network
+     * answers: recent searches first, then the last live results. */
+    private fun instantMatches(query: String): List<GeocodeResult> {
+        val needle = query.trim().lowercase()
+        if (needle.isEmpty()) return emptyList()
+        return (loadRecents() + lastLiveResults)
+            .distinctBy { it.label }
+            .filter { it.label.lowercase().contains(needle) }
+            .take(8)
+    }
+
+    private fun loadRecents(): List<GeocodeResult> {
+        val raw = prefs.getString(KEY_RECENT_PLACES, null) ?: return emptyList()
+        return try {
+            val array = JSONArray(raw)
+            (0 until array.length()).map { i ->
+                val o = array.getJSONObject(i)
+                val label = o.getString("label")
+                GeocodeResult(
+                    label = label,
+                    latitude = o.getDouble("lat"),
+                    longitude = o.getDouble("lon"),
+                    name = o.optString("name").ifBlank { label.substringBefore(",").trim() },
+                    address = o.optString("address"),
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun saveRecent(result: GeocodeResult) {
+        val updated =
+            (listOf(result) + loadRecents().filter { it.label != result.label })
+                .take(MAX_RECENTS_STORED)
+        val array = JSONArray()
+        for (r in updated) {
+            array.put(
+                JSONObject()
+                    .put("label", r.label)
+                    .put("lat", r.latitude)
+                    .put("lon", r.longitude)
+                    .put("name", r.name)
+                    .put("address", r.address),
+            )
+        }
+        prefs.edit().putString(KEY_RECENT_PLACES, array.toString()).apply()
+    }
+
+    /** Fills the "Recent" block under Home/Work (hidden when empty). */
+    private fun renderRecents() {
+        val container = homeRecentsContainer
+        // Child 0 is the "Recent / Clear" header - everything after it is a row.
+        while (container.childCount > 1) container.removeViewAt(1)
+        val recents = loadRecents().take(MAX_RECENTS_SHOWN)
+        if (recents.isEmpty()) {
+            container.visibility = View.GONE
+            return
+        }
+        val origin = lastKnownLocation
+        for (r in recents) {
+            val row = LayoutInflater.from(this).inflate(R.layout.item_search_result, container, false)
+            row.findViewById<ImageView>(R.id.resultIcon).setImageResource(R.drawable.ic_history)
+            row.findViewById<TextView>(R.id.resultName).text = r.name.ifBlank { r.label }
+            val address = row.findViewById<TextView>(R.id.resultAddress)
+            address.text = r.address
+            address.visibility = if (r.address.isBlank()) View.GONE else View.VISIBLE
+            val distance = row.findViewById<TextView>(R.id.resultDistance)
+            if (origin != null) {
+                distance.text =
+                    formatDistance(GeocodingService.distanceMeters(origin.latitude, origin.longitude, r.latitude, r.longitude))
+                distance.visibility = View.VISIBLE
+            } else {
+                distance.visibility = View.GONE
+            }
+            row.isClickable = true
+            row.setOnClickListener { onDestinationSelected(r) }
+            container.addView(row)
+        }
+        container.visibility = View.VISIBLE
     }
 
     /** Two-line results row (bold name, grey area) with the distance from
@@ -1664,6 +1785,7 @@ class MainActivity : AppCompatActivity() {
         searchOpenedFromNav = false
         searchBackButton.visibility = View.GONE
 
+        saveRecent(result)
         maybeSaveAsPendingPlace(result)
         destinationName = result.name
 
@@ -1759,6 +1881,27 @@ class MainActivity : AppCompatActivity() {
         )
 
     private fun turnIconId(res: Int): String = "navos-turn-" + resources.getResourceEntryName(res)
+
+    /** Round navy badge with a white ring and the white turn arrow inside -
+     * far easier to read on the blue route line than a bare thin arrow. */
+    private fun makeTurnBadge(res: Int): Bitmap? {
+        val drawable = ContextCompat.getDrawable(this, res)?.mutate() ?: return null
+        val size = 112
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val c = size / 2f
+        paint.color = Color.parseColor("#14284B")
+        canvas.drawCircle(c, c, c - 4f, paint)
+        paint.color = Color.WHITE
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 6f
+        canvas.drawCircle(c, c, c - 4f, paint)
+        val inset = 22
+        drawable.setBounds(inset, inset, size - inset, size - inset)
+        drawable.draw(canvas)
+        return bitmap
+    }
 
     /** Draws an arrow + road name on the route line at each upcoming turn
      * (from [fromStep] on). Cleared whenever we're not driving. */
@@ -1889,22 +2032,25 @@ class MainActivity : AppCompatActivity() {
         // Turn callouts: a white arrow at every corner of the route plus a
         // blue name bubble above it, like Waze. Above the route line, below
         // the destination pin and the driver's arrow (added after this).
-        for (res in TURN_ICON_RES) registerIncidentIcon(style, turnIconId(res), res)
+        for (res in TURN_ICON_RES) {
+            makeTurnBadge(res)?.let { style.addImage(turnIconId(res), it) }
+        }
         val turnSrc = GeoJsonSource(TURN_SOURCE_ID)
         style.addSource(turnSrc)
         turnCalloutSource = turnSrc
+        // One layer: the badge, with the road-name bubble above it. If two
+        // corners are too close, the earlier one wins and the other is
+        // hidden (instead of piling up); a name that doesn't fit is dropped
+        // but its badge stays.
         style.addLayer(
             SymbolLayer(TURN_ARROW_LAYER_ID, TURN_SOURCE_ID).withProperties(
                 PropertyFactory.iconImage(Expression.get("icon")),
                 PropertyFactory.iconSize(0.7f),
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconAllowOverlap(false),
+                PropertyFactory.iconIgnorePlacement(false),
+                PropertyFactory.iconPadding(8f),
                 PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
                 PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_VIEWPORT),
-            ),
-        )
-        style.addLayer(
-            SymbolLayer(TURN_LABEL_LAYER_ID, TURN_SOURCE_ID).withProperties(
                 PropertyFactory.textField(Expression.get("name")),
                 PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
                 PropertyFactory.textSize(14f),
@@ -1913,7 +2059,10 @@ class MainActivity : AppCompatActivity() {
                 PropertyFactory.textHaloWidth(5f),
                 PropertyFactory.textMaxWidth(9f),
                 PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM),
-                PropertyFactory.textOffset(arrayOf(0f, -1.5f)),
+                PropertyFactory.textOffset(arrayOf(0f, -1.9f)),
+                PropertyFactory.textOptional(true),
+                PropertyFactory.textAllowOverlap(false),
+                PropertyFactory.textPadding(6f),
                 PropertyFactory.textRotationAlignment(Property.TEXT_ROTATION_ALIGNMENT_VIEWPORT),
                 PropertyFactory.textPitchAlignment(Property.TEXT_PITCH_ALIGNMENT_VIEWPORT),
                 PropertyFactory.symbolSortKey(Expression.get("order")),
