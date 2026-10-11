@@ -61,6 +61,31 @@ class DriveFollower(
 
     var driveTilt = 55.0
 
+    /** True while the person is pinch-zooming. The frame loop then leaves
+     * the camera's zoom alone (otherwise it fights the fingers and the
+     * arrow jumps around). */
+    @Volatile
+    var pinching = false
+
+    /** Zoom the person added with a pinch on top of the automatic drive
+     * zoom. Kept after the pinch so the view does not snap back. */
+    private var manualZoomOffset = 0.0
+
+    /** Call when a pinch ends: remember how far the person zoomed away
+     * from the automatic zoom. */
+    fun onPinchEnd(keepOffset: Boolean) {
+        val map = mapProvider()
+        if (keepOffset && map != null && !zoom.isNaN()) {
+            manualZoomOffset = (map.cameraPosition.zoom - zoom).coerceIn(-6.0, 6.0)
+        }
+        pinching = false
+    }
+
+    /** Go back to the automatic zoom (Recenter button / new navigation). */
+    fun clearManualZoom() {
+        manualZoomOffset = 0.0
+    }
+
     /** Compass "north" mode while driving: the 3D follow camera keeps
      * tracking the arrow but stays pointed north instead of turning with
      * the heading. */
@@ -341,7 +366,7 @@ class DriveFollower(
         updateArrowHeading(dt)
 
         if (frozen || !(drive3d || turnWithHeading)) {
-            if (!frozen && mode == Follow.CENTER) map.moveCamera(CameraUpdateFactory.newLatLng(LatLng(lat, lng)))
+            if (!frozen && !pinching && mode == Follow.CENTER) map.moveCamera(CameraUpdateFactory.newLatLng(LatLng(lat, lng)))
             onFrame?.invoke()
             return
         }
@@ -352,7 +377,12 @@ class DriveFollower(
         val camHeading = if (drive3d && northUp) 0.0 else bearing
         var tLat = lat
         var tLng = lng
-        var tZoom = if (drive3d && !zoom.isNaN()) zoom else map.cameraPosition.zoom
+        var tZoom =
+            when {
+                pinching -> map.cameraPosition.zoom // fingers own the zoom
+                drive3d && !zoom.isNaN() -> zoom + manualZoomOffset
+                else -> map.cameraPosition.zoom
+            }
         var tTilt = if (drive3d) driveTilt else map.cameraPosition.tilt
         var tBearing = camHeading
 
