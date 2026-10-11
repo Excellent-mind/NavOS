@@ -75,7 +75,6 @@ import com.excellentmindblow.navos.navigation.NavigationService
 import com.excellentmindblow.navos.navigation.NavigationState
 import com.excellentmindblow.navos.poi.Poi
 import com.excellentmindblow.navos.poi.PoiCache
-import com.excellentmindblow.navos.poi.PoiIcons
 import com.excellentmindblow.navos.poi.PoiKind
 import com.excellentmindblow.navos.poi.PoiService
 import com.excellentmindblow.navos.routing.LaneInfo
@@ -190,6 +189,7 @@ private const val NAV_FOLLOW_EASE_MS = 350
 private const val SNAP_MAX_METERS = 35.0 // beyond this the fix isn't "on" the route
 private const val SNAP_LOOKAHEAD_SEGMENTS = 150
 private const val SNAP_LOOKBACK_SEGMENTS = 5
+private const val ARROW_LOOKAHEAD_METERS = 7.0 // the arrow's own heading looks only this far down the lane
 private const val PUCK_SOURCE_ID = "navos-puck-source"
 private const val PUCK_LAYER_ID = "navos-puck-layer"
 private const val PUCK_ICON_ID = "navos-puck-icon"
@@ -414,7 +414,10 @@ class MainActivity : AppCompatActivity() {
                     NavMode.PREVIEW -> DriveFollower.Follow.OFF
                 }
             },
-        ).also { it.driveTilt = NAV_TILT_DEGREES }
+        ).also {
+            it.driveTilt = NAV_TILT_DEGREES
+            it.laneBearingProvider = { lat, lng -> laneBearingAt(lat, lng) }
+        }
     private var smoothedNavZoom: Double? = null
     private var lastNavState: NavigationState? = null
 
@@ -2625,8 +2628,9 @@ class MainActivity : AppCompatActivity() {
         // blue name bubble above it, like Waze. Above the route line, below
         // the destination pin and the driver's arrow (added after this).
         // Toll plazas and speed cameras along the route (always visible).
-        style.addImage(POI_ICON_TOLL, PoiIcons.toll(this))
-        style.addImage(POI_ICON_CAMERA, PoiIcons.camera(this))
+        // Same pin look as the petrol / EV pins (see setUpPoiLayer).
+        registerIncidentIcon(style, POI_ICON_TOLL, R.drawable.ic_poi_toll_pin)
+        registerIncidentIcon(style, POI_ICON_CAMERA, R.drawable.ic_poi_camera_pin)
         val poiSrc = GeoJsonSource(ROUTE_POI_SOURCE_ID)
         style.addSource(poiSrc)
         routePoiSource = poiSrc
@@ -2652,6 +2656,7 @@ class MainActivity : AppCompatActivity() {
             SymbolLayer(ROUTE_POI_LAYER_ID, ROUTE_POI_SOURCE_ID).withProperties(
                 PropertyFactory.iconImage(Expression.get("icon")),
                 PropertyFactory.iconSize(1.0f),
+                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM), // pin tip on the spot, like the petrol pins
                 PropertyFactory.iconAllowOverlap(true),
                 PropertyFactory.iconIgnorePlacement(true),
                 PropertyFactory.textField(Expression.get("label")),
@@ -2661,7 +2666,7 @@ class MainActivity : AppCompatActivity() {
                 PropertyFactory.textHaloColor(Color.parseColor("#1744B5")),
                 PropertyFactory.textHaloWidth(3f),
                 PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
-                PropertyFactory.textOffset(arrayOf(0f, 2.2f)),
+                PropertyFactory.textOffset(arrayOf(0f, 0.4f)), // just under the pin tip
                 PropertyFactory.textOptional(true),
                 PropertyFactory.textAllowOverlap(true),
             ),
@@ -3071,6 +3076,7 @@ class MainActivity : AppCompatActivity() {
         val route = routeOptions.getOrNull(selectedRouteIndex) ?: return
 
         navMode = NavMode.ACTIVE
+        driveFollower.resetArrowHeading()
         smoothedBearing = null
         smoothedNavZoom = null
         lastNavState = null
@@ -3169,6 +3175,27 @@ class MainActivity : AppCompatActivity() {
             navServiceBound = false
         }
         navigationService = null
+    }
+
+    /** Direction of the blue lane right under the arrow, looked up every
+     * animation frame for the arrow's own heading. Uses a short look-ahead
+     * so the arrow turns with the bend it is in, not the one far ahead.
+     * Null when not driving a route or when the arrow is off the line. */
+    private fun laneBearingAt(
+        lat: Double,
+        lng: Double,
+    ): Double? {
+        if (navMode != NavMode.ACTIVE) return null
+        val geometry = activeRoute?.geometry ?: return null
+        val snap =
+            GeoUtils.snapToPolyline(
+                RoutePoint(lat, lng),
+                geometry,
+                snapSegmentIndex - SNAP_LOOKBACK_SEGMENTS,
+                SNAP_LOOKAHEAD_SEGMENTS,
+            ) ?: return null
+        if (snap.distanceMeters > SNAP_MAX_METERS) return null
+        return GeoUtils.bearingAhead(geometry, snap, ARROW_LOOKAHEAD_METERS)
     }
 
     /** Keeps the 3D follow camera (tilt + zoom + heading) locked on the
@@ -3389,6 +3416,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun endActiveNavigation() {
         navMode = NavMode.IDLE
+        driveFollower.resetArrowHeading()
         applyPendingUiRecreate()
         activeRoute = null
         applyNavPadding(false)
