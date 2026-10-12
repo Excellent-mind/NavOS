@@ -481,7 +481,7 @@ class NavigationService : Service() {
 
         return NotificationCompat
             .Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_nav_arrow)
+            .setSmallIcon(R.drawable.ic_stat_navos)
             .setContentTitle(title)
             .setContentText(text)
             .setOngoing(true)
