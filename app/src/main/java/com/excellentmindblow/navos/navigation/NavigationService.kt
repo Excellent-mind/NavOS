@@ -110,7 +110,47 @@ class NavigationService : Service() {
     }
 
     private val binder = LocalBinder()
-    private var listener: Listener? = null
+    // The phone UI owns the primary listener (setListener); Android Auto and
+    // anything else adds extra ones. Every callback fans out to all of them.
+    private var primaryListener: Listener? = null
+    private val extraListeners = java.util.concurrent.CopyOnWriteArrayList<Listener>()
+    private val listener: Listener =
+        object : Listener {
+            override fun onNavLocation(location: Location) {
+                primaryListener?.onNavLocation(location)
+                extraListeners.forEach { it.onNavLocation(location) }
+            }
+
+            override fun onNavState(state: NavigationState) {
+                primaryListener?.onNavState(state)
+                extraListeners.forEach { it.onNavState(state) }
+            }
+
+            override fun onNavigationEnded() {
+                primaryListener?.onNavigationEnded()
+                extraListeners.forEach { it.onNavigationEnded() }
+            }
+
+            override fun onRerouted(route: Route) {
+                primaryListener?.onRerouted(route)
+                extraListeners.forEach { it.onRerouted(route) }
+            }
+
+            override fun onRerouteFailed() {
+                primaryListener?.onRerouteFailed()
+                extraListeners.forEach { it.onRerouteFailed() }
+            }
+
+            override fun onStopReached(stop: RouteStop) {
+                primaryListener?.onStopReached(stop)
+                extraListeners.forEach { it.onStopReached(stop) }
+            }
+
+            override fun onStopChangeFailed() {
+                primaryListener?.onStopChangeFailed()
+                extraListeners.forEach { it.onStopChangeFailed() }
+            }
+        }
 
     private var engine: NavigationEngine? = null
     private var voiceNarrator: VoiceNarrator? = null
@@ -179,7 +219,7 @@ class NavigationService : Service() {
                     onAnnounce = { key, text -> voiceNarrator?.speak(key, text) },
                     onStopReached = { stop ->
                         stopsPassed += 1
-                        listener?.onStopReached(stop)
+                        listener.onStopReached(stop)
                     },
                 )
         }
@@ -206,7 +246,7 @@ class NavigationService : Service() {
         // until the next GPS fix arrives.
         lastState = null
         engine?.setRoute(route)
-        listener?.onRerouted(route)
+        listener.onRerouted(route)
     }
 
     fun setVoiceEnabled(enabled: Boolean) {
@@ -227,16 +267,33 @@ class NavigationService : Service() {
     }
 
     fun setListener(l: Listener?) {
-        listener = l
+        primaryListener = l
         // Replay the last known fix/state/route immediately so a freshly
         // bound Activity (coming back from the background, possibly after
         // a reroute happened while it wasn't around to hear about it)
         // isn't left showing a blank or stale drive card/route line until
         // the next GPS update arrives.
-        activeRoute?.let { l?.onRerouted(it) }
-        lastLocation?.let { l?.onNavLocation(it) }
-        lastState?.let { l?.onNavState(it) }
+        if (l != null) replayTo(l)
     }
+
+    /** Extra listener (Android Auto). Gets the same replay as [setListener]. */
+    fun addListener(l: Listener) {
+        if (!extraListeners.contains(l)) extraListeners.add(l)
+        replayTo(l)
+    }
+
+    fun removeListener(l: Listener) {
+        extraListeners.remove(l)
+    }
+
+    private fun replayTo(l: Listener) {
+        activeRoute?.let { l.onRerouted(it) }
+        lastLocation?.let { l.onNavLocation(it) }
+        lastState?.let { l.onNavState(it) }
+    }
+
+    /** Current route, for UIs that attach mid-drive. */
+    fun currentRoute(): Route? = activeRoute
 
     fun isNavigating(): Boolean = activeRoute != null
 
@@ -261,7 +318,7 @@ class NavigationService : Service() {
         lastState = null
 
         if (announceToListener) {
-            listener?.onNavigationEnded()
+            listener.onNavigationEnded()
         }
 
         // The 1-arg Boolean overload is deprecated (API 33 added an
@@ -280,7 +337,7 @@ class NavigationService : Service() {
         val tracker =
             LiveLocationTracker(locationManager, minDistanceM = 0f) { location ->
                 lastLocation = location
-                listener?.onNavLocation(location)
+                listener.onNavLocation(location)
                 engine?.onLocation(
                     RoutePoint(location.latitude, location.longitude),
                     if (location.hasSpeed()) location.speed.toDouble() else null,
@@ -293,7 +350,7 @@ class NavigationService : Service() {
 
     private fun handleState(state: NavigationState) {
         lastState = state
-        listener?.onNavState(state)
+        listener.onNavState(state)
         updateNotification(state)
 
         if (state.isArrival && state.distanceToNextTurnMeters <= MIN_ARRIVAL_METERS) {
@@ -362,7 +419,7 @@ class NavigationService : Service() {
                     recalcAnnounced = false
                     rerouteTo(newRoute)
                 } else if (newRoute == null && activeRoute != null && !hasStoppedSelf) {
-                    listener?.onRerouteFailed()
+                    listener.onRerouteFailed()
                 }
             }
         }
@@ -407,13 +464,13 @@ class NavigationService : Service() {
         val route = activeRoute
         val destination = route?.geometry?.lastOrNull()
         if (fix == null || route == null || destination == null || isRerouting || hasStoppedSelf) {
-            listener?.onStopChangeFailed()
+            listener.onStopChangeFailed()
             return
         }
         val originPoint = RoutePoint(fix.latitude, fix.longitude)
         val updated = edit(remainingStops(), originPoint, destination)
         if (updated == null) {
-            listener?.onStopChangeFailed()
+            listener.onStopChangeFailed()
             return
         }
         // Number what is left in driving order, continuing after the stops
@@ -437,7 +494,7 @@ class NavigationService : Service() {
                     rerouteTo(newRoute)
                     voiceNarrator?.speak("stops-changed-${System.nanoTime()}", spoken)
                 } else if (activeRoute != null && !hasStoppedSelf) {
-                    listener?.onStopChangeFailed()
+                    listener.onStopChangeFailed()
                 }
             }
         }
