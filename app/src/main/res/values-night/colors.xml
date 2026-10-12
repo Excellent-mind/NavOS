@@ -17,4 +17,5 @@
     <color name="navos_chip_ok_text">#5BD08A</color>
     <color name="navos_chip_off_bg">#2A3349</color>
     <color name="navos_chip_off_text">#8995AB</color>
+    <color name="navos_toggle_selected">#1F3A57</color>
 </resources>
