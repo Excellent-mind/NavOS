@@ -797,8 +797,8 @@
 
                 <ImageButton
                     android:id="@+id/poiCloseButton"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
                     android:layout_marginStart="8dp"
                     android:background="@drawable/bg_circle_navy"
                     android:backgroundTint="@color/navos_line"
@@ -849,27 +849,6 @@
                 android:textStyle="bold" />
 
         </LinearLayout>
-
-        <!-- Required OpenStreetMap/OpenFreeMap attribution - was missing
-             entirely before, which is a real ToS compliance gap, not just
-             a nice-to-have. Sits just above the home sheet's collapsed
-             row on the clean map; the full data-source note also lives in
-             Settings. -->
-        <TextView
-            android:id="@+id/mapAttribution"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom|start"
-            android:layout_marginStart="8dp"
-            android:layout_marginBottom="80dp"
-            android:background="@color/navos_overlay_surface"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"
-            android:text="© OpenStreetMap contributors"
-            android:textColor="@color/navos_text"
-            android:textSize="10sp" />
 
         <!-- Unified home bottom sheet - replaces the old Map/Search/Saved/
              Settings tab bar, the separate Saved-places card, and the
@@ -1475,7 +1454,7 @@
                 <TextView
                     android:id="@+id/nextTurnsSwitchRoute"
                     android:layout_width="wrap_content"
-                    android:layout_height="40dp"
+                    android:layout_height="44dp"
                     android:background="@drawable/bg_chip_light"
                     android:clickable="true"
                     android:focusable="true"
@@ -1517,6 +1496,85 @@
 
         </LinearLayout>
 
+    </FrameLayout>
+
+
+    <!-- Exit confirmation: shown when Back is pressed on the idle map screen. -->
+    <FrameLayout
+        android:id="@+id/exitOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#99000000"
+        android:clickable="true"
+        android:elevation="24dp"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/exitCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginStart="32dp"
+            android:layout_marginEnd="32dp"
+            android:background="@drawable/bg_card_white"
+            android:clickable="true"
+            android:focusable="true"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Exit NavOS?"
+                android:textColor="@color/navos_text"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Do you want to close the app?"
+                android:textColor="@color/navos_text_secondary"
+                android:textSize="15sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/exitCancelButton"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_pill_neutral"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:text="Cancel"
+                    android:textColor="@color/navos_text"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/exitConfirmButton"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_pill_red"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:text="Exit"
+                    android:textColor="@color/white"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
     </FrameLayout>
 
 </FrameLayout>
