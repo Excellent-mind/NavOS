@@ -56,11 +56,15 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
+import com.google.android.material.checkbox.MaterialCheckBox
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.radiobutton.MaterialRadioButton
+import com.google.android.material.switchmaterial.SwitchMaterial
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.graphics.ColorUtils
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.ViewCompat
@@ -196,6 +200,7 @@ private const val NAV_FOLLOW_EASE_MS = 350
 private const val SNAP_MAX_METERS = 35.0 // beyond this the fix isn't "on" the route
 private const val SNAP_LOOKAHEAD_SEGMENTS = 150
 private const val SNAP_LOOKBACK_SEGMENTS = 5
+private const val AUTO_RECENTER_DELAY_MS = 8000L // free-look during a drive, then glide back to the arrow
 private const val NAV_RECENTER_EASE_MS = 450 // quick, soft glide back to the arrow
 private const val IDLE_RECENTER_ZOOM = 16.5
 
@@ -632,6 +637,8 @@ class MainActivity : AppCompatActivity() {
         driveFollower.driveTilt = if (MapDisplayPrefs.view3d) NAV_TILT_DEGREES else 0.0
         applyAppNightMode()
 
+        // Must be called before super.onCreate: swaps the splash theme for the app theme.
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         uiDarkApplied = isNightConfig(resources.configuration)
         // Opened from another app (shared location / maps link)? Handled once the map is ready.
@@ -731,6 +738,55 @@ class MainActivity : AppCompatActivity() {
                         driveFollower.onPinchEnd(keepOffset = pinchKeepsFollow && navMode == NavMode.ACTIVE)
                         pinchKeepsFollow = false
                         updateArrowOverlay()
+                        onUserGestureEnd()
+                    }
+                },
+            )
+
+            // The follow loop moves the camera every frame, so MapLibre never
+            // reports the camera as idle and may not deliver
+            // REASON_API_GESTURE for a drag. The gesture listeners below fire
+            // from the touch itself, so a pan / rotate / tilt always breaks
+            // the follow and shows the Re-center button.
+            loadedMap.addOnMoveListener(
+                object : MapLibreMap.OnMoveListener {
+                    override fun onMoveBegin(detector: org.maplibre.android.gestures.MoveGestureDetector) {
+                        userTouchingMap = true
+                        mainHandler.post { if (!pinchKeepsFollow) stopFollowingForGesture() }
+                    }
+
+                    override fun onMove(detector: org.maplibre.android.gestures.MoveGestureDetector) {}
+
+                    override fun onMoveEnd(detector: org.maplibre.android.gestures.MoveGestureDetector) {
+                        onUserGestureEnd()
+                    }
+                },
+            )
+            loadedMap.addOnRotateListener(
+                object : MapLibreMap.OnRotateListener {
+                    override fun onRotateBegin(detector: org.maplibre.android.gestures.RotateGestureDetector) {
+                        userTouchingMap = true
+                        mainHandler.post { if (!pinchKeepsFollow) stopFollowingForGesture() }
+                    }
+
+                    override fun onRotate(detector: org.maplibre.android.gestures.RotateGestureDetector) {}
+
+                    override fun onRotateEnd(detector: org.maplibre.android.gestures.RotateGestureDetector) {
+                        onUserGestureEnd()
+                    }
+                },
+            )
+            loadedMap.addOnShoveListener(
+                object : MapLibreMap.OnShoveListener {
+                    override fun onShoveBegin(detector: org.maplibre.android.gestures.ShoveGestureDetector) {
+                        userTouchingMap = true
+                        mainHandler.post { if (!pinchKeepsFollow) stopFollowingForGesture() }
+                    }
+
+                    override fun onShove(detector: org.maplibre.android.gestures.ShoveGestureDetector) {}
+
+                    override fun onShoveEnd(detector: org.maplibre.android.gestures.ShoveGestureDetector) {
+                        onUserGestureEnd()
                     }
                 },
             )
@@ -763,6 +819,34 @@ class MainActivity : AppCompatActivity() {
      * around the arrow and must not switch following off. */
     private var pinchKeepsFollow = false
 
+    /** True while a finger is down on the map (pan / rotate / tilt). */
+    private var userTouchingMap = false
+
+    private val autoRecenterRunnable =
+        Runnable {
+            if (isDestroyed || navMode != NavMode.ACTIVE || navFollowing) return@Runnable
+            if (userTouchingMap) {
+                scheduleAutoRecenter() // still moving the map: wait again
+            } else {
+                recenterCamera()
+            }
+        }
+
+    /** Like Google Maps / Waze: after you free-look during a drive and stop
+     * touching the map for a few seconds, the camera glides back to the arrow
+     * by itself. The Re-center button still works right away. */
+    private fun scheduleAutoRecenter() {
+        mainHandler.removeCallbacks(autoRecenterRunnable)
+        if (navMode == NavMode.ACTIVE && !navFollowing) {
+            mainHandler.postDelayed(autoRecenterRunnable, AUTO_RECENTER_DELAY_MS)
+        }
+    }
+
+    private fun onUserGestureEnd() {
+        userTouchingMap = false
+        scheduleAutoRecenter() // restart the idle countdown
+    }
+
     /** A pan / rotate / tilt means the person wants to look elsewhere:
      * stop auto-recentering and show the Recenter button. */
     private fun stopFollowingForGesture() {
@@ -771,6 +855,7 @@ class MainActivity : AppCompatActivity() {
                 navFollowing = false
                 placeRecenterButton(drivingLayout = true)
                 recenterButton.visibility = View.VISIBLE
+                scheduleAutoRecenter()
             }
             NavMode.IDLE -> {
                 followingUser = false
@@ -959,7 +1044,7 @@ class MainActivity : AppCompatActivity() {
             group: RadioGroup,
             label: String,
         ): RadioButton {
-            val button = RadioButton(this).apply { id = View.generateViewId(); text = label; setTextColor(textColor) }
+            val button = MaterialRadioButton(this).apply { id = View.generateViewId(); text = label; setTextColor(textColor) }
             group.addView(button)
             return button
         }
@@ -982,7 +1067,7 @@ class MainActivity : AppCompatActivity() {
                     LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
                 )
                 addView(
-                    Switch(this@MainActivity).apply {
+                    SwitchMaterial(this@MainActivity).apply {
                         isChecked = checked
                         setOnCheckedChangeListener { _, on -> onChange(on) }
                     },
@@ -1081,8 +1166,7 @@ class MainActivity : AppCompatActivity() {
         column.addView(note("Driving options apply the next time you start driving."))
 
         val scroll = android.widget.ScrollView(this).apply { addView(column) }
-        AlertDialog
-            .Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("Map display")
             .setView(scroll)
             .setPositiveButton("Done", null)
@@ -1177,10 +1261,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         findViewById<TextView>(R.id.aboutRow).setOnClickListener {
-            AlertDialog
-                .Builder(this)
+            MaterialAlertDialogBuilder(this)
                 .setTitle("NavOS")
-                .setMessage("Version ${BuildConfig.VERSION_NAME}\nPowered by Excellent Mindblow")
+                .setMessage(
+                    "Version ${BuildConfig.VERSION_NAME}\nPowered by Excellent Mindblow\n\n" +
+                        "Map data \u00A9 OpenStreetMap contributors\nMap tiles by OpenFreeMap \u00A9 OpenMapTiles",
+                )
                 .setPositiveButton("OK", null)
                 .show()
         }
@@ -1397,17 +1483,27 @@ class MainActivity : AppCompatActivity() {
             closeNextTurns()
             showRoutePreview()
         }
+        // Back on the idle map asks "Exit NavOS?" instead of closing right away.
+        val exitOverlay = findViewById<View>(R.id.exitOverlay)
+        findViewById<View>(R.id.exitCancelButton).setOnClickListener { exitOverlay.visibility = View.GONE }
+        findViewById<View>(R.id.exitConfirmButton).setOnClickListener { finishAndRemoveTask() }
+        exitOverlay.setOnClickListener { exitOverlay.visibility = View.GONE } // tap outside the card = Cancel
+
         // Back closes the Next-turns sheet first; otherwise behaves as before.
         onBackPressedDispatcher.addCallback(
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
-                    if (routeListShowing) {
+                    if (exitOverlay.visibility == View.VISIBLE) {
+                        exitOverlay.visibility = View.GONE
+                    } else if (routeListShowing) {
                         setRouteListVisible(false)
                     } else if (addStopTarget != AddStopTarget.NONE) {
                         exitSearchFromNav()
                     } else if (nextTurnsSheet.visibility == View.VISIBLE) {
                         closeNextTurns()
+                    } else if (navMode == NavMode.IDLE && homeSheetState == HomeSheetState.COLLAPSED) {
+                        exitOverlay.visibility = View.VISIBLE
                     } else {
                         isEnabled = false
                         onBackPressedDispatcher.onBackPressed()
@@ -1788,8 +1884,8 @@ class MainActivity : AppCompatActivity() {
 
         column.addView(heading("Distance units"))
         val group = RadioGroup(this)
-        val kmButton = RadioButton(this).apply { id = View.generateViewId(); text = "Kilometers"; setTextColor(textColor) }
-        val miButton = RadioButton(this).apply { id = View.generateViewId(); text = "Miles"; setTextColor(textColor) }
+        val kmButton = MaterialRadioButton(this).apply { id = View.generateViewId(); text = "Kilometers"; setTextColor(textColor) }
+        val miButton = MaterialRadioButton(this).apply { id = View.generateViewId(); text = "Miles"; setTextColor(textColor) }
         group.addView(kmButton)
         group.addView(miButton)
         group.check(if (Units.miles) miButton.id else kmButton.id)
@@ -1798,13 +1894,13 @@ class MainActivity : AppCompatActivity() {
 
         column.addView(heading("Route preferences"))
         val tolls =
-            android.widget.CheckBox(this).apply {
+            MaterialCheckBox(this).apply {
                 text = "Avoid tolls"
                 isChecked = RoutePrefs.avoidTolls
                 setTextColor(textColor)
             }
         val highways =
-            android.widget.CheckBox(this).apply {
+            MaterialCheckBox(this).apply {
                 text = "Avoid highways"
                 isChecked = RoutePrefs.avoidHighways
                 setTextColor(textColor)
@@ -1822,8 +1918,7 @@ class MainActivity : AppCompatActivity() {
             },
         )
 
-        AlertDialog
-            .Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("Navigation preferences")
             .setView(column)
             .setPositiveButton("Done", null)
@@ -4319,6 +4414,7 @@ class MainActivity : AppCompatActivity() {
     private fun recenterCamera() {
         val location = lastKnownLocation
         driveFollower.clearManualZoom()
+        mainHandler.removeCallbacks(autoRecenterRunnable)
         if (navMode == NavMode.ACTIVE) {
             navFollowing = true
             smoothedNavZoom = null
