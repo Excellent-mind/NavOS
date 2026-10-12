@@ -280,6 +280,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var routePreviewHint: TextView
     private lateinit var topNavBar: View
     private lateinit var bottomNavBar: View
+    private lateinit var arrivalCard: View
+    private var arrivalCardShowing = false
     private lateinit var turnDistanceText: TextView
     private lateinit var turnStreetText: TextView
     private lateinit var recalcPill: View
@@ -532,7 +534,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onNavigationEnded() {
-                if (navMode == NavMode.ACTIVE) endActiveNavigation()
+                if (navMode == NavMode.ACTIVE) showArrivalCard()
             }
 
             override fun onRerouteFailed() {
@@ -1393,6 +1395,14 @@ class MainActivity : AppCompatActivity() {
         routePreviewHint = findViewById(R.id.routePreviewHint)
         topNavBar = findViewById(R.id.topNavBar)
         bottomNavBar = findViewById(R.id.bottomNavBar)
+        arrivalCard = findViewById(R.id.arrivalCard)
+        findViewById<View>(R.id.arrivalConfirmButton).setOnClickListener {
+            hideArrivalCard()
+            endActiveNavigation()
+        }
+        findViewById<View>(R.id.arrivalNotYetButton).setOnClickListener {
+            hideArrivalCard()
+        }
         navBarRow = findViewById(R.id.navBarRow)
         // Keep the speed badge / report / POI / recenter buttons riding on
         // the drive bar's top edge as it expands or collapses (runs every
@@ -4498,8 +4508,59 @@ class MainActivity : AppCompatActivity() {
         return next
     }
 
+    /** Arrival overlay: the drive UI hides, the destination pin stays on the
+     * map, and a card asks the driver to confirm. "Yes" ends navigation. */
+    private fun showArrivalCard() {
+        if (arrivalCardShowing) return
+        arrivalCardShowing = true
+
+        findViewById<TextView>(R.id.arrivalDestinationName).apply {
+            val name = destinationName.orEmpty()
+            text = name
+            visibility = if (name.isNotBlank()) View.VISIBLE else View.GONE
+        }
+        findViewById<TextView>(R.id.arrivalTripSummary).apply {
+            val route = activeRoute
+            if (route != null) {
+                text = formatTripDistance(route.distanceMeters)
+                visibility = View.VISIBLE
+            } else {
+                visibility = View.GONE
+            }
+        }
+
+        topNavBar.visibility = View.GONE
+        bottomNavBar.visibility = View.GONE
+        speedBadge.visibility = View.GONE
+        laneContainer.visibility = View.GONE
+        nextTurnStrip.visibility = View.GONE
+        recenterButton.visibility = View.GONE
+
+        arrivalCard.visibility = View.VISIBLE
+        arrivalCard.post {
+            arrivalCard.translationY = arrivalCard.height.toFloat()
+            arrivalCard.animate().translationY(0f).setDuration(250).start()
+        }
+
+        destinationLatLng?.let { dest ->
+            map?.animateCamera(CameraUpdateFactory.newLatLngZoom(dest, 17.0), 600)
+        }
+    }
+
+    private fun hideArrivalCard() {
+        arrivalCardShowing = false
+        arrivalCard.animate().cancel()
+        arrivalCard.animate().translationY(arrivalCard.height.toFloat())
+            .setDuration(200)
+            .withEndAction { arrivalCard.visibility = View.GONE }
+            .start()
+    }
+
     private fun endActiveNavigation() {
         navMode = NavMode.IDLE
+        arrivalCardShowing = false
+        arrivalCard.animate().cancel()
+        arrivalCard.visibility = View.GONE
         driveFollower.resetArrowHeading()
         driveFollower.northUp = false
         driveFollower.track = null
@@ -4696,7 +4757,7 @@ class MainActivity : AppCompatActivity() {
         // here before that - endActiveNavigation()/the service's own stop
         // are both idempotent, so a harmless double-call is fine.
         if (state.isArrival && state.distanceToNextTurnMeters <= 30) {
-            endActiveNavigation()
+            showArrivalCard()
         }
     }
 
