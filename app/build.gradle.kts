@@ -83,4 +83,7 @@ dependencies {
     // "opengl" -> artifact android-sdk-opengl), now used directly with no
     // JS bridge in between.
     implementation("org.maplibre.gl:android-sdk-opengl:13.6.1")
+
+    // Android Auto (Car App Library) - lets NavOS run on the car screen.
+    implementation("androidx.car.app:app:1.4.0")
 }
