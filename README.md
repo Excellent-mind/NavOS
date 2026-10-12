@@ -80,3 +80,21 @@ crowdsourced incident reports. ETAs are "typical time, no live traffic".
 - **Offline maps, depart-at, motorcycle mode, Android Auto**: not built yet.
 - Placeholder launcher icon (a simple generated compass glyph) - swap for
   real Excellent Mindblow branding whenever ready.
+
+## Continuous integration and release signing
+
+- **Android CI** runs unit tests, Android lint, and a debug build on pushes to
+  `main` / `master`, pull requests, and manual dispatch. Pull-request jobs use
+  read-only repository permissions.
+- **Native Android Build** is the manual debug-APK convenience workflow. The
+  APK build runs read-only; a separate publication job receives only the APK
+  and has release-write permission.
+- **Release APK (signed)** uses the four Actions secrets documented in
+  [`docs/ANDROID_SIGNING.md`](docs/ANDROID_SIGNING.md). Never upload signing
+  credentials or keystores as workflow artifacts. Keep the existing release
+  keystore backed up securely; creating a different key can prevent existing
+  installs from accepting future updates.
+
+Location and navigation behavior should still be tested on a physical device
+before release, including GPS disabled/enabled transitions, permission
+revocation, screen-off navigation, network loss, and rerouting.
