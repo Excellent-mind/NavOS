@@ -163,8 +163,11 @@ private const val STOP_ICON_COUNT = 9
 // Drive camera: 3D tilted view, heading-up, the arrow sitting in the lower
 // part of the screen so more road ahead is visible.
 private const val NAV_TILT_DEGREES = 55.0
-private const val NAV_ZOOM = 18.4 // cruising zoom
-private const val NAV_TOP_PADDING_FRACTION = 0.40 // puts the arrow ~70% down the screen
+// Waze-like camera height, the same for the 3D and the 2D driving view:
+// about 200 m of road visible ahead at city speed (it used to be ~100 m,
+// and ~50 m when stopped, which felt like hugging the road).
+private const val NAV_ZOOM = 17.9 // cruising zoom (higher number = camera closer to the ground)
+private const val NAV_TOP_PADDING_FRACTION = 0.46 // puts the arrow ~73% down the screen
 private const val SHOW_3D_BUILDINGS = true
 
 // Turn callouts on the route line (arrow + road name at every corner).
@@ -188,7 +191,7 @@ private const val MAX_ROUTE_OPTIONS = 5
 
 // Smart zoom: pull in as a turn / U-turn / roundabout gets close, ease back
 // out on straights, and open up a little at highway speed.
-private const val NAV_ZOOM_SLOW_BONUS = 0.6 // crawling / stopped: come in closer
+private const val NAV_ZOOM_SLOW_BONUS = 0.5 // crawling / stopped: come in closer
 private const val NAV_ZOOM_FAST_PENALTY = 1.0 // 110 km/h and up: open the view
 
 // Position-button / nav-follow camera tuning. Two different ease
@@ -288,6 +291,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var recalcText: TextView
     private var recalcShown = false
     private var recalcPulse: ObjectAnimator? = null
+    private lateinit var recalcLogo: View
+    private lateinit var recalcNeedle: View
+    private var recalcNeedleSpin: ObjectAnimator? = null
+    private var recalcLogoPulse: ObjectAnimator? = null
     private lateinit var etaClockText: TextView
     private lateinit var etaDetailText: TextView
     private lateinit var navStopButton: View
@@ -1405,6 +1412,8 @@ class MainActivity : AppCompatActivity() {
         toggleMap.setOnClickListener { setRouteListVisible(false) }
         toggleList.setOnClickListener { setRouteListVisible(true) }
         recalcText = findViewById(R.id.recalcText)
+        recalcLogo = findViewById(R.id.recalcLogo)
+        recalcNeedle = findViewById(R.id.recalcNeedle)
         etaClockText = findViewById(R.id.etaClockText)
         etaDetailText = findViewById(R.id.etaDetailText)
         navStopButton = findViewById(R.id.stopNavigationButton)
@@ -4370,11 +4379,11 @@ class MainActivity : AppCompatActivity() {
         if (state == null || state.isArrival || state.offRoute) return 0.0
         val maxBoost =
             when {
-                state.modifier == "uturn" -> 1.6
-                state.maneuverType == "roundabout" || state.maneuverType == "rotary" -> 1.0
+                state.modifier == "uturn" -> 1.3
+                state.maneuverType == "roundabout" || state.maneuverType == "rotary" -> 0.8
                 state.modifier == "left" || state.modifier == "right" ||
-                    state.modifier == "sharp left" || state.modifier == "sharp right" -> 1.2
-                state.modifier == "slight left" || state.modifier == "slight right" -> 0.6
+                    state.modifier == "sharp left" || state.modifier == "sharp right" -> 0.9
+                state.modifier == "slight left" || state.modifier == "slight right" -> 0.45
                 else -> 0.0 // straight / continue / merge / depart
             }
         if (maxBoost == 0.0) return 0.0
@@ -4580,6 +4589,35 @@ class MainActivity : AppCompatActivity() {
                     repeatCount = ValueAnimator.INFINITE
                     start()
                 }
+            // The logo's compass needle sweeps around the ring (pivot = ring
+            // centre, which sits at ~31% across / half way down the logo)
+            // while the whole logo breathes in and out.
+            val density = resources.displayMetrics.density
+            recalcNeedle.pivotX = 55f * density * 0.3086f
+            recalcNeedle.pivotY = 34f * density * 0.5f
+            recalcNeedleSpin?.cancel()
+            recalcNeedleSpin =
+                ObjectAnimator.ofFloat(recalcNeedle, View.ROTATION, 0f, 360f).apply {
+                    duration = 1300L
+                    interpolator = android.view.animation.AccelerateDecelerateInterpolator()
+                    repeatCount = ValueAnimator.INFINITE
+                    start()
+                }
+            recalcLogo.pivotX = 55f * density / 2f
+            recalcLogo.pivotY = 34f * density / 2f
+            recalcLogoPulse?.cancel()
+            recalcLogoPulse =
+                ObjectAnimator
+                    .ofPropertyValuesHolder(
+                        recalcLogo,
+                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.1f),
+                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.1f),
+                    ).apply {
+                        duration = 650L
+                        repeatMode = ValueAnimator.REVERSE
+                        repeatCount = ValueAnimator.INFINITE
+                        start()
+                    }
         } else {
             recalcPulse?.cancel()
             recalcText.alpha = 1f
@@ -4588,7 +4626,17 @@ class MainActivity : AppCompatActivity() {
                 .alpha(0f)
                 .translationY(-slide)
                 .setDuration(180L)
-                .withEndAction { if (!recalcShown) recalcPill.visibility = View.GONE }
+                .withEndAction {
+                    if (!recalcShown) {
+                        recalcPill.visibility = View.GONE
+                        // Stop the logo animations only once the pill has faded out.
+                        recalcNeedleSpin?.cancel()
+                        recalcLogoPulse?.cancel()
+                        recalcNeedle.rotation = 0f
+                        recalcLogo.scaleX = 1f
+                        recalcLogo.scaleY = 1f
+                    }
+                }
                 .start()
         }
     }
