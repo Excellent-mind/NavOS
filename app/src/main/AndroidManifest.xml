@@ -72,6 +72,12 @@
                 <data android:scheme="https" />
                 <data android:scheme="http" />
                 <data android:host="maps.google.com" />
+                <data android:host="maps.google.com.my" />
+                <data android:host="maps.google.com.sg" />
+                <data android:host="maps.google.co.id" />
+                <data android:host="maps.google.co.uk" />
+                <data android:host="maps.google.com.au" />
+                <data android:host="maps.google.co.in" />
                 <data android:host="maps.app.goo.gl" />
                 <data android:host="share.google" />
             </intent-filter>
@@ -84,6 +90,12 @@
                 <data android:host="www.google.com" />
                 <data android:host="google.com" />
                 <data android:host="www.google.com.my" />
+                <data android:host="google.com.my" />
+                <data android:host="google.com.sg" />
+                <data android:host="google.co.id" />
+                <data android:host="google.co.uk" />
+                <data android:host="google.com.au" />
+                <data android:host="google.co.in" />
                 <data android:host="www.google.com.sg" />
                 <data android:host="www.google.co.id" />
                 <data android:host="www.google.co.uk" />
@@ -118,6 +130,7 @@
                 <data android:scheme="http" />
                 <data android:host="maps.apple.com" />
                 <data android:host="www.openstreetmap.org" />
+                <data android:host="osm.org" />
                 <data android:host="openstreetmap.org" />
                 <data android:host="share.here.com" />
                 <data android:host="wego.here.com" />
@@ -131,6 +144,12 @@
                 <data android:host="www.bing.com" />
                 <data android:host="bing.com" />
                 <data android:pathPrefix="/maps" />
+            </intent-filter>
+            <!-- Select an address in any app -> "NavOS" in the text-selection menu. -->
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
             </intent-filter>
             <!-- "Share" a place or address to NavOS. -->
             <intent-filter>
