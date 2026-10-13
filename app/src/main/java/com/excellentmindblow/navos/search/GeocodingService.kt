@@ -134,9 +134,38 @@ object GeocodingService {
         lat: Double,
         lon: Double,
     ): GeocodeResult? {
-        val connection =
-            URL("https://photon.komoot.io/reverse?lat=$lat&lon=$lon&limit=1")
-                .openConnection() as HttpURLConnection
+        require(lat in -90.0..90.0 && lon in -180.0..180.0) { "Invalid coordinates" }
+
+        // Photon is good at identifying named places; Nominatim zoom 18 is a
+        // useful second source for address-level detail (house number/street).
+        // Keep the exact tapped coordinate for navigation even if the provider
+        // returns the centre of the matched building or road.
+        val photon = runCatching { reversePhoton(lat, lon) }.getOrNull()
+        val detailed = runCatching { reverseNominatim(lat, lon) }.getOrNull()
+        return when {
+            detailed == null -> photon
+            photon == null -> detailed.copy(latitude = lat, longitude = lon)
+            else -> {
+                val photonIsNamedPlace = photon.name.isNotBlank() &&
+                    !photon.name.equals(photon.address, ignoreCase = true)
+                val detailedIsSpecific = detailed.label.contains(Regex("\\d")) ||
+                    detailed.label.split(',').size >= 3
+                when {
+                    photonIsNamedPlace && !detailedIsSpecific -> photon.copy(latitude = lat, longitude = lon)
+                    else -> detailed.copy(
+                        label = if (photonIsNamedPlace && !photon.label.equals(detailed.label, true))
+                            "${photon.name}, ${detailed.label}" else detailed.label,
+                        latitude = lat,
+                        longitude = lon,
+                        name = if (photonIsNamedPlace) photon.name else detailed.name,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun reversePhoton(lat: Double, lon: Double): GeocodeResult? {
+        val connection = URL("https://photon.komoot.io/reverse?lat=$lat&lon=$lon&limit=1").openConnection() as HttpURLConnection
         connection.setRequestProperty("User-Agent", USER_AGENT)
         connection.connectTimeout = 6_000
         connection.readTimeout = 6_000
@@ -145,9 +174,28 @@ object GeocodingService {
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             val feature = JSONObject(body).optJSONArray("features")?.optJSONObject(0) ?: return null
             return parsePhotonFeature(feature)?.copy(latitude = lat, longitude = lon)
-        } finally {
-            connection.disconnect()
-        }
+        } finally { connection.disconnect() }
+    }
+
+    private fun reverseNominatim(lat: Double, lon: Double): GeocodeResult? {
+        val url = URL("https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=$lat&lon=$lon&zoom=18&addressdetails=1&namedetails=1")
+        val connection = url.openConnection() as HttpURLConnection
+        connection.setRequestProperty("User-Agent", USER_AGENT)
+        connection.connectTimeout = 6_000
+        connection.readTimeout = 6_000
+        try {
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) return null
+            val obj = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            val label = obj.optString("display_name", "").trim()
+            if (label.isBlank()) return null
+            val a = obj.optJSONObject("address")
+            fun part(key: String) = a?.optString(key, "")?.takeIf { !it.isNullOrBlank() && it != "null" }
+            val number = part("house_number")
+            val road = part("road") ?: part("pedestrian") ?: part("residential")
+            val name = part("amenity") ?: part("building") ?: listOfNotNull(number, road).joinToString(" ").takeIf { it.isNotBlank() }
+                ?: label.substringBefore(',').trim()
+            return GeocodeResult(label, lat, lon, name, label.removePrefix(name).trim().trimStart(','))
+        } finally { connection.disconnect() }
     }
 
     private fun parsePhotonFeature(feature: JSONObject): GeocodeResult? {
@@ -166,20 +214,28 @@ object GeocodingService {
         val street = props.str("street")
         val houseNumber = props.str("housenumber")
         val placeName = props.str("name")
+        val postcode = props.str("postcode")
         val name =
             placeName
-                ?: street?.let { if (houseNumber != null) "$houseNumber, $it" else it }
+                ?: street?.let { if (houseNumber != null) "$houseNumber $it" else it }
                 ?: props.str("city")
                 ?: return null
 
+        // Preserve address-level detail returned by Photon. A named building/POI
+        // remains the primary label, while house number + street are retained in
+        // the subtitle instead of being silently discarded.
+        val streetAddress = street?.let { if (houseNumber != null) "$houseNumber $it" else it }
         val address =
             listOf(
-                if (placeName != null) street else null,
+                if (placeName != null) streetAddress else null,
+                props.str("housenumber")?.takeIf { placeName != null && streetAddress == null },
                 props.str("district"),
                 props.str("locality"),
                 props.str("city"),
                 props.str("county"),
                 props.str("state"),
+                postcode,
+                props.str("country"),
             ).filterNotNull()
                 .filter { !it.equals(name, ignoreCase = true) }
                 .distinct()
@@ -270,7 +326,8 @@ object GeocodingService {
             StringBuilder()
                 .append("q=").append(URLEncoder.encode(query, "UTF-8"))
                 .append("&format=jsonv2")
-                .append("&addressdetails=0")
+                .append("&addressdetails=1")
+                .append("&namedetails=1")
                 .append("&limit=8")
                 // Keeps results inside Malaysia - the app's whole premise
                 // is Malaysia-focused navigation, so this stays a hard
@@ -303,13 +360,20 @@ object GeocodingService {
             }
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             val array = JSONArray(body)
-            return (0 until array.length()).map { i ->
-                val obj = array.getJSONObject(i)
-                GeocodeResult(
-                    label = obj.getString("display_name"),
-                    latitude = obj.getString("lat").toDouble(),
-                    longitude = obj.getString("lon").toDouble(),
-                )
+            return (0 until array.length()).mapNotNull { i ->
+                val obj = array.optJSONObject(i) ?: return@mapNotNull null
+                val displayName = obj.optString("display_name", "").trim()
+                val lat = obj.optString("lat", "").toDoubleOrNull() ?: return@mapNotNull null
+                val lon = obj.optString("lon", "").toDoubleOrNull() ?: return@mapNotNull null
+                if (displayName.isBlank()) return@mapNotNull null
+                val address = obj.optJSONObject("address")
+                val name = obj.optString("name", "").takeIf { it.isNotBlank() && it != "null" }
+                    ?: listOfNotNull(
+                        address?.optString("house_number")?.takeIf { it.isNotBlank() && it != "null" },
+                        address?.optString("road")?.takeIf { it.isNotBlank() && it != "null" },
+                    ).joinToString(" ").takeIf { it.isNotBlank() }
+                    ?: displayName.substringBefore(",").trim()
+                GeocodeResult(displayName, lat, lon, name, displayName.removePrefix(name).trim().trimStart(','))
             }
         } finally {
             connection.disconnect()
