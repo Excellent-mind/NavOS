@@ -136,26 +136,31 @@ object GeocodingService {
     ): GeocodeResult? {
         require(lat in -90.0..90.0 && lon in -180.0..180.0) { "Invalid coordinates" }
 
-        // Ask both data sources, then prefer a real house/building address over
-        // a generic road result. Keep the exact tap coordinate for routing.
+        // Photon is good at identifying named places; Nominatim zoom 18 is a
+        // useful second source for address-level detail (house number/street).
+        // Keep the exact tapped coordinate for navigation even if the provider
+        // returns the centre of the matched building or road.
         val photon = runCatching { reversePhoton(lat, lon) }.getOrNull()
         val detailed = runCatching { reverseNominatim(lat, lon) }.getOrNull()
-        if (detailed == null) return photon?.copy(latitude = lat, longitude = lon)
-        if (photon == null) return detailed.copy(latitude = lat, longitude = lon)
-
-        val photonHasPlaceName = photon.name.isNotBlank() &&
-            !photon.name.equals(photon.address, ignoreCase = true)
-        val hasHouseLevelDetail = Regex("(?i)(^|, )\\d+[A-Za-z]?(?:[-/]\\w+)?(?=,|$)")
-            .containsMatchIn(detailed.name) || detailed.name.contains("house", ignoreCase = true)
         return when {
-            hasHouseLevelDetail -> detailed.copy(
-                label = if (photonHasPlaceName && !photon.name.equals(detailed.name, true))
-                    "${photon.name}, ${detailed.label}" else detailed.label,
-                latitude = lat,
-                longitude = lon,
-            )
-            photonHasPlaceName -> photon.copy(latitude = lat, longitude = lon)
-            else -> detailed.copy(latitude = lat, longitude = lon)
+            detailed == null -> photon
+            photon == null -> detailed.copy(latitude = lat, longitude = lon)
+            else -> {
+                val photonIsNamedPlace = photon.name.isNotBlank() &&
+                    !photon.name.equals(photon.address, ignoreCase = true)
+                val detailedIsSpecific = detailed.label.contains(Regex("\\d")) ||
+                    detailed.label.split(',').size >= 3
+                when {
+                    photonIsNamedPlace && !detailedIsSpecific -> photon.copy(latitude = lat, longitude = lon)
+                    else -> detailed.copy(
+                        label = if (photonIsNamedPlace && !photon.label.equals(detailed.label, true))
+                            "${photon.name}, ${detailed.label}" else detailed.label,
+                        latitude = lat,
+                        longitude = lon,
+                        name = if (photonIsNamedPlace) photon.name else detailed.name,
+                    )
+                }
+            }
         }
     }
 
@@ -173,52 +178,24 @@ object GeocodingService {
     }
 
     private fun reverseNominatim(lat: Double, lon: Double): GeocodeResult? {
-        // zoom=18 requests the most detailed address level; layer=address avoids
-        // letting unrelated POIs win over an available house/address object.
-        val url = URL(
-            "https://nominatim.openstreetmap.org/reverse?format=jsonv2" +
-                "&lat=$lat&lon=$lon&zoom=18&layer=address" +
-                "&addressdetails=1&namedetails=1&extratags=1&accept-language=en"
-        )
+        val url = URL("https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=$lat&lon=$lon&zoom=18&addressdetails=1&namedetails=1")
         val connection = url.openConnection() as HttpURLConnection
         connection.setRequestProperty("User-Agent", USER_AGENT)
-        connection.setRequestProperty("Accept", "application/json")
         connection.connectTimeout = 6_000
         connection.readTimeout = 6_000
         try {
             if (connection.responseCode != HttpURLConnection.HTTP_OK) return null
             val obj = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
-            val displayName = obj.optString("display_name", "").trim()
-            val a = obj.optJSONObject("address") ?: return null
-            fun part(key: String): String? {
-                val value = a.optString(key, "").trim()
-                return value.takeIf { it.isNotBlank() && it != "null" }
-            }
-            val houseNumber = part("house_number")
-            val houseName = part("house_name")
-            val building = part("building")
-            val road = part("road") ?: part("residential") ?: part("pedestrian") ?: part("footway")
-            val buildingTitle = houseName ?: building
-            val firstLine = when {
-                houseNumber != null && road != null -> "$houseNumber, $road"
-                houseName != null -> houseName
-                building != null -> building
-                road != null -> road
-                else -> displayName.substringBefore(',').trim()
-            }
-            val locality = listOfNotNull(
-                part("neighbourhood"), part("suburb"), part("village"), part("town"),
-                part("city_district"), part("city"), part("county"), part("state"),
-                part("postcode"), part("country")
-            ).distinct().filterNot { it.equals(firstLine, ignoreCase = true) }
-            val addressLine = locality.joinToString(", ")
-            val label = listOf(firstLine, addressLine).filter { it.isNotBlank() }.joinToString(", ")
-                .ifBlank { displayName }
-            val name = buildingTitle ?: firstLine
+            val label = obj.optString("display_name", "").trim()
+            if (label.isBlank()) return null
+            val a = obj.optJSONObject("address")
+            fun part(key: String) = a?.optString(key, "")?.takeIf { !it.isNullOrBlank() && it != "null" }
+            val number = part("house_number")
+            val road = part("road") ?: part("pedestrian") ?: part("residential")
+            val name = part("amenity") ?: part("building") ?: listOfNotNull(number, road).joinToString(" ").takeIf { it.isNotBlank() }
+                ?: label.substringBefore(',').trim()
             return GeocodeResult(label, lat, lon, name, label.removePrefix(name).trim().trimStart(','))
-        } finally {
-            connection.disconnect()
-        }
+        } finally { connection.disconnect() }
     }
 
     private fun parsePhotonFeature(feature: JSONObject): GeocodeResult? {
@@ -284,6 +261,24 @@ object GeocodingService {
         val out = FloatArray(1)
         Location.distanceBetween(fromLat, fromLon, toLat, toLon, out)
         return out[0]
+    }
+
+    /**
+     * Resolve addresses shared from other apps. Prefer address-aware
+     * Nominatim results (including house numbers) and fall back to Photon.
+     * Must be called off the main thread.
+     */
+    @Throws(Exception::class)
+    fun searchAddress(query: String, biasLat: Double? = null, biasLon: Double? = null): List<GeocodeResult> {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return emptyList()
+        val detailed = try {
+            searchNominatim(trimmed, biasLat, biasLon)
+        } catch (_: Exception) {
+            emptyList()
+        }
+        if (detailed.isNotEmpty()) return detailed
+        return searchLive(trimmed, biasLat, biasLon)
     }
 
     // ---- Explicit search (keyboard Search key) ----------------------------
