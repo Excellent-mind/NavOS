@@ -2583,7 +2583,11 @@ class MainActivity : AppCompatActivity() {
     private fun handlePendingIncomingIntent() {
         val incoming = pendingIncomingIntent ?: return
         pendingIncomingIntent = null
-        val raw = IncomingLocation.rawFrom(incoming) ?: return
+        val raw = IncomingLocation.rawFrom(incoming)
+        if (raw.isNullOrBlank()) {
+            Toast.makeText(this, "Couldn't read that location", Toast.LENGTH_LONG).show()
+            return
+        }
         Toast.makeText(this, "Opening location\u2026", Toast.LENGTH_SHORT).show()
         val bias = lastKnownLocation
         extrasExecutor.execute {
@@ -2602,7 +2606,7 @@ class MainActivity : AppCompatActivity() {
                             GeocodeResult(label, target.latitude, target.longitude)
                         }
                         is IncomingLocation.Target.Query ->
-                            GeocodingService.search(target.text, bias?.latitude, bias?.longitude).firstOrNull()
+                            GeocodingService.searchAddress(target.text, bias?.latitude, bias?.longitude).firstOrNull()
                         null -> null
                     }
                 } catch (e: Exception) {
