@@ -22,6 +22,8 @@ class LiveLocationTracker(
     /** 0 = keep reporting even when standing still (needed while driving
      * so the camera can zoom in / settle when you stop). */
     private val minDistanceM: Float = MIN_DISTANCE_M,
+    /** Injectable so JVM unit tests can exercise retry behavior without Android's main Looper. */
+    private val callbackLooper: Looper? = Looper.getMainLooper(),
     private val onLocation: (Location) -> Unit,
 ) {
     private var listener: LocationListener? = null
@@ -32,31 +34,53 @@ class LiveLocationTracker(
     }
 
     fun start() {
+        // A non-null listener means registration succeeded, not merely that a
+        // listener object was allocated. Keep this null on all early failures
+        // so callers can retry after enabling location or granting permission.
         if (listener != null) return
 
-        val newListener = LocationListener { location -> onLocation(location) }
-        listener = newListener
-
-        val provider =
+        val provider = try {
             when {
-                locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
-                locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+                locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ->
+                    LocationManager.GPS_PROVIDER
+                locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) ->
+                    LocationManager.NETWORK_PROVIDER
                 else -> null
-            } ?: return
+            }
+        } catch (_: SecurityException) {
+            // Permission may have been revoked between the caller's check and
+            // provider selection. A later start() call can retry.
+            null
+        } ?: return
 
-        locationManager.requestLocationUpdates(
-            provider,
-            MIN_INTERVAL_MS,
-            minDistanceM,
-            newListener,
-            Looper.getMainLooper(),
-        )
-
-        locationManager.getLastKnownLocation(provider)?.let(onLocation)
+        val newListener = LocationListener { location -> onLocation(location) }
+        try {
+            locationManager.requestLocationUpdates(
+                provider,
+                MIN_INTERVAL_MS,
+                minDistanceM,
+                newListener,
+                callbackLooper,
+            )
+            // Publish the active listener only after registration succeeds.
+            listener = newListener
+            locationManager.getLastKnownLocation(provider)?.let(onLocation)
+        } catch (_: SecurityException) {
+            // If permission is revoked during registration, clean up defensively
+            // and leave the tracker restartable instead of stuck in a false
+            // "already started" state.
+            runCatching { locationManager.removeUpdates(newListener) }
+            listener = null
+        }
     }
 
     fun stop() {
-        listener?.let { locationManager.removeUpdates(it) }
+        val activeListener = listener
+        // Clear state before touching the framework so even a permission error
+        // cannot leave a stale listener that blocks a future start().
         listener = null
+        if (activeListener != null) {
+            runCatching { locationManager.removeUpdates(activeListener) }
+        }
     }
 }
