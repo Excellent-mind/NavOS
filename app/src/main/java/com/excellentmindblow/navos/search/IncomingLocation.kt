@@ -44,6 +44,8 @@ object IncomingLocation {
         when (intent.action) {
             Intent.ACTION_VIEW -> intent.dataString
             Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
+            // "NavOS" in the select-text menu of any app (Grab, Lalamove, Shopee...).
+            Intent.ACTION_PROCESS_TEXT -> intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
             else -> null
         }?.trim()?.takeIf { it.isNotEmpty() }
 
