@@ -86,4 +86,7 @@ dependencies {
 
     // Android Auto (Car App Library) - lets NavOS run on the car screen.
     implementation("androidx.car.app:app:1.4.0")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.mockito:mockito-core:5.14.2")
 }
