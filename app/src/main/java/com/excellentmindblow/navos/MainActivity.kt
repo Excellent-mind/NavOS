@@ -838,6 +838,7 @@ class MainActivity : AppCompatActivity() {
             R.id.homeSearchClearButton, R.id.homeButton, R.id.workButton, R.id.permissionRetryButton,
             R.id.permissionSettingsButton, R.id.gpsSettingsButton, R.id.arrivalConfirmButton,
             R.id.arrivalNotYetButton, R.id.exitCancelButton, R.id.exitConfirmButton,
+            R.id.homeSearchPill, R.id.homeRecentsClear, R.id.nextTurnsSwitchRoute, R.id.nextTurnsClose,
         ).forEach { id -> findViewById<View>(id)?.let(Motion::addPressFeedback) }
     }
 
@@ -4739,7 +4740,7 @@ class MainActivity : AppCompatActivity() {
         // Off the planned route: NavigationService is already fetching a new
         // one (and says "Recalculating"), so show that instead of a turn
         // instruction that no longer applies.
-        turnStreetText.text = if (state.offRoute) "Recalculating..." else state.instruction
+        turnStreetText.text = if (state.offRoute) "Recalculating…" else state.instruction
 
         showTripSummary(state.durationRemainingSeconds, state.distanceRemainingMeters, etaClockText, etaDetailText)
         updateNextStopLine(state)

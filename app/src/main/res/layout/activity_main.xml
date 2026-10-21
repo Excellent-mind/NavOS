@@ -318,7 +318,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="12dp"
-                android:text="Recalculating..."
+                android:text="Recalculating…"
                 android:textColor="@color/navos_text"
                 android:textSize="17sp"
                 android:textStyle="bold" />
@@ -341,6 +341,7 @@
              bottom-left circular readout Waze shows. -->
         <TextView
             android:id="@+id/speedBadge"
+            android:fontFeatureSettings="tnum"
             android:layout_width="56dp"
             android:layout_height="56dp"
             android:layout_gravity="bottom|start"
@@ -359,6 +360,7 @@
              shown to the right of the speed badge only when it is known. -->
         <TextView
             android:id="@+id/speedLimitSign"
+            android:fontFeatureSettings="tnum"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:layout_gravity="bottom|start"
@@ -486,6 +488,7 @@
 
                 <TextView
                     android:id="@+id/routePreviewEta"
+                    android:fontFeatureSettings="tnum"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="@color/navos_text"
@@ -495,6 +498,7 @@
 
                 <TextView
                     android:id="@+id/routePreviewSummary"
+                    android:fontFeatureSettings="tnum"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="@color/navos_text_secondary"
@@ -659,6 +663,7 @@
 
                     <TextView
                         android:id="@+id/etaClockText"
+                        android:fontFeatureSettings="tnum"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textColor="@color/navos_text"
@@ -668,6 +673,7 @@
 
                     <TextView
                         android:id="@+id/etaDetailText"
+                        android:fontFeatureSettings="tnum"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textColor="@color/navos_text_secondary"
@@ -700,11 +706,12 @@
 
                     <TextView
                         android:id="@+id/turnDistanceText"
+                        android:fontFeatureSettings="tnum"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:maxLines="1"
                         android:textColor="@color/navos_text"
-                        android:textSize="12sp"
+                        android:textSize="14sp"
                         android:textStyle="bold"
                         tools:text="550 m" />
 
@@ -1046,7 +1053,7 @@
                         android:layout_width="20dp"
                         android:layout_height="20dp"
                         android:layout_marginEnd="12dp"
-                        android:contentDescription="Home"
+                        android:importantForAccessibility="no"
                         android:tint="@color/navos_text"
                         android:src="@drawable/ic_home" />
 
@@ -1078,7 +1085,7 @@
                         android:layout_width="20dp"
                         android:layout_height="20dp"
                         android:layout_marginEnd="12dp"
-                        android:contentDescription="Work"
+                        android:importantForAccessibility="no"
                         android:tint="@color/navos_text"
                         android:src="@drawable/ic_work" />
 
@@ -1129,7 +1136,10 @@
                             android:layout_height="wrap_content"
                             android:clickable="true"
                             android:focusable="true"
-                            android:padding="6dp"
+                            android:gravity="center"
+                            android:minHeight="48dp"
+                            android:paddingStart="12dp"
+                            android:paddingEnd="12dp"
                             android:text="Clear"
                             android:textColor="@color/navos_blue"
                             android:textSize="14sp"
@@ -1187,14 +1197,17 @@
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="1dp"
-                    android:layout_marginTop="16dp"
-                    android:layout_marginBottom="16dp"
+                    android:layout_marginTop="12dp"
+                    android:layout_marginBottom="8dp"
                     android:background="@color/navos_rule" />
 
                 <TextView
                     android:id="@+id/navMapDisplayRow"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:gravity="center_vertical"
+                    android:minHeight="48dp"
                     android:paddingTop="10dp"
                     android:paddingBottom="10dp"
                     android:text="Map display"
@@ -1204,7 +1217,7 @@
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="1dp"
-                    android:layout_marginTop="16dp"
+                    android:layout_marginTop="8dp"
                     android:layout_marginBottom="8dp"
                     android:background="@color/navos_rule" />
 
@@ -1212,6 +1225,9 @@
                     android:id="@+id/navPrefsRow"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:gravity="center_vertical"
+                    android:minHeight="48dp"
                     android:paddingTop="10dp"
                     android:paddingBottom="10dp"
                     android:text="Navigation preferences"
@@ -1222,6 +1238,9 @@
                     android:id="@+id/helpFeedbackRow"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:gravity="center_vertical"
+                    android:minHeight="48dp"
                     android:paddingTop="10dp"
                     android:paddingBottom="10dp"
                     android:text="Help &amp; feedback"
@@ -1232,6 +1251,9 @@
                     android:id="@+id/aboutRow"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:gravity="center_vertical"
+                    android:minHeight="48dp"
                     android:paddingTop="10dp"
                     android:paddingBottom="10dp"
                     android:text="About"
@@ -1241,7 +1263,7 @@
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="1dp"
-                    android:layout_marginTop="6dp"
+                    android:layout_marginTop="8dp"
                     android:layout_marginBottom="16dp"
                     android:background="@color/navos_rule" />
 
@@ -1316,9 +1338,12 @@
             <TextView
                 android:id="@+id/permissionSettingsButton"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="48dp"
                 android:layout_gravity="center_horizontal"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
                 android:clickable="true"
                 android:focusable="true"
                 android:text="Open app settings"
@@ -1418,6 +1443,7 @@
 
                 <TextView
                     android:id="@+id/cameraAlertSub"
+                    android:fontFeatureSettings="tnum"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="@color/white"
@@ -1576,6 +1602,7 @@
         <!-- Trip summary chip, e.g. "61 km  •  1:11 h" -->
         <TextView
             android:id="@+id/arrivalTripSummary"
+            android:fontFeatureSettings="tnum"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
