@@ -33,13 +33,14 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
-import android.transition.AutoTransition
+import android.transition.ChangeBounds
+import android.transition.Fade
 import android.transition.TransitionManager
+import android.transition.TransitionSet
 import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
-import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.content.res.ColorStateList
@@ -822,6 +823,22 @@ class MainActivity : AppCompatActivity() {
         setUpSavedPlaces()
         setUpSettingsExtras()
         setUpImeInsetHandling()
+        setUpPressFeedback()
+    }
+
+    /** Every button-like control shrinks slightly while pressed (see
+     * [Motion.addPressFeedback]). Rows in the search / route lists keep
+     * their ripple only - a whole list row scaling looks wobbly. */
+    private fun setUpPressFeedback() {
+        listOf(
+            R.id.searchBackButton, R.id.searchClearButton, R.id.compassButton, R.id.recenterButton,
+            R.id.evToggleButton, R.id.fuelToggleButton, R.id.cancelRouteButton, R.id.startNavigationButton,
+            R.id.bottomSearchButton, R.id.bottomAltRouteButton, R.id.stopNavigationButton, R.id.shareEtaButton,
+            R.id.poiCloseButton, R.id.poiGoButton, R.id.homeSettingsButton, R.id.homeSheetBackButton,
+            R.id.homeSearchClearButton, R.id.homeButton, R.id.workButton, R.id.permissionRetryButton,
+            R.id.permissionSettingsButton, R.id.gpsSettingsButton, R.id.arrivalConfirmButton,
+            R.id.arrivalNotYetButton, R.id.exitCancelButton, R.id.exitConfirmButton,
+        ).forEach { id -> findViewById<View>(id)?.let(Motion::addPressFeedback) }
     }
 
     /** True while a pinch started during follow mode: that pinch zooms
@@ -1709,7 +1726,7 @@ class MainActivity : AppCompatActivity() {
         val animator =
             ValueAnimator.ofInt(from, to).apply {
                 duration = durationMs.toLong().coerceAtLeast(160L)
-                interpolator = DecelerateInterpolator(1.8f)
+                interpolator = Motion.easeDrawer
                 addUpdateListener { anim ->
                     applySheetDragHeight(anim.animatedValue as Int, collapsed, full)
                 }
@@ -3967,7 +3984,17 @@ class MainActivity : AppCompatActivity() {
     private fun setNavSheetExpanded(expanded: Boolean) {
         if (expanded == navSheetExpanded) return
         navSheetExpanded = expanded
-        TransitionManager.beginDelayedTransition(bottomNavBar as ViewGroup, AutoTransition().setDuration(220))
+        // Bounds change and fade together, not AutoTransition's three
+        // back-to-back steps (which tripled the time it took to settle).
+        TransitionManager.beginDelayedTransition(
+            bottomNavBar as ViewGroup,
+            TransitionSet()
+                .setOrdering(TransitionSet.ORDERING_TOGETHER)
+                .addTransition(ChangeBounds())
+                .addTransition(Fade())
+                .setDuration(200)
+                .setInterpolator(Motion.easeOut),
+        )
         navStopButton.visibility = if (expanded) View.VISIBLE else View.GONE
         findViewById<View>(R.id.shareEtaButton).visibility = if (expanded) View.VISIBLE else View.GONE
         updateStopButtons()
@@ -4539,7 +4566,7 @@ class MainActivity : AppCompatActivity() {
         arrivalCard.visibility = View.VISIBLE
         arrivalCard.post {
             arrivalCard.translationY = arrivalCard.height.toFloat()
-            arrivalCard.animate().translationY(0f).setDuration(250).start()
+            arrivalCard.animate().translationY(0f).setDuration(320).setInterpolator(Motion.easeDrawer).start()
         }
 
         destinationLatLng?.let { dest ->
@@ -4552,6 +4579,7 @@ class MainActivity : AppCompatActivity() {
         arrivalCard.animate().cancel()
         arrivalCard.animate().translationY(arrivalCard.height.toFloat())
             .setDuration(200)
+            .setInterpolator(Motion.easeOut)
             .withEndAction { arrivalCard.visibility = View.GONE }
             .start()
     }
@@ -4641,7 +4669,7 @@ class MainActivity : AppCompatActivity() {
             recalcPill.visibility = View.VISIBLE
             recalcPill.alpha = 0f
             recalcPill.translationY = -slide
-            recalcPill.animate().alpha(1f).translationY(0f).setDuration(220L).start()
+            recalcPill.animate().alpha(1f).translationY(0f).setDuration(220L).setInterpolator(Motion.easeOut).start()
             recalcPulse?.cancel()
             recalcPulse =
                 ObjectAnimator.ofFloat(recalcText, View.ALPHA, 1f, 0.45f).apply {
@@ -4671,8 +4699,8 @@ class MainActivity : AppCompatActivity() {
                 ObjectAnimator
                     .ofPropertyValuesHolder(
                         recalcLogo,
-                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.1f),
-                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.1f),
+                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.06f),
+                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.06f),
                     ).apply {
                         duration = 650L
                         repeatMode = ValueAnimator.REVERSE
@@ -4686,7 +4714,8 @@ class MainActivity : AppCompatActivity() {
                 .animate()
                 .alpha(0f)
                 .translationY(-slide)
-                .setDuration(180L)
+                .setDuration(160L)
+                .setInterpolator(Motion.easeOut)
                 .withEndAction {
                     if (!recalcShown) {
                         recalcPill.visibility = View.GONE
