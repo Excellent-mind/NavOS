@@ -17,6 +17,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      # The runner image is too full for an emulator's userdata partition;
+      # drop toolchains this job never uses.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/share/swift /usr/local/lib/node_modules
+          df -h /
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-java@v4
@@ -42,6 +49,9 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
+          cores: 4
+          ram-size: 4096M
+          disk-size: 4096M
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: bash .github/scripts/ui-check.sh
