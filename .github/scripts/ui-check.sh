@@ -210,8 +210,11 @@ sleep 6
 # direction gantry stand ahead; traffic lights along Jalan Gombak too.
 adb emu geo fix 101.71296 3.22910; sleep 2
 adb shell am start -a android.intent.action.VIEW -d "geo:3.4236,101.7932?q=3.4236,101.7932" -p "$PKG" >/dev/null 2>&1
-sleep 6; shot 22-signs-place
-tap_id poiGoButton && sleep 25 && shot 23-signs-route-preview
+sleep 8; shot 22-signs-place
+# A shared place opens straight into the route preview; older builds showed
+# a place card with Go first.
+tap_id poiGoButton >/dev/null 2>&1 && sleep 8
+sleep 20; shot 23-signs-route-preview
 tap_id startNavigationButton && sleep 10 && shot 24-signs-start
 for fix in "101.71189 3.23137" "101.71060 3.23318" "101.70905 3.23411"; do
   adb emu geo fix $fix >/dev/null 2>&1; sleep 2

@@ -950,7 +950,7 @@ class MainActivity : AppCompatActivity() {
     private fun updateRouteSigns(route: Route) {
         val pois = activeRoutePois
         val extras = activeExtras
-        extrasExecutor.execute {
+        signExecutor.execute {
             val signs = SignPlanner.plan(route, pois, extras)
             val lights = SignPlanner.trafficLights(route, extras)
             Log.i(
@@ -2516,7 +2516,7 @@ class MainActivity : AppCompatActivity() {
         val raw = IncomingLocation.rawFrom(incoming) ?: return
         Toast.makeText(this, "Opening location\u2026", Toast.LENGTH_SHORT).show()
         val bias = lastKnownLocation
-        extrasExecutor.execute {
+        placeSearchExecutor.execute {
             val result: GeocodeResult? =
                 try {
                     when (val target = IncomingLocation.resolve(raw)) {
@@ -2571,6 +2571,13 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var previewToken = 0
     private var routeListShowing = false
     private val extrasExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+    /** Traffic lights / R&Rs lookups: big Overpass queries kept off [extrasExecutor]
+     * so they never hold up the toll / camera lookups queued there. */
+    private val lightsExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+    /** Sign planning: quick, and must never wait behind a network call. */
+    private val signExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     private fun poiKey(poi: RoadPoi): String = String.format(Locale.US, "%.5f,%.5f", poi.latitude, poi.longitude)
 
@@ -2788,14 +2795,18 @@ class MainActivity : AppCompatActivity() {
                 updateRoutePreviewSummary()
                 if (routeListShowing) renderRouteList()
             }
-            // Then traffic lights and R&Rs - a second, bigger lookup, so the
-            // toll counts above don't wait for it.
+        }
+        // Traffic lights and R&Rs: a second, bigger lookup on its own thread,
+        // so the toll counts above don't wait for it.
+        lightsExecutor.execute {
             val extras =
                 try {
                     RoadPoiService.fetchExtrasAlong(routes)
                 } catch (e: Exception) {
+                    Log.w("NavOSSigns", "traffic lights / R&R lookup failed: $e")
                     emptyMap()
                 }
+            Log.i("NavOSSigns", "preview extras: " + extras.mapValues { it.value.groupingBy { p -> p.kind }.eachCount() })
             val lightCounts = extras.mapValues { (i, list) -> SignPlanner.trafficLights(routes[i], list).size }
             mainHandler.post {
                 if (token != previewToken || navMode != NavMode.PREVIEW) return@post
@@ -2831,11 +2842,14 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            if (needExtras) {
+        }
+        if (needExtras) {
+            lightsExecutor.execute {
                 val extras =
                     try {
                         RoadPoiService.fetchExtrasAlong(listOf(route))[0].orEmpty()
                     } catch (e: Exception) {
+                        Log.w("NavOSSigns", "traffic lights / R&R lookup failed: $e")
                         emptyList()
                     }
                 mainHandler.post {
@@ -4585,6 +4599,8 @@ class MainActivity : AppCompatActivity() {
         mapView.onDestroy()
         searchExecutor.shutdownNow()
         extrasExecutor.shutdownNow()
+        lightsExecutor.shutdownNow()
+        signExecutor.shutdownNow()
         placeSearchExecutor.shutdownNow()
         poiExecutor.shutdownNow()
         speedExecutor.shutdownNow()
