@@ -60,4 +60,19 @@
     <string name="camera_limit">Limit %s · stay at or under</string>
     <string name="your_speed">Your speed %1$s %2$s</string>
     <string name="speed_limit">Speed limit %s</string>
+
+    <!-- Arrival -->
+    <string name="arrived">You\'ve arrived</string>
+    <string name="done">Done</string>
+    <string name="not_yet">Not yet</string>
+    <string name="save_place">Save place</string>
+    <string name="save_as_home">Save as Home</string>
+    <string name="save_as_work">Save as Work</string>
+    <string name="saved_as">Saved as %s</string>
+    <string name="stat_drive_time">Drive time</string>
+    <string name="stat_distance">Distance</string>
+    <string name="stat_tolls">Toll plazas</string>
+    <string name="side_right">Destination is on your right</string>
+    <string name="side_left">Destination is on your left</string>
+    <string name="side_ahead">Destination is straight ahead</string>
 </resources>

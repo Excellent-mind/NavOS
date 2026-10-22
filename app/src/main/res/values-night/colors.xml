@@ -50,4 +50,5 @@
     <color name="sig_caution_fill">#2A2109</color>
     <color name="sig_caution_ink">#FFD66B</color>
     <color name="sig_caution_sub">#E9DDB8</color>
+    <color name="sig_success_fill">#12301F</color>
 </resources>

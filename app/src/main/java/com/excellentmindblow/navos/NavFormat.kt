@@ -124,4 +124,15 @@ object NavFormat {
             "uturn" -> 180f
             else -> 0f // straight / none
         }
+
+    /** Which side the destination is on, from the route's arrive step
+     * ("right" / "slight right" ...), as a string resource; null when unknown. */
+    fun arrivalSide(modifier: String?): Int? =
+        when {
+            modifier == null -> null
+            modifier.contains("right") -> R.string.side_right
+            modifier.contains("left") -> R.string.side_left
+            modifier == "straight" -> R.string.side_ahead
+            else -> null
+        }
 }

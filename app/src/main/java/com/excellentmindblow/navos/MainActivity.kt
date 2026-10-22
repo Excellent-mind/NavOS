@@ -51,7 +51,6 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
@@ -66,6 +65,7 @@ import androidx.dynamicanimation.animation.SpringAnimation
 import androidx.dynamicanimation.animation.SpringForce
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.excellentmindblow.navos.location.DriveFollower
 import com.excellentmindblow.navos.location.LiveLocationTracker
 import com.excellentmindblow.navos.location.PuckIcon
@@ -253,6 +253,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etaDetailText: TextView
     private lateinit var navStopButton: View
     private var destinationAddress: String? = null
+
+    /** When the current drive started (elapsedRealtime), for the arrival card's drive time. */
+    private var driveStartedAtMs = 0L
     private lateinit var routePreviewDestination: TextView
     private lateinit var routePreviewAddress: TextView
     private var navSheetExpanded = false
@@ -837,7 +840,7 @@ class MainActivity : AppCompatActivity() {
             R.id.poiCloseButton, R.id.poiGoButton, R.id.homeSettingsButton, R.id.homeSheetBackButton,
             R.id.homeSearchClearButton, R.id.homeButton, R.id.workButton, R.id.permissionRetryButton,
             R.id.permissionSettingsButton, R.id.gpsSettingsButton, R.id.arrivalConfirmButton,
-            R.id.arrivalNotYetButton, R.id.exitCancelButton, R.id.exitConfirmButton,
+            R.id.arrivalNotYetButton, R.id.arrivalSaveButton, R.id.exitCancelButton, R.id.exitConfirmButton,
             R.id.homeSearchPill, R.id.homeRecentsClear, R.id.chooseOnMapButton, R.id.filterAll, R.id.filterPlaces,
             R.id.filterAddresses, R.id.filterPetrol, R.id.homePetrolChip, R.id.homeEvChip, R.id.homeShortcutHome,
             R.id.homeShortcutWork, R.id.nextTurnsSwitchRoute, R.id.nextTurnsClose,
@@ -3529,6 +3532,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun beginActiveNavigation() {
         val route = routeOptions.getOrNull(selectedRouteIndex) ?: return
+        driveStartedAtMs = SystemClock.elapsedRealtime()
 
         navMode = NavMode.ACTIVE
         driveFollower.resetArrowHeading()
@@ -3895,13 +3899,34 @@ class MainActivity : AppCompatActivity() {
             text = name
             visibility = if (name.isNotBlank()) View.VISIBLE else View.GONE
         }
-        findViewById<TextView>(R.id.arrivalTripSummary).apply {
-            val route = activeRoute
-            if (route != null) {
-                text = NavFormat.formatTripDistance(route.distanceMeters)
-                visibility = View.VISIBLE
-            } else {
-                visibility = View.GONE
+        val route = activeRoute
+        findViewById<TextView>(R.id.arrivalSide).apply {
+            val side = NavFormat.arrivalSide(route?.steps?.lastOrNull { it.maneuverType == "arrive" }?.modifier)
+            if (side != null) setText(side)
+            visibility = if (side != null) View.VISIBLE else View.GONE
+        }
+        // Trip stats: real drive time, the route's distance, toll plazas passed (only if any).
+        fun stat(
+            id: Int,
+            value: String?,
+            labelRes: Int,
+        ) {
+            val tile = findViewById<View>(id)
+            tile.visibility = if (value == null) View.GONE else View.VISIBLE
+            tile.findViewById<TextView>(R.id.statValue).text = value.orEmpty()
+            tile.findViewById<TextView>(R.id.statLabel).setText(labelRes)
+        }
+        val drove = if (driveStartedAtMs > 0) (SystemClock.elapsedRealtime() - driveStartedAtMs) / 1000.0 else null
+        val tolls = activeRoutePois.count { it.kind == "toll" }
+        stat(R.id.arrivalStatTime, drove?.let { NavFormat.formatRouteMinutes(it) }, R.string.stat_drive_time)
+        stat(R.id.arrivalStatDistance, route?.let { NavFormat.formatTripDistance(it.distanceMeters) }, R.string.stat_distance)
+        stat(R.id.arrivalStatTolls, if (tolls > 0) tolls.toString() else null, R.string.stat_tolls)
+        val arrivedAt = destinationLatLng
+        val arrivedName = destinationName
+        findViewById<View>(R.id.arrivalSaveButton).apply {
+            visibility = if (arrivedAt != null) View.VISIBLE else View.GONE
+            setOnClickListener {
+                if (arrivedAt != null) saveArrivedPlace(arrivedName, arrivedAt)
             }
         }
 
@@ -3921,6 +3946,25 @@ class MainActivity : AppCompatActivity() {
         destinationLatLng?.let { dest ->
             map?.animateCamera(CameraUpdateFactory.newLatLngZoom(dest, 17.0), 600)
         }
+    }
+
+    /** "Save place" on the arrival card: keep where we arrived as Home or Work. */
+    private fun saveArrivedPlace(
+        name: String?,
+        at: LatLng,
+    ) {
+        val label = listOfNotNull(name?.takeIf { it.isNotBlank() }, destinationAddress?.trim()?.takeIf { it.isNotBlank() }).joinToString(", ")
+        val place = GeocodeResult(label.ifBlank { "Saved place" }, at.latitude, at.longitude)
+        val keys = arrayOf(SavedPlaces.HOME, SavedPlaces.WORK)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.save_place)
+            .setItems(arrayOf(getString(R.string.save_as_home), getString(R.string.save_as_work))) { _, which ->
+                savedPlaces.save(keys[which], place)
+                refreshSavedPlaceLabels()
+                val what = getString(if (which == 0) R.string.shortcut_home else R.string.shortcut_work)
+                Toast.makeText(this, getString(R.string.saved_as, what), Toast.LENGTH_SHORT).show()
+            }
+            .show()
     }
 
     private fun hideArrivalCard() {

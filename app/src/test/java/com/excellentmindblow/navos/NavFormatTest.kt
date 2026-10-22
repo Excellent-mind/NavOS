@@ -78,4 +78,13 @@ class NavFormatTest {
         assertNull(NavFormat.tollSummary(null))
         assertNull(NavFormat.tollSummary(emptyList()))
     }
+
+    @Test
+    fun theArrivalCardSaysWhichSideTheDestinationIsOn() {
+        assertEquals(R.string.side_right, NavFormat.arrivalSide("right"))
+        assertEquals(R.string.side_right, NavFormat.arrivalSide("slight right"))
+        assertEquals(R.string.side_left, NavFormat.arrivalSide("left"))
+        assertEquals(R.string.side_ahead, NavFormat.arrivalSide("straight"))
+        assertEquals(null, NavFormat.arrivalSide(null))
+    }
 }
