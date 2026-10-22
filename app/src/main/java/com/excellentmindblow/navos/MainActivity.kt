@@ -1610,11 +1610,11 @@ class MainActivity : AppCompatActivity() {
                 dragStartRawY = event.rawY
                 dragging = false
                 dragVelocityTracker?.recycle()
-                dragVelocityTracker = VelocityTracker.obtain().also { it.addMovement(event) }
+                dragVelocityTracker = VelocityTracker.obtain().also { trackScreenMovement(it, event) }
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                dragVelocityTracker?.addMovement(event)
+                dragVelocityTracker?.let { trackScreenMovement(it, event) }
                 val deltaY = dragStartRawY - event.rawY // positive = finger moved up
                 if (!dragging) {
                     val slop = ViewConfiguration.get(this).scaledTouchSlop
@@ -1688,15 +1688,34 @@ class MainActivity : AppCompatActivity() {
         applySheetInsets()
     }
 
-    /** Sets the sheet to [height] px and fades the body in with it. */
+    /** Feeds [event] to [tracker] in screen coordinates. The drag handle
+     * rides up and down with the finger, so its own (view-relative)
+     * coordinates barely change during a drag - tracking those reported
+     * almost zero velocity and made every flick behave like a slow drag. */
+    private fun trackScreenMovement(
+        tracker: VelocityTracker,
+        event: MotionEvent,
+    ) {
+        val screen = MotionEvent.obtain(event)
+        screen.setLocation(event.rawX, event.rawY)
+        tracker.addMovement(screen)
+        screen.recycle()
+    }
+
+    /** Sets the sheet to [height] px and fades the body in with it. Below
+     * the collapsed height (rubber-banding, or a spring settling past it)
+     * the sheet keeps its collapsed size and slides down instead, so the
+     * search pill is never clipped. */
     private fun applySheetDragHeight(
         height: Int,
         collapsed: Int = sheetCollapsedHeight(),
         full: Int = sheetFullHeight(),
     ) {
+        homeSheet.translationY = (collapsed - height).coerceAtLeast(0).toFloat()
+        val laidOutHeight = height.coerceAtLeast(collapsed)
         val params = homeSheet.layoutParams
-        if (params.height != height) {
-            params.height = height
+        if (params.height != laidOutHeight) {
+            params.height = laidOutHeight
             homeSheet.layoutParams = params
         }
         homeSearchBody.alpha = ((height - collapsed).toFloat() / (full - collapsed).coerceAtLeast(1)).coerceIn(0f, 1f)
