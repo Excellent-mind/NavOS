@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Builds NavOS's Overture place tiles for Malaysia.
 
-Output: <out>/v1/{cell}.json.gz (0.1 degree cells, "floor(lat*10)_floor(lon*10)")
-and <out>/v1/index.json. Each tile: {"v":1,"cell":..,"places":[[name,category,lat,lon,address],...]}.
+Output, in <out>/v1/:
+  {pack}.json.gz  half-degree packs ("floor(cellY/5)_floor(cellX/5)"), each
+                  {"v":1,"pack":..,"cells":{"32_1017":[[name,category,lat,lon,address],...],...}}
+                  - what the app downloads; it splits a pack into 0.1 degree tiles on the phone.
+  index.json      release, counts and the list of packs.
+Served from Cloudflare Pages project "navos-places" (https://navos-places.pages.dev/v1/).
 
 Data: Overture Maps "places" (mostly Meta, CDLA-Permissive-2.0; also Foursquare
 Apache-2.0, Microsoft, AllThePlaces CC0). Keep the attribution in the app.
@@ -31,11 +35,15 @@ cells = collections.defaultdict(list)
 for name, cat, lat, lon, addr, city in rows:
     key = f"{int(lat * 10 // 1)}_{int(lon * 10 // 1)}"
     cells[key].append([name.strip(), cat or "", round(lat, 6), round(lon, 6), ", ".join(x for x in (addr, city) if x)])
+packs = collections.defaultdict(dict)
 for key, places in cells.items():
     places.sort(key=lambda p: p[0].lower())
-    body = json.dumps({"v": 1, "cell": key, "places": places}, ensure_ascii=False, separators=(",", ":")).encode()
-    with open(f"{out}/v1/{key}.json.gz", "wb") as f:
+    y, x = map(int, key.split("_"))
+    packs[f"{y // 5}_{x // 5}"][key] = places
+for pack, members in packs.items():
+    body = json.dumps({"v": 1, "pack": pack, "cells": members}, ensure_ascii=False, separators=(",", ":")).encode()
+    with open(f"{out}/v1/{pack}.json.gz", "wb") as f:
         f.write(gzip.compress(body, 9))
 with open(f"{out}/v1/index.json", "w") as f:
-    json.dump({"v": 1, "release": release, "cellDeg": 0.1, "count": len(rows), "cells": sorted(cells)}, f)
-print(len(rows), "places in", len(cells), "tiles")
+    json.dump({"v": 1, "release": release, "cellDeg": 0.1, "packDeg": 0.5, "count": len(rows), "packs": sorted(packs)}, f)
+print(len(rows), "places in", len(cells), "tiles,", len(packs), "packs")

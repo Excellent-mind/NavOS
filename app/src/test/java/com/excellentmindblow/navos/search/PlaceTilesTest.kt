@@ -64,5 +64,9 @@ class PlaceTilesTest {
         assertEquals("32_1017", PlaceTiles.cellOf(3.2290, 101.7130))
         assertEquals(9, PlaceTiles.cellsAround(3.2290, 101.7130).size)
         assertTrue("32_1017" in PlaceTiles.cellsAround(3.2290, 101.7130))
+        assertEquals("6_203", PlaceTiles.packOf("32_1017"))
+        assertEquals("-1_20", PlaceTiles.packOf("-1_100"))
+        assertEquals(25, PlaceTiles.cellsInPack("6_203").size)
+        assertTrue("32_1017" in PlaceTiles.cellsInPack("6_203"))
     }
 }

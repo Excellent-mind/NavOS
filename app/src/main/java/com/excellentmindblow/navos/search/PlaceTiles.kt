@@ -40,6 +40,20 @@ object PlaceTiles {
         lon: Double,
     ): String = "${floor(lat * 10).toInt()}_${floor(lon * 10).toInt()}"
 
+    /** The half-degree pack (5 x 5 tiles, one download) a tile is in: "32_1017" -> "6_203". */
+    fun packOf(cell: String): String {
+        val (y, x) = cell.split('_').map { it.toInt() }
+        return "${Math.floorDiv(y, 5)}_${Math.floorDiv(x, 5)}"
+    }
+
+    /** The 25 tiles of a pack. */
+    fun cellsInPack(pack: String): List<String> {
+        val (py, px) = pack.split('_').map { it.toInt() }
+        val out = ArrayList<String>(25)
+        for (y in py * 5 until py * 5 + 5) for (x in px * 5 until px * 5 + 5) out += "${y}_$x"
+        return out
+    }
+
     /** The tile under ([lat], [lon]) and the [ring] rings of tiles around it. */
     fun cellsAround(
         lat: Double,

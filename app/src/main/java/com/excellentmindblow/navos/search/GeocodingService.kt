@@ -13,6 +13,7 @@ import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
 
 /** One place search hit. label is the full one-line description (name plus
  * locality/district/state), used for saved places. name/address are the
@@ -87,6 +88,7 @@ object GeocodingService {
     private const val RETRY_TIMEOUT_MS = 8_000
     private const val CACHE_TTL_MS = 5 * 60_000L
     private const val TILE_RESULT_LIMIT = 8
+    private const val TILE_WAIT_MS = 1_500L
     private const val SAME_PLACE_M = 150.0
     private const val CACHE_MAX = 80
 
@@ -366,7 +368,9 @@ object GeocodingService {
 
             val local = futureResult(localF)
             val wide = if (local.size >= MIN_LIVE_LOCAL_RESULTS && q.houseNumber == null) emptyList() else futureResult(wideF)
-            val tiles = if (q.houseNumber == null) futureResult(tilesF) else emptyList()
+            // The first search in a new area may still be downloading its tiles:
+            // don't hold Photon's answer for them.
+            val tiles = if (q.houseNumber == null) runCatching { tilesF.get(TILE_WAIT_MS, TimeUnit.MILLISECONDS) }.getOrDefault(emptyList()) else emptyList()
             if (local.isEmpty() && wide.isEmpty() && tiles.isEmpty()) {
                 // All failed or are empty: surface a real failure to the caller.
                 localF.get()
@@ -394,6 +398,15 @@ object GeocodingService {
     /** Set by the app at start-up: where the Overture place tiles come from. */
     @Volatile
     var placeTiles: PlaceTileStore? = null
+
+    /** Starts loading the place tiles around a spot (e.g. the first GPS fix) so the first search has them. */
+    fun prefetchTiles(
+        lat: Double,
+        lon: Double,
+    ) {
+        val store = placeTiles ?: return
+        pool.submit { runCatching { store.near(lat, lon) } }
+    }
 
     private fun tileMatches(
         query: String,

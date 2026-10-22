@@ -142,8 +142,9 @@ private const val ROUTE_INDEX_PROPERTY = "routeIndex"
 // part of the screen so more road ahead is visible.
 private const val NAV_TILT_DEGREES = 55.0
 
-/** Where the Overture place tiles are served from ({cell}.json.gz); null = only tiles bundled in the app. */
-private val PLACE_TILES_URL: String? = null
+/** Where the Overture place packs are served from ({pack}.json.gz): NavOS's Cloudflare Pages site. */
+private const val PLACE_TILES_URL = "https://navos-places.pages.dev/v1"
+private const val TILE_PREFETCH_MOVE_M = 5_000f
 // Waze-like camera height, the same for the 3D and the 2D driving view:
 // about 200 m of road visible ahead at city speed (it used to be ~100 m,
 // and ~50 m when stopped, which felt like hugging the road).
@@ -4526,11 +4527,22 @@ class MainActivity : AppCompatActivity() {
     // instead, via navServiceListener.onNavLocation() above. So there's no
     // "are we navigating" branch needed here any more: this function only
     // ever runs for the non-navigating case.
+    private var lastTilePrefetch: Location? = null
+
+    /** Downloads the Overture place tiles around you ahead of the first search here. */
+    private fun prefetchPlaceTiles(location: Location) {
+        val last = lastTilePrefetch
+        if (last != null && last.distanceTo(location) < TILE_PREFETCH_MOVE_M) return
+        lastTilePrefetch = location
+        GeocodingService.prefetchTiles(location.latitude, location.longitude)
+    }
+
     @SuppressLint("MissingPermission") // permission is confirmed before startLocationTracking() runs
     private fun onLocationUpdate(location: Location) {
         val firstFix = lastKnownLocation == null
         lastKnownLocation = location
         if (firstFix) homeScreen.render() else homeScreen.onLocation()
+        prefetchPlaceTiles(location)
         val bearing =
             if (location.hasBearing() && (!location.hasSpeed() || location.speed > 1f)) {
                 location.bearing.toDouble()

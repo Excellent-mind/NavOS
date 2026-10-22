@@ -1,11 +1,16 @@
 package com.excellentmindblow.navos.search
 
 import android.content.Context
+import android.util.JsonReader
+import android.util.JsonWriter
 import java.io.File
 import java.io.IOException
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 
 /**
  * Gets [PlaceTiles] tiles for the area around the user and keeps the
@@ -13,9 +18,9 @@ import java.util.zip.GZIPInputStream
  *
  * A tile comes from, in order: memory; the app's own copy (bundled in
  * assets/places/v1, when the build includes it); the disk cache; then
- * [remoteBase] over the network (saved to the disk cache, so search keeps
- * working offline). A tile that doesn't exist (sea, jungle) is remembered
- * as empty. Blocking: call off the main thread.
+ * [remoteBase] over the network - a half-degree pack of 5 x 5 tiles, split
+ * into the disk cache so search keeps working offline. A tile that doesn't
+ * exist (sea, jungle) is remembered as empty. Blocking: call off the main thread.
  */
 class PlaceTileStore(
     context: Context,
@@ -60,29 +65,69 @@ class PlaceTileStore(
         return if (f.length() == 0L) "" else runCatching { gunzip(f.readBytes()) }.getOrNull()
     }
 
-    /** "" = the tile doesn't exist (nothing there); null = couldn't fetch it now. */
+    /**
+     * Downloads the half-degree pack holding [cell] (5 x 5 tiles in one file,
+     * see tools/build_place_tiles.py) and splits it into one cache file per
+     * tile, streaming so even the 100,000-place KL pack never sits in memory
+     * whole. Tiles the pack doesn't list are saved as empty (nothing there).
+     * "" = the tile doesn't exist; null = couldn't fetch it now.
+     */
     private fun fromNetwork(cell: String): String? {
         val base = remoteBase ?: return null
-        val conn = URL("$base/$cell.json.gz").openConnection() as HttpURLConnection
-        conn.connectTimeout = 5_000
-        conn.readTimeout = 10_000
-        return try {
+        val pack = PlaceTiles.packOf(cell)
+        val conn = URL("$base/$pack.json.gz").openConnection() as HttpURLConnection
+        conn.connectTimeout = 8_000
+        conn.readTimeout = 30_000
+        try {
             when (conn.responseCode) {
-                HttpURLConnection.HTTP_OK -> {
-                    val bytes = conn.inputStream.use { it.readBytes() }
-                    File(cacheDir, "$cell.json.gz").writeBytes(bytes)
-                    gunzip(bytes)
-                }
-                HttpURLConnection.HTTP_NOT_FOUND -> {
-                    File(cacheDir, "$cell.json.gz").writeBytes(ByteArray(0))
-                    ""
-                }
-                else -> null
+                HttpURLConnection.HTTP_OK -> conn.inputStream.use { splitPack(GZIPInputStream(it.buffered())) }
+                HttpURLConnection.HTTP_NOT_FOUND -> {}
+                else -> return null
+            }
+            for (c in PlaceTiles.cellsInPack(pack)) {
+                val f = File(cacheDir, "$c.json.gz")
+                if (!f.exists() || System.currentTimeMillis() - f.lastModified() > MAX_AGE_MS) f.writeBytes(ByteArray(0))
             }
         } catch (e: IOException) {
-            null
+            return null
         } finally {
             conn.disconnect()
+        }
+        return fromDisk(cell)
+    }
+
+    /** {"cells":{"32_1017":[[...],...],...}} -> one {cell}.json.gz per tile, in the tile format. */
+    private fun splitPack(input: java.io.InputStream) {
+        JsonReader(InputStreamReader(input, Charsets.UTF_8)).use { r ->
+            r.beginObject()
+            while (r.hasNext()) {
+                if (r.nextName() != "cells") {
+                    r.skipValue()
+                    continue
+                }
+                r.beginObject()
+                while (r.hasNext()) {
+                    val cell = r.nextName()
+                    val tmp = File(cacheDir, "$cell.json.gz.part")
+                    JsonWriter(OutputStreamWriter(GZIPOutputStream(tmp.outputStream().buffered()), Charsets.UTF_8)).use { w ->
+                        w.beginObject().name("v").value(1).name("cell").value(cell).name("places").beginArray()
+                        r.beginArray()
+                        while (r.hasNext()) {
+                            r.beginArray()
+                            w.beginArray()
+                            w.value(r.nextString()).value(r.nextString()).value(r.nextDouble()).value(r.nextDouble()).value(r.nextString())
+                            while (r.hasNext()) r.skipValue()
+                            w.endArray()
+                            r.endArray()
+                        }
+                        r.endArray()
+                        w.endArray().endObject()
+                    }
+                    tmp.renameTo(File(cacheDir, "$cell.json.gz"))
+                }
+                r.endObject()
+            }
+            r.endObject()
         }
     }
 
