@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One place row (search results, recent places): icon in a grey circle,
-     bold name, quiet address underneath, distance from the driver on the right. -->
+<!-- One place row (search results, recent and saved places): optional icon
+     in a grey circle, name, "category · address" underneath, distance (or
+     drive time) on the right. Filled in by PlaceRows.bind. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -15,6 +16,7 @@
     android:paddingBottom="10dp">
 
     <FrameLayout
+        android:id="@+id/resultIconHolder"
         android:layout_width="40dp"
         android:layout_height="40dp"
         android:layout_marginEnd="14dp"
@@ -56,11 +58,29 @@
 
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/resultDistance"
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="10dp"
-        android:textAppearance="@style/TextAppearance.Signal.Number.Row" />
+        android:gravity="end"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/resultDistance"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.Signal.Number.Row" />
+
+        <TextView
+            android:id="@+id/resultTopMatch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="@string/top_match"
+            android:textAppearance="@style/TextAppearance.Signal.Caption"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+    </LinearLayout>
 
 </LinearLayout>

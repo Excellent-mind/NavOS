@@ -15,4 +15,17 @@
     <string name="chip_petrol">Petrol</string>
     <string name="chip_ev">EV charging</string>
     <string name="recent">Recent</string>
+
+    <!-- Search -->
+    <string name="top_match">Top match</string>
+    <string name="saved">Saved</string>
+    <string name="clear">Clear</string>
+    <string name="back">Back</string>
+    <string name="clear_search">Clear search</string>
+    <string name="filter_all">All</string>
+    <string name="filter_places">Places</string>
+    <string name="filter_addresses">Addresses</string>
+    <string name="choose_on_map">Choose on map</string>
+    <string name="choose_on_map_hint">Press and hold on the map to choose a place</string>
+    <string name="no_petrol_nearby">No petrol stations loaded nearby yet</string>
 </resources>

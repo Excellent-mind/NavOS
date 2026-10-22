@@ -25,6 +25,8 @@ class RecentPlaces(
                     longitude = o.getDouble("lon"),
                     name = o.optString("name").ifBlank { label.substringBefore(",").trim() },
                     address = o.optString("address"),
+                    category = o.optString("category").ifBlank { null },
+                    isAddress = o.optBoolean("isAddress"),
                 )
             }
         } catch (e: Exception) {
@@ -44,7 +46,9 @@ class RecentPlaces(
                     .put("lat", r.latitude)
                     .put("lon", r.longitude)
                     .put("name", r.name)
-                    .put("address", r.address),
+                    .put("address", r.address)
+                    .put("category", r.category)
+                    .put("isAddress", r.isAddress),
             )
         }
         prefs.edit().putString(KEY, array.toString()).apply()

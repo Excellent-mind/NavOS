@@ -188,6 +188,7 @@ internal const val MAP_STYLE_DARK = "dark"
 /** Pause after the last keystroke before a live search fires - long
  * enough not to query on every letter, short enough to feel instant. */
 private const val LIVE_SEARCH_DEBOUNCE_MS = 120L
+private const val MAX_PETROL_RESULTS = 10
 
 // Petrol station / EV charger pins during a drive.
 private const val POI_ID_PROPERTY = "poiId"
@@ -289,9 +290,10 @@ class MainActivity : AppCompatActivity() {
     private var nextTurnsRenderedIndex = -1
     private var nextTurnsFirstDistance: TextView? = null
     private lateinit var homeButton: View
-    private lateinit var homeButtonLabel: TextView
     private lateinit var workButton: View
-    private lateinit var workButtonLabel: TextView
+    private lateinit var homeSearchEmpty: View
+    private lateinit var chooseOnMapButton: View
+    private lateinit var searchScreen: SearchScreen
     private lateinit var prefs: SharedPreferences
     private lateinit var savedPlaces: SavedPlaces
     private lateinit var settingsDialogs: SettingsDialogs
@@ -831,7 +833,9 @@ class MainActivity : AppCompatActivity() {
             R.id.homeSearchClearButton, R.id.homeButton, R.id.workButton, R.id.permissionRetryButton,
             R.id.permissionSettingsButton, R.id.gpsSettingsButton, R.id.arrivalConfirmButton,
             R.id.arrivalNotYetButton, R.id.exitCancelButton, R.id.exitConfirmButton,
-            R.id.homeSearchPill, R.id.homeRecentsClear, R.id.nextTurnsSwitchRoute, R.id.nextTurnsClose,
+            R.id.homeSearchPill, R.id.homeRecentsClear, R.id.chooseOnMapButton, R.id.filterAll, R.id.filterPlaces,
+            R.id.filterAddresses, R.id.filterPetrol, R.id.homePetrolChip, R.id.homeEvChip, R.id.homeShortcutHome,
+            R.id.homeShortcutWork, R.id.nextTurnsSwitchRoute, R.id.nextTurnsClose,
         ).forEach { id -> findViewById<View>(id)?.let(Motion::addPressFeedback) }
     }
 
@@ -976,6 +980,9 @@ class MainActivity : AppCompatActivity() {
         homeSheet.translationY = if (fullHeight || ownedByDrag) 0f else -lastImeBottom.toFloat()
 
         topBar.setPadding(topBar.paddingLeft, topBar.paddingTop, topBar.paddingRight, lastImeBottom + dp(12))
+        // While typing, the keyboard needs the room for results; "Choose on
+        // map" comes back once it closes.
+        if (::chooseOnMapButton.isInitialized) chooseOnMapButton.visibility = if (lastImeBottom > 0) View.GONE else View.VISIBLE
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -1183,9 +1190,13 @@ class MainActivity : AppCompatActivity() {
 
                     if (text.trim().length < GeocodingService.MIN_LIVE_QUERY_LENGTH) {
                         searchSeq++ // any reply still in flight is now stale
-                        currentResults = emptyList()
-                        resultsList.visibility = View.GONE
-                        if (resultsList === homeSearchResultsList) setHomeQuickPicksVisible(true)
+                        if (resultsList === homeSearchResultsList) {
+                            activeSearchResultsList = resultsList
+                            showSearchResults(emptyList()) // Saved / Recent, or nearby petrol
+                        } else {
+                            currentResults = emptyList()
+                            resultsList.visibility = View.GONE
+                        }
                         return
                     }
                     // Only the driver typing triggers a search - not a
@@ -1240,7 +1251,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         resultsList.setOnItemClickListener { _, _, position, _ ->
-            val result = currentResults.getOrNull(position) ?: return@setOnItemClickListener
+            val result = (resultsList.adapter as? PlaceRows.Adapter)?.results?.getOrNull(position) ?: return@setOnItemClickListener
             onDestinationSelected(result)
         }
     }
@@ -1415,7 +1426,7 @@ class MainActivity : AppCompatActivity() {
         if (state == HomeSheetState.SEARCH) {
             activeSearchInput = homeSearchInput
             activeSearchResultsList = homeSearchResultsList
-            if (homeSearchInput.text.isNullOrEmpty()) renderRecents()
+            if (homeSearchInput.text.isNullOrEmpty()) setHomeQuickPicksVisible(true)
             homeSearchInput.requestFocus()
             imm.showSoftInput(homeSearchInput, InputMethodManager.SHOW_IMPLICIT)
         } else {
@@ -1423,6 +1434,7 @@ class MainActivity : AppCompatActivity() {
             // whatever was typed - otherwise the next time the sheet opens
             // in search mode it still shows the last destination typed,
             // instead of the empty "Search destination in Malaysia" hint.
+            searchScreen.reset()
             homeSearchInput.setText("")
             homeSearchInput.clearFocus()
             homeSearchResultsList.visibility = View.GONE
@@ -2053,25 +2065,23 @@ class MainActivity : AppCompatActivity() {
 
     private fun setUpSavedPlaces() {
         homeButton = findViewById(R.id.homeButton)
-        homeButtonLabel = findViewById(R.id.homeButtonLabel)
         workButton = findViewById(R.id.workButton)
-        workButtonLabel = findViewById(R.id.workButtonLabel)
+        homeSearchEmpty = findViewById(R.id.homeSearchEmpty)
+        chooseOnMapButton = findViewById(R.id.chooseOnMapButton)
 
-        homeButton.setOnClickListener { onSavedPlaceTapped("home") }
-        workButton.setOnClickListener { onSavedPlaceTapped("work") }
-
+        val driveTimes =
+            HomeEtas(
+                runInBackground = { if (!extrasExecutor.isShutdown) extrasExecutor.execute(it) },
+                postToMain = { mainHandler.post(it) },
+                clock = SystemClock::elapsedRealtime,
+                fetchSeconds = { from, to -> RoutingService.calculateRoutes(from, to).first().durationSeconds },
+            )
         homeScreen =
             HomeScreen(
                 root = homeSheet,
                 savedPlaces = savedPlaces,
                 recentPlaces = recentPlaces,
-                driveTimes =
-                    HomeEtas(
-                        runInBackground = { if (!extrasExecutor.isShutdown) extrasExecutor.execute(it) },
-                        postToMain = { mainHandler.post(it) },
-                        clock = SystemClock::elapsedRealtime,
-                        fetchSeconds = { from, to -> RoutingService.calculateRoutes(from, to).first().durationSeconds },
-                    ),
+                driveTimes = driveTimes,
                 host =
                     object : HomeScreen.Host {
                         override fun currentLocation(): Location? = lastKnownLocation
@@ -2088,13 +2098,43 @@ class MainActivity : AppCompatActivity() {
                         ) = this@MainActivity.setPoiKindShown(kind, shown)
                     },
             )
+        searchScreen =
+            SearchScreen(
+                root = homeSheet,
+                savedPlaces = savedPlaces,
+                driveTimes = driveTimes,
+                host =
+                    object : SearchScreen.Host {
+                        override fun currentLocation(): Location? = lastKnownLocation
+
+                        override fun nearbyPetrol(): List<GeocodeResult> = nearbyPetrolResults()
+
+                        override fun onFilterChanged() = showSearchResults(currentResults)
+
+                        override fun onShortcutTapped(key: String) = onSavedPlaceTapped(key)
+
+                        override fun onChooseOnMap() {
+                            setHomeSheetState(HomeSheetState.COLLAPSED)
+                            Toast.makeText(this@MainActivity, R.string.choose_on_map_hint, Toast.LENGTH_LONG).show()
+                        }
+                    },
+            )
         refreshSavedPlaceLabels()
     }
 
     private fun refreshSavedPlaceLabels() {
-        homeButtonLabel.text = savedPlaceLabel("home") ?: "Home"
-        workButtonLabel.text = savedPlaceLabel("work") ?: "Work"
         homeScreen.render()
+        searchScreen.renderSaved()
+    }
+
+    /** Petrol stations the map has already loaded, nearest to the driver first. */
+    private fun nearbyPetrolResults(): List<GeocodeResult> {
+        val here = lastKnownLocation
+        return nearbyPois
+            .filter { it.kind == PoiKind.FUEL }
+            .sortedBy { if (here == null) 0f else GeocodingService.distanceMeters(here.latitude, here.longitude, it.latitude, it.longitude) }
+            .take(MAX_PETROL_RESULTS)
+            .map { GeocodeResult(it.name, it.latitude, it.longitude, it.name, "", category = getString(R.string.chip_petrol)) }
     }
 
     private fun savedPlaceLabel(key: String): String? = savedPlaces.get(key)?.label
@@ -2171,23 +2211,28 @@ class MainActivity : AppCompatActivity() {
     private fun showSearchResults(results: List<GeocodeResult>) {
         currentResults = results
         val list = activeSearchResultsList ?: return
-        // Home/Work make way for real results, and come back once the box
-        // is cleared - same as Waze showing Home/Work only on an empty box.
-        if (list === homeSearchResultsList) setHomeQuickPicksVisible(results.isEmpty())
-        if (results.isEmpty()) {
+        val query = activeSearchInput?.text?.toString().orEmpty()
+        // The home search runs through the filters; Saved / Recent make way
+        // for results and come back once there are none (empty box).
+        val shown = if (list === homeSearchResultsList) searchScreen.filter(results, query) else results
+        if (list === homeSearchResultsList) {
+            setHomeQuickPicksVisible(shown.isEmpty())
+            if (shown.isEmpty() && searchScreen.filter == SearchScreen.Filter.PETROL) {
+                Toast.makeText(this, R.string.no_petrol_nearby, Toast.LENGTH_SHORT).show()
+            }
+        }
+        if (shown.isEmpty()) {
             list.visibility = View.GONE
             return
         }
-        list.adapter = SearchResultAdapter(results, lastKnownLocation)
+        list.adapter = PlaceRows.Adapter(shown, lastKnownLocation, query)
         list.visibility = View.VISIBLE
         list.setSelection(0)
     }
 
     private fun setHomeQuickPicksVisible(visible: Boolean) {
-        val v = if (visible) View.VISIBLE else View.GONE
-        homeButton.visibility = v
-        workButton.visibility = v
-        if (visible) renderRecents() else homeRecentsContainer.visibility = View.GONE
+        homeSearchEmpty.visibility = if (visible) View.VISIBLE else View.GONE
+        if (visible) renderRecents()
     }
 
     // ---- Search helpers: instant matches + recent searches --------------
@@ -2220,64 +2265,13 @@ class MainActivity : AppCompatActivity() {
         }
         val origin = lastKnownLocation
         for (r in recents) {
-            val row = LayoutInflater.from(this).inflate(R.layout.item_search_result, container, false)
-            row.findViewById<ImageView>(R.id.resultIcon).setImageResource(R.drawable.ic_history)
-            row.findViewById<TextView>(R.id.resultName).text = r.name.ifBlank { r.label }
-            val address = row.findViewById<TextView>(R.id.resultAddress)
-            address.text = r.address.trim()
-            address.visibility = if (r.address.isBlank()) View.GONE else View.VISIBLE
-            val distance = row.findViewById<TextView>(R.id.resultDistance)
-            if (origin != null) {
-                distance.text =
-                    NavFormat.formatDistance(GeocodingService.distanceMeters(origin.latitude, origin.longitude, r.latitude, r.longitude))
-                distance.visibility = View.VISIBLE
-            } else {
-                distance.visibility = View.GONE
-            }
-            row.isClickable = true
+            val row = PlaceRows.inflate(container)
+            PlaceRows.bind(row, r, origin, iconRes = R.drawable.ic_history)
             row.setOnClickListener { onDestinationSelected(r) }
             container.addView(row)
         }
         container.visibility = View.VISIBLE
     }
-
-    /** Two-line results row (bold name, grey area) with the distance from
-     * the driver's last GPS fix on the right, like Waze. */
-    private inner class SearchResultAdapter(
-        private val results: List<GeocodeResult>,
-        private val origin: Location?,
-    ) : BaseAdapter() {
-        override fun getCount(): Int = results.size
-
-        override fun getItem(position: Int): Any = results[position]
-
-        override fun getItemId(position: Int): Long = position.toLong()
-
-        override fun getView(
-            position: Int,
-            convertView: View?,
-            parent: ViewGroup,
-        ): View {
-            val row = convertView ?: LayoutInflater.from(parent.context).inflate(R.layout.item_search_result, parent, false)
-            val result = results[position]
-            row.findViewById<TextView>(R.id.resultName).text = result.name.ifBlank { result.label }
-            val address = row.findViewById<TextView>(R.id.resultAddress)
-            address.text = result.address.trim()
-            address.visibility = if (result.address.isBlank()) View.GONE else View.VISIBLE
-            val distance = row.findViewById<TextView>(R.id.resultDistance)
-            if (origin != null) {
-                distance.text =
-                    NavFormat.formatDistance(
-                        GeocodingService.distanceMeters(origin.latitude, origin.longitude, result.latitude, result.longitude),
-                    )
-                distance.visibility = View.VISIBLE
-            } else {
-                distance.visibility = View.GONE
-            }
-            return row
-        }
-    }
-
 
     private fun onDestinationSelected(result: GeocodeResult) {
         if (droppedPin != null) hidePoiCard()

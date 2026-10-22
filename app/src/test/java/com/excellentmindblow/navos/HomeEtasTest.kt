@@ -27,7 +27,7 @@ class HomeEtasTest {
                 if (fails) throw RuntimeException("offline")
                 if (to == home) 720.0 else 1680.0
             },
-        ).also { it.onChanged = { changes++ } }
+        ).also { it.addListener { changes++ } }
 
     private fun finish() {
         background.toList().forEach { it() }

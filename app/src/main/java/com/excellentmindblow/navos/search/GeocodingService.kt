@@ -31,6 +31,10 @@ data class GeocodeResult(
     val address: String = label.substringAfter(",", "").trim(),
     val houseNumber: String? = null,
     val approximate: Boolean = false,
+    /** Short kind of place ("Shopping mall", "Road"), when the source says. See [PlaceCategory]. */
+    val category: String? = null,
+    /** A house or a road rather than a named place. */
+    val isAddress: Boolean = false,
 )
 
 /**
@@ -454,7 +458,7 @@ object GeocodingService {
             val road = part("road") ?: part("pedestrian") ?: part("residential")
             val name = part("amenity") ?: part("building") ?: listOfNotNull(number, road).joinToString(" ").takeIf { it.isNotBlank() }
                 ?: label.substringBefore(',').trim()
-            return GeocodeResult(label, lat, lon, name, label.removePrefix(name).trim().trimStart(','), houseNumber = number)
+            return GeocodeResult(label, lat, lon, name, label.removePrefix(name).trim().trimStart(',').trim(), houseNumber = number)
         } finally { connection.disconnect() }
     }
 
@@ -503,7 +507,18 @@ object GeocodingService {
                 .joinToString(", ")
 
         val label = if (address.isEmpty()) name else "$name, $address"
-        return GeocodeResult(label, lat, lon, name, address, houseNumber = houseNumber)
+        val osmKey = props.str("osm_key")
+        val osmValue = props.str("osm_value")
+        return GeocodeResult(
+            label,
+            lat,
+            lon,
+            name,
+            address,
+            houseNumber = houseNumber,
+            category = PlaceCategory.label(osmKey, osmValue),
+            isAddress = PlaceCategory.isAddress(osmKey, osmValue, houseNumber != null, placeName != null),
+        )
     }
 
     /** optString() returns "" for a missing key and "null" for an explicit
@@ -671,13 +686,17 @@ object GeocodingService {
                 val name = obj.optString("name", "").takeIf { it.isNotBlank() && it != "null" }
                     ?: listOfNotNull(number, road).joinToString(" ").takeIf { it.isNotBlank() }
                     ?: displayName.substringBefore(",").trim()
+                val osmKey = obj.optString("class", "").takeIf { it.isNotBlank() && it != "null" }
+                val osmValue = obj.optString("type", "").takeIf { it.isNotBlank() && it != "null" }
                 GeocodeResult(
                     label = displayName,
                     latitude = lat,
                     longitude = lon,
                     name = name,
-                    address = displayName.removePrefix(name).trim().trimStart(','),
+                    address = displayName.removePrefix(name).trim().trimStart(',').trim(),
                     houseNumber = number,
+                    category = PlaceCategory.label(osmKey, osmValue),
+                    isAddress = PlaceCategory.isAddress(osmKey, osmValue, number != null, obj.has("name") && obj.optString("name").isNotBlank()),
                 )
             }
         } finally {

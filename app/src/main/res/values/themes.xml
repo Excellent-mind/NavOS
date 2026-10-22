@@ -124,4 +124,12 @@
         <item name="android:textAppearance">@style/TextAppearance.Signal.Label</item>
         <item name="android:textColor">@color/sig_chip_text</item>
     </style>
+
+    <!-- Smaller chip for the search filters (40dp, 14sp). -->
+    <style name="Widget.Signal.Chip.Filter">
+        <item name="android:layout_height">40dp</item>
+        <item name="android:paddingStart">14dp</item>
+        <item name="android:paddingEnd">14dp</item>
+        <item name="android:textSize">14sp</item>
+    </style>
 </resources>

@@ -11,7 +11,7 @@ import com.excellentmindblow.navos.routing.RoutePoint
  * public routing server is not hammered while offline.
  *
  * [fetchSeconds] runs through [runInBackground]; results come back through
- * [postToMain], then [onChanged] is called. Everything else is main thread.
+ * [postToMain], then the listeners are told. Everything else is main thread.
  */
 class HomeEtas(
     private val runInBackground: (() -> Unit) -> Unit,
@@ -19,8 +19,12 @@ class HomeEtas(
     private val clock: () -> Long,
     private val fetchSeconds: (from: RoutePoint, to: RoutePoint) -> Double,
 ) {
-    /** Called on the main thread whenever a new time is known. */
-    var onChanged: () -> Unit = {}
+    private val listeners = ArrayList<() -> Unit>()
+
+    /** [listener] runs on the main thread whenever a new time is known. */
+    fun addListener(listener: () -> Unit) {
+        listeners += listener
+    }
 
     private class Known(
         val seconds: Double,
@@ -70,7 +74,7 @@ class HomeEtas(
                     } else {
                         failedAtMs -= key
                         known[key] = Known(seconds, from, to, clock())
-                        onChanged()
+                        listeners.forEach { it() }
                     }
                 }
             }

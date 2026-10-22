@@ -41,4 +41,7 @@
     <color name="sig_success">#1F7A45</color>
     <color name="sig_petrol">#C25E00</color>
     <color name="sig_ev">#1F8A4C</color>
+    <color name="sig_divider">#EDEDED</color>
+    <color name="sig_dash">#BDBDBD</color>
+    <color name="sig_clear_fill">#E6E6E6</color>
 </resources>

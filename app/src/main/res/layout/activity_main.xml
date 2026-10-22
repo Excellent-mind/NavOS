@@ -1029,8 +1029,8 @@
 
             </LinearLayout>
 
-            <!-- Expanded row: back arrow + either the live search input
-                 (search state) or a plain title (settings state). -->
+            <!-- Expanded header: back button + either the search field
+                 (search) or a plain title (settings). -->
             <LinearLayout
                 android:id="@+id/homeSheetExpandedRow"
                 android:layout_width="match_parent"
@@ -1041,25 +1041,27 @@
 
                 <ImageButton
                     android:id="@+id/homeSheetBackButton"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:layout_marginEnd="8dp"
-                    android:background="@drawable/bg_circle_light"
-                    android:contentDescription="Back"
-                    android:padding="14dp"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginEnd="10dp"
+                    android:background="@drawable/bg_sig_icon_circle"
+                    android:contentDescription="@string/back"
+                    android:padding="13dp"
+                    android:scaleType="fitCenter"
                     android:src="@drawable/ic_arrow_back"
-                    android:tint="@color/navos_text" />
+                    app:tint="@color/sig_text" />
 
-                <!-- Search pill: the input plus the circled-X clear button
+                <!-- Search field: the input plus the round clear button
                      inside it (shown only once something is typed). -->
                 <LinearLayout
                     android:id="@+id/homeSearchInputContainer"
                     android:layout_width="0dp"
                     android:layout_height="52dp"
                     android:layout_weight="1"
-                    android:background="@drawable/bg_search_pill"
+                    android:background="@drawable/bg_sig_input"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
+                    android:paddingEnd="8dp"
                     android:visibility="gone">
 
                     <EditText
@@ -1069,25 +1071,27 @@
                         android:layout_weight="1"
                         android:autofillHints=""
                         android:background="@android:color/transparent"
-                        android:hint="Where to?"
+                        android:hint="@string/home_search_hint"
                         android:imeOptions="actionSearch"
                         android:inputType="text"
                         android:maxLines="1"
-                        android:paddingStart="16dp"
+                        android:paddingStart="14dp"
                         android:paddingEnd="4dp"
-                        android:textColor="@color/navos_text"
-                        android:textColorHint="@color/navos_text_secondary"
-                        android:textSize="17sp" />
+                        android:textAppearance="@style/TextAppearance.Signal.Input"
+                        android:textColorHint="@color/sig_text_quiet" />
 
                     <ImageButton
                         android:id="@+id/homeSearchClearButton"
-                        android:layout_width="44dp"
-                        android:layout_height="44dp"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="Clear search"
-                        android:padding="10dp"
-                        android:src="@drawable/ic_clear_circle"
-                        android:visibility="gone" />
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:background="@drawable/bg_sig_icon_circle"
+                        android:backgroundTint="@color/sig_clear_fill"
+                        android:contentDescription="@string/clear_search"
+                        android:padding="9dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_close"
+                        android:visibility="gone"
+                        app:tint="@color/sig_text" />
 
                 </LinearLayout>
 
@@ -1096,148 +1100,176 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Settings"
-                    android:textColor="@color/navos_text"
-                    android:textSize="18sp"
-                    android:textStyle="bold"
+                    android:text="@string/settings"
+                    android:textAppearance="@style/TextAppearance.Signal.Body"
+                    android:textSize="21sp"
                     android:visibility="gone" />
 
             </LinearLayout>
 
-            <!-- Search body: Home/Work quick picks + live results. Shown
-                 only while the sheet is expanded in search mode - folds
-                 what used to be the separate Saved-places card into
-                 search's default suggestions, same as Google Maps/Waze
-                 show Home/Work above their own search results. -->
+            <!-- Search body: filters, then either Saved + Recent (empty box)
+                 or the results, and "Choose on map" at the bottom. Fills the
+                 full-height sheet while searching. -->
             <LinearLayout
                 android:id="@+id/homeSearchBody"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_height="0dp"
+                android:layout_weight="1"
                 android:orientation="vertical"
                 android:visibility="gone">
 
-                <LinearLayout
-                    android:id="@+id/homeButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="56dp"
-                    android:layout_marginBottom="8dp"
-                    android:background="@drawable/bg_chip_light"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:paddingStart="14dp"
-                    android:paddingEnd="14dp">
-
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:layout_marginEnd="12dp"
-                        android:importantForAccessibility="no"
-                        android:tint="@color/navos_text"
-                        android:src="@drawable/ic_home" />
-
-                    <TextView
-                        android:id="@+id/homeButtonLabel"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        android:textColor="@color/navos_text"
-                        android:textSize="15sp"
-                        tools:text="Home" />
-
-                </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/workButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="56dp"
-                    android:layout_marginBottom="4dp"
-                    android:background="@drawable/bg_chip_light"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:paddingStart="14dp"
-                    android:paddingEnd="14dp">
-
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:layout_marginEnd="12dp"
-                        android:importantForAccessibility="no"
-                        android:tint="@color/navos_text"
-                        android:src="@drawable/ic_work" />
-
-                    <TextView
-                        android:id="@+id/workButtonLabel"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        android:textColor="@color/navos_text"
-                        android:textSize="15sp"
-                        tools:text="Work" />
-
-                </LinearLayout>
-
-                <!-- Recent searches: shown under Home/Work while the box is empty.
-                     Rows are added from code (MainActivity.renderRecents). -->
-                <LinearLayout
-                    android:id="@+id/homeRecentsContainer"
+                <HorizontalScrollView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:visibility="gone">
+                    android:layout_marginTop="14dp"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/searchFilterRow"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/filterAll"
+                            style="@style/Widget.Signal.Chip.Filter"
+                            android:text="@string/filter_all" />
+
+                        <TextView
+                            android:id="@+id/filterPlaces"
+                            style="@style/Widget.Signal.Chip.Filter"
+                            android:layout_marginStart="8dp"
+                            android:text="@string/filter_places" />
+
+                        <TextView
+                            android:id="@+id/filterAddresses"
+                            style="@style/Widget.Signal.Chip.Filter"
+                            android:layout_marginStart="8dp"
+                            android:text="@string/filter_addresses" />
+
+                        <TextView
+                            android:id="@+id/filterPetrol"
+                            style="@style/Widget.Signal.Chip.Filter"
+                            android:layout_marginStart="8dp"
+                            android:text="@string/chip_petrol" />
+
+                    </LinearLayout>
+
+                </HorizontalScrollView>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="12dp"
+                    android:background="@color/sig_divider" />
+
+                <ScrollView
+                    android:id="@+id/homeSearchEmpty"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1">
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="8dp"
-                        android:paddingTop="8dp"
-                        android:paddingEnd="8dp"
-                        android:paddingBottom="4dp">
+                        android:orientation="vertical">
 
                         <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Recent"
-                            android:textColor="@color/navos_text_secondary"
-                            android:textSize="14sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:id="@+id/homeRecentsClear"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:gravity="center"
-                            android:minHeight="48dp"
-                            android:paddingStart="12dp"
-                            android:paddingEnd="12dp"
-                            android:text="Clear"
-                            android:textColor="@color/navos_blue"
-                            android:textSize="14sp"
-                            android:textStyle="bold" />
+                            android:paddingStart="4dp"
+                            android:paddingTop="16dp"
+                            android:paddingEnd="4dp"
+                            android:paddingBottom="2dp"
+                            android:text="@string/saved"
+                            android:textAppearance="@style/TextAppearance.Signal.Overline" />
+
+                        <include
+                            android:id="@+id/homeButton"
+                            layout="@layout/item_search_result" />
+
+                        <include
+                            android:id="@+id/workButton"
+                            layout="@layout/item_search_result" />
+
+                        <!-- Recent places; rows are added from code (renderRecents). -->
+                        <LinearLayout
+                            android:id="@+id/homeRecentsContainer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:visibility="gone">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal"
+                                android:paddingStart="4dp"
+                                android:paddingTop="8dp">
+
+                                <TextView
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="@string/recent"
+                                    android:textAppearance="@style/TextAppearance.Signal.Overline" />
+
+                                <TextView
+                                    android:id="@+id/homeRecentsClear"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:clickable="true"
+                                    android:focusable="true"
+                                    android:gravity="center"
+                                    android:minHeight="48dp"
+                                    android:paddingStart="12dp"
+                                    android:paddingEnd="4dp"
+                                    android:text="@string/clear"
+                                    android:textAppearance="@style/TextAppearance.Signal.Label" />
+
+                            </LinearLayout>
+
+                        </LinearLayout>
 
                     </LinearLayout>
 
-                </LinearLayout>
+                </ScrollView>
 
-                <!-- No fixed max height: while searching the sheet goes full
-                     height, so this list fills whatever room is left above
-                     the keyboard and scrolls. -->
                 <ListView
                     android:id="@+id/homeSearchResultsList"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:divider="@color/navos_line"
+                    android:layout_height="0dp"
+                    android:layout_marginTop="6dp"
+                    android:layout_weight="1"
+                    android:divider="@color/sig_divider"
                     android:dividerHeight="1dp"
                     android:visibility="gone" />
+
+                <FrameLayout
+                    android:id="@+id/chooseOnMapButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_sig_dashed"
+                    android:clickable="true"
+                    android:contentDescription="@string/choose_on_map"
+                    android:focusable="true">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:drawablePadding="10dp"
+                        android:gravity="center_vertical"
+                        android:importantForAccessibility="no"
+                        android:text="@string/choose_on_map"
+                        android:textAppearance="@style/TextAppearance.Signal.Label"
+                        android:textSize="16sp"
+                        app:drawableStartCompat="@drawable/ic_place_pin"
+                        app:drawableTint="@color/sig_text" />
+
+                </FrameLayout>
 
             </LinearLayout>
 

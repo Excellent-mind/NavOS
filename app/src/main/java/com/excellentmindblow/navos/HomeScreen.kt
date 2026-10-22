@@ -2,16 +2,13 @@ package com.excellentmindblow.navos
 
 import android.content.res.ColorStateList
 import android.location.Location
-import android.view.LayoutInflater
 import android.view.View
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.excellentmindblow.navos.poi.PoiKind
 import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.search.GeocodeResult
-import com.excellentmindblow.navos.search.GeocodingService
 import com.excellentmindblow.navos.search.RecentPlaces
 import com.excellentmindblow.navos.search.SavedPlaces
 
@@ -51,7 +48,7 @@ class HomeScreen(
     private val recents: LinearLayout = root.findViewById(R.id.homePeekRecents)
 
     init {
-        driveTimes.onChanged = { render() }
+        driveTimes.addListener { render() }
         homeCard.setOnClickListener { host.onShortcutTapped(SavedPlaces.HOME) }
         workCard.setOnClickListener { host.onShortcutTapped(SavedPlaces.WORK) }
         petrolChip.setOnClickListener { toggle(PoiKind.FUEL) }
@@ -146,21 +143,8 @@ class HomeScreen(
         recents.visibility = if (list.isEmpty()) View.GONE else View.VISIBLE
         val origin = host.currentLocation()
         for (place in list) {
-            val row = LayoutInflater.from(context).inflate(R.layout.item_search_result, recents, false)
-            row.findViewById<ImageView>(R.id.resultIcon).setImageResource(R.drawable.ic_history)
-            row.findViewById<TextView>(R.id.resultName).text = place.name.ifBlank { place.label }
-            val address = row.findViewById<TextView>(R.id.resultAddress)
-            address.text = place.address.trim()
-            address.visibility = if (place.address.isBlank()) View.GONE else View.VISIBLE
-            val distance = row.findViewById<TextView>(R.id.resultDistance)
-            if (origin != null) {
-                distance.text =
-                    NavFormat.formatDistance(
-                        GeocodingService.distanceMeters(origin.latitude, origin.longitude, place.latitude, place.longitude),
-                    )
-            } else {
-                distance.visibility = View.GONE
-            }
+            val row = PlaceRows.inflate(recents)
+            PlaceRows.bind(row, place, origin, iconRes = R.drawable.ic_history)
             row.setOnClickListener { host.onRecentTapped(place) }
             recents.addView(row)
         }
