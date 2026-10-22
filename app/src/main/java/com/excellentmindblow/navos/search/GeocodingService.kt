@@ -72,7 +72,10 @@ object GeocodingService {
     private const val WIDE_RADIUS_DEGREES = 2.0 // roughly state-sized (~220km)
     private const val MIN_LOCAL_RESULTS = 3
 
-    private const val PHOTON_URL = "https://photon.komoot.io/api/"
+    // Photon servers, tried in order. The second is OpenRoad's self-hosted
+    // Photon (Asia extract, same OpenStreetMap data) - github.com/Rekabytes-Enterprise/openroad -
+    // used only when the public komoot server times out or fails.
+    private val PHOTON_BASES = listOf("https://photon.komoot.io", "https://po-openroad.techapi.my")
     private const val MALAYSIA_BBOX = "99.6,0.85,119.4,7.45" // minLon,minLat,maxLon,maxLat
     private const val LIVE_LOCAL_RADIUS_DEGREES = 0.3 // roughly city-sized (~30km)
     private const val MIN_LIVE_LOCAL_RESULTS = 5
@@ -402,14 +405,17 @@ object GeocodingService {
     ): List<GeocodeResult> {
         val generation = liveGeneration
         return try {
-            photonRequest(query, biasLat, biasLon, bbox, cancellable, LIVE_TIMEOUT_MS)
-        } catch (e: java.net.SocketTimeoutException) {
+            photonRequest(PHOTON_BASES[0], query, biasLat, biasLon, bbox, cancellable, LIVE_TIMEOUT_MS)
+        } catch (e: IOException) {
+            // Cancelled by a newer keystroke: give up. Otherwise the public
+            // server is slow or down - ask the backup server instead.
             if (cancellable && generation != liveGeneration) throw e
-            photonRequest(query, biasLat, biasLon, bbox, cancellable, RETRY_TIMEOUT_MS)
+            photonRequest(PHOTON_BASES[1], query, biasLat, biasLon, bbox, cancellable, RETRY_TIMEOUT_MS)
         }
     }
 
     private fun photonRequest(
+        base: String,
         query: String,
         biasLat: Double?,
         biasLon: Double?,
@@ -427,7 +433,7 @@ object GeocodingService {
             params.append("&location_bias_scale=0.3")
         }
 
-        val connection = URL("$PHOTON_URL?$params").openConnection() as HttpURLConnection
+        val connection = URL("$base/api/?$params").openConnection() as HttpURLConnection
         connection.setRequestProperty("User-Agent", USER_AGENT)
         connection.setRequestProperty("Accept", "application/json")
         connection.connectTimeout = timeoutMs
@@ -493,12 +499,25 @@ object GeocodingService {
     }
 
     private fun reversePhoton(lat: Double, lon: Double): GeocodeResult? {
-        val connection = URL("https://photon.komoot.io/reverse?lat=$lat&lon=$lon&limit=1").openConnection() as HttpURLConnection
+        for (base in PHOTON_BASES) {
+            val found = runCatching { reversePhotonAt(base, lat, lon) }
+            if (found.isSuccess) return found.getOrNull()
+        }
+        return null
+    }
+
+    /** Null = nothing nameable there; throws when the server didn't answer. */
+    private fun reversePhotonAt(
+        base: String,
+        lat: Double,
+        lon: Double,
+    ): GeocodeResult? {
+        val connection = URL("$base/reverse?lat=$lat&lon=$lon&limit=1").openConnection() as HttpURLConnection
         connection.setRequestProperty("User-Agent", USER_AGENT)
         connection.connectTimeout = 6_000
         connection.readTimeout = 6_000
         try {
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) return null
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) throw IOException("Photon reverse failed (${connection.responseCode})")
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             val feature = JSONObject(body).optJSONArray("features")?.optJSONObject(0) ?: return null
             return parsePhotonFeature(feature)?.copy(latitude = lat, longitude = lon)
