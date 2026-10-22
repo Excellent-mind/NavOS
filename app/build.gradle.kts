@@ -90,4 +90,6 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.mockito:mockito-core:5.14.2")
+    // Real org.json for JVM unit tests (the Android stub throws "not mocked").
+    testImplementation("org.json:json:20240303")
 }

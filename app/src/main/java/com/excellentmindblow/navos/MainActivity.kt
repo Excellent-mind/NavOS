@@ -101,6 +101,8 @@ import com.excellentmindblow.navos.routing.TripPlanner
 import com.excellentmindblow.navos.search.GeocodeResult
 import com.excellentmindblow.navos.search.GeocodingService
 import com.excellentmindblow.navos.search.IncomingLocation
+import com.excellentmindblow.navos.search.RecentPlaces
+import com.excellentmindblow.navos.search.SavedPlaces
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -231,9 +233,6 @@ private const val MAP_STYLE_DARK = "dark"
 /** Pause after the last keystroke before a live search fires - long
  * enough not to query on every letter, short enough to feel instant. */
 private const val LIVE_SEARCH_DEBOUNCE_MS = 120L
-private const val KEY_RECENT_PLACES = "recent_places"
-private const val MAX_RECENTS_STORED = 10
-private const val MAX_RECENTS_SHOWN = 5
 
 // Petrol station / EV charger pins during a drive.
 private const val POI_SOURCE_ID = "navos-poi-source"
@@ -354,6 +353,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var workButton: View
     private lateinit var workButtonLabel: TextView
     private lateinit var prefs: SharedPreferences
+    private lateinit var savedPlaces: SavedPlaces
+    private lateinit var recentPlaces: RecentPlaces
     private lateinit var nextTurnStrip: View
     private lateinit var laneContainer: LinearLayout
     private lateinit var permissionDeniedOverlay: View
@@ -666,6 +667,8 @@ class MainActivity : AppCompatActivity() {
         // WHOLE app's day/night theme, not just the map tiles. Must run
         // before super.onCreate so the first inflate already uses it.
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        savedPlaces = SavedPlaces(prefs)
+        recentPlaces = RecentPlaces(prefs)
         MapDisplayPrefs.load(prefs)
         driveFollower.driveTilt = if (MapDisplayPrefs.view3d) NAV_TILT_DEGREES else 0.0
         applyAppNightMode()
@@ -1330,7 +1333,7 @@ class MainActivity : AppCompatActivity() {
         homeSearchInputContainer = findViewById(R.id.homeSearchInputContainer)
         homeRecentsContainer = findViewById(R.id.homeRecentsContainer)
         findViewById<View>(R.id.homeRecentsClear).setOnClickListener {
-            prefs.edit().remove(KEY_RECENT_PLACES).apply()
+            recentPlaces.clear()
             renderRecents()
         }
         homeSearchClearButton = findViewById(R.id.homeSearchClearButton)
@@ -2333,17 +2336,13 @@ class MainActivity : AppCompatActivity() {
         workButtonLabel.text = savedPlaceLabel("work") ?: "Work"
     }
 
-    private fun savedPlaceLabel(key: String): String? {
-        if (!prefs.contains("${key}_lat")) return null
-        return prefs.getString("${key}_label", null)
-    }
+    private fun savedPlaceLabel(key: String): String? = savedPlaces.get(key)?.label
 
     private fun onSavedPlaceTapped(key: String) {
-        val label = savedPlaceLabel(key)
-        if (label != null) {
-            val lat = prefs.getFloat("${key}_lat", 0f).toDouble()
-            val lon = prefs.getFloat("${key}_lon", 0f).toDouble()
-            onDestinationSelected(GeocodeResult(label, lat, lon))
+        val saved = savedPlaces.get(key)
+        val label = saved?.label
+        if (saved != null && label != null) {
+            onDestinationSelected(GeocodeResult(label, saved.latitude, saved.longitude))
             return
         }
 
@@ -2358,12 +2357,7 @@ class MainActivity : AppCompatActivity() {
     private fun maybeSaveAsPendingPlace(result: GeocodeResult) {
         val key = pendingSavedPlaceLabel ?: return
         pendingSavedPlaceLabel = null
-        prefs
-            .edit()
-            .putFloat("${key}_lat", result.latitude.toFloat())
-            .putFloat("${key}_lon", result.longitude.toFloat())
-            .putString("${key}_label", result.label)
-            .apply()
+        savedPlaces.save(key, result)
         refreshSavedPlaceLabels()
     }
 
@@ -2446,48 +2440,10 @@ class MainActivity : AppCompatActivity() {
     private fun instantMatches(query: String): List<GeocodeResult> {
         val needle = query.trim().lowercase()
         if (needle.isEmpty()) return emptyList()
-        return (loadRecents() + lastLiveResults)
+        return (recentPlaces.load() + lastLiveResults)
             .distinctBy { it.label }
             .filter { it.label.lowercase().contains(needle) }
             .take(8)
-    }
-
-    private fun loadRecents(): List<GeocodeResult> {
-        val raw = prefs.getString(KEY_RECENT_PLACES, null) ?: return emptyList()
-        return try {
-            val array = JSONArray(raw)
-            (0 until array.length()).map { i ->
-                val o = array.getJSONObject(i)
-                val label = o.getString("label")
-                GeocodeResult(
-                    label = label,
-                    latitude = o.getDouble("lat"),
-                    longitude = o.getDouble("lon"),
-                    name = o.optString("name").ifBlank { label.substringBefore(",").trim() },
-                    address = o.optString("address"),
-                )
-            }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    private fun saveRecent(result: GeocodeResult) {
-        val updated =
-            (listOf(result) + loadRecents().filter { it.label != result.label })
-                .take(MAX_RECENTS_STORED)
-        val array = JSONArray()
-        for (r in updated) {
-            array.put(
-                JSONObject()
-                    .put("label", r.label)
-                    .put("lat", r.latitude)
-                    .put("lon", r.longitude)
-                    .put("name", r.name)
-                    .put("address", r.address),
-            )
-        }
-        prefs.edit().putString(KEY_RECENT_PLACES, array.toString()).apply()
     }
 
     /** Fills the "Recent" block under Home/Work (hidden when empty). */
@@ -2495,7 +2451,7 @@ class MainActivity : AppCompatActivity() {
         val container = homeRecentsContainer
         // Child 0 is the "Recent / Clear" header - everything after it is a row.
         while (container.childCount > 1) container.removeViewAt(1)
-        val recents = loadRecents().take(MAX_RECENTS_SHOWN)
+        val recents = recentPlaces.load().take(RecentPlaces.MAX_SHOWN)
         if (recents.isEmpty()) {
             container.visibility = View.GONE
             return
@@ -2594,7 +2550,7 @@ class MainActivity : AppCompatActivity() {
         searchOpenedFromNav = false
         searchBackButton.visibility = View.GONE
 
-        saveRecent(result)
+        recentPlaces.save(result)
         maybeSaveAsPendingPlace(result)
         destinationName = result.name
 
@@ -3847,7 +3803,7 @@ class MainActivity : AppCompatActivity() {
     private fun onStopPicked(result: GeocodeResult) {
         val target = addStopTarget
         exitSearchFromNav() // puts the preview card / drive bar back, clears addStopTarget
-        saveRecent(result)
+        recentPlaces.save(result)
         when (target) {
             AddStopTarget.PREVIEW -> {
                 val pick = tripPoint(result)

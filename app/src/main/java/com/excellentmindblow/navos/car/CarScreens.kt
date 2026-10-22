@@ -27,6 +27,7 @@ import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.routing.RoutingService
 import com.excellentmindblow.navos.search.GeocodeResult
 import com.excellentmindblow.navos.search.GeocodingService
+import com.excellentmindblow.navos.search.SavedPlaces
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -77,16 +78,13 @@ class HomeScreen(
                 .setOnClickListener { screenManager.push(SearchScreen(carContext, session)) }
                 .build(),
         )
-        for ((key, title) in listOf("home" to "Home", "work" to "Work")) {
+        val savedPlaces = SavedPlaces(prefs)
+        for ((key, title) in listOf(SavedPlaces.HOME to "Home", SavedPlaces.WORK to "Work")) {
             val row = Row.Builder().setTitle(title)
-            if (prefs.contains("${key}_lat")) {
-                val label = prefs.getString("${key}_label", "") ?: ""
-                val dest =
-                    GeocodeResult(
-                        label.ifBlank { title },
-                        prefs.getFloat("${key}_lat", 0f).toDouble(),
-                        prefs.getFloat("${key}_lon", 0f).toDouble(),
-                    )
+            val saved = savedPlaces.get(key)
+            if (saved != null) {
+                val label = saved.label.orEmpty()
+                val dest = GeocodeResult(label.ifBlank { title }, saved.latitude, saved.longitude)
                 if (label.isNotBlank()) row.addText(label)
                 row.setOnClickListener { screenManager.push(RoutePreviewScreen(carContext, session, dest)) }
             } else {
