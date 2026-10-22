@@ -207,6 +207,11 @@ private const val NAV_FOLLOW_EASE_MS = 350
 // a release has to fling before the settle is allowed a small overshoot.
 private const val SHEET_SPRING_RESPONSE_S = 0.3f
 private const val SHEET_BOUNCE_FLING_PX_S = 1500f
+
+// Below this tracked speed, a gesture shorter than FLICK_FALLBACK_MAX_MS is
+// judged by its average speed instead (see onHomeSheetDragTouch).
+private const val FLICK_FALLBACK_MIN_PX_S = 300f
+private const val FLICK_FALLBACK_MAX_MS = 300L
 private const val SNAP_MAX_METERS = 35.0 // beyond this the fix isn't "on" the route
 private const val SNAP_LOOKAHEAD_SEGMENTS = 150
 private const val SNAP_LOOKBACK_SEGMENTS = 5
@@ -375,6 +380,7 @@ class MainActivity : AppCompatActivity() {
     private var homeSheetState = HomeSheetState.COLLAPSED
 
     private var dragStartRawY = 0f
+    private var dragDownTime = 0L
     private var dragging = false
 
     /** True while a drag or the snap animation after it owns the sheet's
@@ -1608,6 +1614,7 @@ class MainActivity : AppCompatActivity() {
             MotionEvent.ACTION_DOWN -> {
                 if (homeSheetState == HomeSheetState.SETTINGS) return false
                 dragStartRawY = event.rawY
+                dragDownTime = event.eventTime
                 dragging = false
                 dragVelocityTracker?.recycle()
                 dragVelocityTracker = VelocityTracker.obtain().also { trackScreenMovement(it, event) }
@@ -1644,8 +1651,20 @@ class MainActivity : AppCompatActivity() {
                 if (dragging) {
                     dragging = false
                     tracker?.computeCurrentVelocity(1000)
-                    val velocityY = tracker?.yVelocity ?: 0f // px/s, negative = flinging up
+                    val trackedVelocityY = tracker?.yVelocity ?: 0f // px/s, negative = flinging up
                     tracker?.recycle()
+                    // VelocityTracker drops its samples when touch events
+                    // arrive more than ~40 ms apart (a device dropping
+                    // frames), reporting ~0 for a real flick. For a short,
+                    // quick gesture fall back to its average speed.
+                    val elapsedMs = (event.eventTime - dragDownTime).coerceAtLeast(1L)
+                    val averageVelocityY = (event.rawY - dragStartRawY) * 1000f / elapsedMs
+                    val velocityY =
+                        if (kotlin.math.abs(trackedVelocityY) < FLICK_FALLBACK_MIN_PX_S && elapsedMs < FLICK_FALLBACK_MAX_MS) {
+                            averageVelocityY
+                        } else {
+                            trackedVelocityY
+                        }
                     val collapsed = sheetCollapsedHeight()
                     val full = sheetFullHeight()
                     // Snap to whichever end the gesture is heading for (its
