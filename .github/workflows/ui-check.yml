@@ -48,7 +48,7 @@ jobs:
       # reactivecircus/android-emulator-runner's README).
       - name: Restore AVD snapshot
         id: avd-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.android/avd/*
@@ -70,6 +70,17 @@ jobs:
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: echo "Generated AVD snapshot for caching."
+
+      # Saved straight away, so a failing UI check later in the job doesn't
+      # throw the snapshot away (actions/cache only saves on success).
+      - name: Save AVD snapshot
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-34-google_apis-x86_64-pixel_6-v1
 
       - name: Run on emulator
         uses: reactivecircus/android-emulator-runner@v2

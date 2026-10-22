@@ -64,7 +64,17 @@ foreground() {
     { log "NavOS no longer in foreground"; adb shell am start -n "$PKG/.MainActivity" >/dev/null; sleep 4; }
 }
 
-hide_keyboard() { adb shell cmd input_method hide-soft-input >/dev/null 2>&1 || true; sleep 0.5; }
+ime_shown() { adb shell dumpsys input_method 2>/dev/null | grep -q "mInputShown=true"; }
+
+# Back hides the keyboard, but only press it while the keyboard is up -
+# otherwise Back collapses the sheet or opens NavOS's exit dialog. Then
+# give the emulator's input stack a moment: it reconfigures its touch
+# devices while the keyboard animates and drops injected swipes meanwhile.
+hide_keyboard() {
+  local i
+  for i in 1 2 3; do ime_shown || break; adb shell input keyevent KEYCODE_BACK; sleep 1; done
+  sleep 2
+}
 
 tap_id() {
   local c; c=$(center "$1")
@@ -111,11 +121,19 @@ if c=$(center homeSheetDragHandle) && [ -n "$c" ]; then
   # Slow small drag down then release: should spring back open.
   if c2=$(center homeSheetDragHandle) && [ -n "$c2" ]; then
     read -r hx2 hy2 <<<"$c2"
+    hide_keyboard
     adb shell input swipe "$hx2" "$hy2" "$hx2" $((hy2 + 200)) 900
     sleep 1.5; shot 06-after-slow-small-drag-down
     expect shown homeSearchInput "slow short drag down springs back open"
+    hide_keyboard
     adb shell input swipe "$hx2" "$hy2" "$hx2" $((hy2 + 600)) 100
     sleep 1.5; shot 07-after-flick-down
+    if [ -z "$(center homeSearchPill)" ]; then
+      log "RETRY flick down (emulator may have dropped the swipe)"
+      hide_keyboard
+      adb shell input swipe "$hx2" "$hy2" "$hx2" $((hy2 + 600)) 100
+      sleep 1.5; shot 07b-after-flick-down-retry
+    fi
     expect shown homeSearchPill "short quick flick down closes the sheet"
   fi
 else
