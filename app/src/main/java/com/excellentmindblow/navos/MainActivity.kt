@@ -96,6 +96,7 @@ import com.excellentmindblow.navos.routing.RoutingService
 import com.excellentmindblow.navos.routing.TripPlanner
 import com.excellentmindblow.navos.search.GeocodeResult
 import com.excellentmindblow.navos.search.GeocodingService
+import com.excellentmindblow.navos.search.PlaceTileStore
 import com.excellentmindblow.navos.search.IncomingLocation
 import com.excellentmindblow.navos.search.RecentPlaces
 import com.excellentmindblow.navos.search.SavedPlaces
@@ -140,6 +141,9 @@ private const val ROUTE_INDEX_PROPERTY = "routeIndex"
 // Drive camera: 3D tilted view, heading-up, the arrow sitting in the lower
 // part of the screen so more road ahead is visible.
 private const val NAV_TILT_DEGREES = 55.0
+
+/** Where the Overture place tiles are served from ({cell}.json.gz); null = only tiles bundled in the app. */
+private val PLACE_TILES_URL: String? = null
 // Waze-like camera height, the same for the 3D and the 2D driving view:
 // about 200 m of road visible ahead at city speed (it used to be ~100 m,
 // and ~50 m when stopped, which felt like hugging the road).
@@ -625,6 +629,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must happen before any MapView touches its native state.
         MapLibre.getInstance(applicationContext)
+        // Overture places for search (the shops OpenStreetMap doesn't have yet).
+        if (GeocodingService.placeTiles == null) GeocodingService.placeTiles = PlaceTileStore(this, PLACE_TILES_URL)
 
         // The Map style setting (Follow system / Light / Dark) drives the
         // WHOLE app's day/night theme, not just the map tiles. Must run

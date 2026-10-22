@@ -86,6 +86,8 @@ object GeocodingService {
     private const val LIVE_TIMEOUT_MS = 4_000
     private const val RETRY_TIMEOUT_MS = 8_000
     private const val CACHE_TTL_MS = 5 * 60_000L
+    private const val TILE_RESULT_LIMIT = 8
+    private const val SAME_PLACE_M = 150.0
     private const val CACHE_MAX = 80
 
     // ---- shared plumbing ---------------------------------------------------
@@ -359,15 +361,19 @@ object GeocodingService {
                 pool.submit(Callable { photonSearch(q.cleaned, biasLat, biasLon, localBox, cancellable) })
             val wideF: Future<List<GeocodeResult>> =
                 pool.submit(Callable { photonSearch(q.cleaned, biasLat, biasLon, MALAYSIA_BBOX, cancellable) })
+            // Overture places on the phone: the shops OpenStreetMap doesn't have yet.
+            val tilesF: Future<List<GeocodeResult>> = pool.submit(Callable { tileMatches(q.cleaned, biasLat, biasLon) })
 
             val local = futureResult(localF)
             val wide = if (local.size >= MIN_LIVE_LOCAL_RESULTS && q.houseNumber == null) emptyList() else futureResult(wideF)
-            if (local.isEmpty() && wide.isEmpty()) {
-                // Both failed or are empty: surface a real failure to the caller.
+            val tiles = if (q.houseNumber == null) futureResult(tilesF) else emptyList()
+            if (local.isEmpty() && wide.isEmpty() && tiles.isEmpty()) {
+                // All failed or are empty: surface a real failure to the caller.
                 localF.get()
                 wideF.get()
             }
-            merged = dedupe(local + wide)
+            val photon = local + wide
+            merged = dedupe(photon + tiles.filterNot { t -> alreadyFound(t, photon) })
         }
 
         var ranked = rank(q, merged, biasLat, biasLon)
@@ -383,6 +389,30 @@ object GeocodingService {
         val out = ranked.take(LIVE_RESULT_LIMIT)
         cachePut(key, out)
         return out
+    }
+
+    /** Set by the app at start-up: where the Overture place tiles come from. */
+    @Volatile
+    var placeTiles: PlaceTileStore? = null
+
+    private fun tileMatches(
+        query: String,
+        lat: Double,
+        lon: Double,
+    ): List<GeocodeResult> {
+        val store = placeTiles ?: return emptyList()
+        return PlaceTiles.search(store.near(lat, lon), query, lat, lon, TILE_RESULT_LIMIT)
+    }
+
+    /** The same place from Photon: same name, within [SAME_PLACE_M]. */
+    private fun alreadyFound(
+        t: GeocodeResult,
+        photon: List<GeocodeResult>,
+    ): Boolean {
+        val n = PlaceTiles.normalize(t.name)
+        return photon.any {
+            PlaceTiles.normalize(it.name) == n && distanceMeters(it.latitude, it.longitude, t.latitude, t.longitude) < SAME_PLACE_M
+        }
     }
 
     /** Result of a parallel request; a failed one counts as empty so the other can still answer. */
