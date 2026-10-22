@@ -24,7 +24,7 @@ dismiss_system_dialogs() {
   local xml c
   xml=$(adb shell cat /sdcard/ui.xml 2>/dev/null)
   echo "$xml" | grep -q 'android:id/aerr_wait' || return 1
-  echo "$xml" | grep -o "text=\"[^\"]*isn't responding\"" | head -1 | sed 's/^/dismissed dialog: /' | tee -a "$LOG"
+  echo "$xml" | grep -o "text=\"[^\"]*isn't responding\"" | head -1 | sed 's/^/dismissed dialog: /' | tee -a "$LOG" >&2
   c=$(echo "$xml" | tr '>' '\n' | grep 'android:id/aerr_wait' | head -1 |
     sed -E 's/.*bounds="\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]".*/\1 \2 \3 \4/' |
     awk 'NF==4 {printf "%d %d", ($1+$3)/2, ($2+$4)/2}')
