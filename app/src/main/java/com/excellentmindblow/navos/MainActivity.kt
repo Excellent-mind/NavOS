@@ -75,6 +75,7 @@ import com.excellentmindblow.navos.navigation.RouteTrack
 import com.excellentmindblow.navos.navigation.NavigationService
 import com.excellentmindblow.navos.navigation.NavigationState
 import com.excellentmindblow.navos.navigation.SpeedLimitTracker
+import com.excellentmindblow.navos.poi.FuelBrand
 import com.excellentmindblow.navos.poi.Poi
 import com.excellentmindblow.navos.poi.PoiCache
 import com.excellentmindblow.navos.poi.PoiKind
@@ -1864,7 +1865,10 @@ class MainActivity : AppCompatActivity() {
             } else {
                 nearbyPois.filter { isPoiKindShown(it.kind) }.map { poi ->
                     Feature.fromGeometry(Point.fromLngLat(poi.longitude, poi.latitude)).also {
-                        it.addStringProperty(POI_ICON_PROPERTY, if (poi.kind == PoiKind.FUEL) FUEL_PIN_ICON_ID else EV_PIN_ICON_ID)
+                        it.addStringProperty(
+                            POI_ICON_PROPERTY,
+                            if (poi.kind == PoiKind.FUEL) FuelBrand.of(poi.name)?.pinIconId ?: FUEL_PIN_ICON_ID else EV_PIN_ICON_ID,
+                        )
                         it.addStringProperty(POI_ID_PROPERTY, poi.id)
                     }
                 }
@@ -1946,8 +1950,16 @@ class MainActivity : AppCompatActivity() {
         poiFootnote.visibility = View.VISIBLE
         selectedPoi = poi
         val isFuel = poi.kind == PoiKind.FUEL
-        poiLogo.backgroundTintList = ColorStateList.valueOf(Color.parseColor(if (isFuel) FUEL_COLOR else EV_COLOR))
-        poiLogoIcon.setImageResource(if (isFuel) R.drawable.ic_fuel else R.drawable.ic_ev)
+        val brand = if (isFuel) FuelBrand.of(poi.name) else null
+        if (brand != null) {
+            poiLogo.backgroundTintList = ColorStateList.valueOf(brand.fill)
+            poiLogoIcon.setImageBitmap(MapIcons.brandBadge(this, brand, 40))
+            poiLogoIcon.contentDescription = brand.displayName
+        } else {
+            poiLogo.backgroundTintList = ColorStateList.valueOf(Color.parseColor(if (isFuel) FUEL_COLOR else EV_COLOR))
+            poiLogoIcon.setImageResource(if (isFuel) R.drawable.ic_fuel else R.drawable.ic_ev)
+            poiLogoIcon.contentDescription = null
+        }
         poiName.text = poi.name
 
         val kindLabel = if (isFuel) "Petrol station" else "EV charging"

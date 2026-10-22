@@ -1,5 +1,6 @@
 package com.excellentmindblow.navos
 
+import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.location.Location
 import android.text.SpannableString
@@ -13,6 +14,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
+import com.excellentmindblow.navos.poi.FuelBrand
 import com.excellentmindblow.navos.search.GeocodeResult
 import com.excellentmindblow.navos.search.GeocodingService
 
@@ -38,11 +40,24 @@ object PlaceRows {
     ) {
         val context = row.context
         val holder = row.findViewById<View>(R.id.resultIconHolder)
-        if (iconRes != null) {
-            holder.visibility = View.VISIBLE
-            row.findViewById<ImageView>(R.id.resultIcon).setImageResource(iconRes)
-        } else {
-            holder.visibility = View.GONE
+        val icon = row.findViewById<ImageView>(R.id.resultIcon)
+        // A petrol station of a company we know gets its brand badge.
+        val brand = if (place.category == context.getString(R.string.chip_petrol)) FuelBrand.of(place.name) else null
+        when {
+            brand != null -> {
+                holder.visibility = View.VISIBLE
+                icon.imageTintList = null
+                icon.setImageBitmap(MapIcons.brandBadge(context, brand, 40))
+                icon.layoutParams = icon.layoutParams.apply { width = holder.layoutParams.width; height = holder.layoutParams.height }
+            }
+            iconRes != null -> {
+                holder.visibility = View.VISIBLE
+                icon.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(context, R.color.sig_text_quiet))
+                icon.setImageResource(iconRes)
+                val glyph = (18 * context.resources.displayMetrics.density).toInt()
+                icon.layoutParams = icon.layoutParams.apply { width = glyph; height = glyph }
+            }
+            else -> holder.visibility = View.GONE
         }
 
         val name = row.findViewById<TextView>(R.id.resultName)

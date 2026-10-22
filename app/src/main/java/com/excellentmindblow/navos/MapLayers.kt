@@ -2,6 +2,7 @@ package com.excellentmindblow.navos
 
 import android.content.Context
 import android.graphics.Color
+import com.excellentmindblow.navos.poi.FuelBrand
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import org.maplibre.android.maps.Style
@@ -328,6 +329,7 @@ class MapLayers(
      * the destination pin, so the destination always stays on top. */
     private fun installPoiLayer(style: Style): GeoJsonSource {
         registerMapIcon(style, FUEL_PIN_ICON_ID, R.drawable.ic_poi_fuel_pin)
+        for (brand in FuelBrand.entries) style.addImage(brand.pinIconId, MapIcons.brandPin(context, brand))
         registerMapIcon(style, EV_PIN_ICON_ID, R.drawable.ic_poi_ev_pin)
 
         val src = GeoJsonSource(POI_SOURCE_ID)
