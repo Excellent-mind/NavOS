@@ -2208,7 +2208,7 @@ class MainActivity : AppCompatActivity() {
         poiMeta.text =
             if (here != null) {
                 val meters = GeocodingService.distanceMeters(here.latitude, here.longitude, poi.latitude, poi.longitude)
-                "$kindLabel · ${formatDistance(meters)} away"
+                "$kindLabel · ${NavFormat.formatDistance(meters)} away"
             } else {
                 kindLabel
             }
@@ -2309,7 +2309,7 @@ class MainActivity : AppCompatActivity() {
         val here = lastKnownLocation
         val away =
             here?.let {
-                "${formatDistance(GeocodingService.distanceMeters(it.latitude, it.longitude, at.latitude, at.longitude))} away"
+                "${NavFormat.formatDistance(GeocodingService.distanceMeters(it.latitude, it.longitude, at.latitude, at.longitude))} away"
             }
         poiMeta.text = listOfNotNull(address?.takeIf { it.isNotBlank() }, away).joinToString(" \u00b7 ")
     }
@@ -2511,7 +2511,7 @@ class MainActivity : AppCompatActivity() {
             val distance = row.findViewById<TextView>(R.id.resultDistance)
             if (origin != null) {
                 distance.text =
-                    formatDistance(GeocodingService.distanceMeters(origin.latitude, origin.longitude, r.latitude, r.longitude))
+                    NavFormat.formatDistance(GeocodingService.distanceMeters(origin.latitude, origin.longitude, r.latitude, r.longitude))
                 distance.visibility = View.VISIBLE
             } else {
                 distance.visibility = View.GONE
@@ -2549,7 +2549,7 @@ class MainActivity : AppCompatActivity() {
             val distance = row.findViewById<TextView>(R.id.resultDistance)
             if (origin != null) {
                 distance.text =
-                    formatDistance(
+                    NavFormat.formatDistance(
                         GeocodingService.distanceMeters(origin.latitude, origin.longitude, result.latitude, result.longitude),
                     )
                 distance.visibility = View.VISIBLE
@@ -2560,12 +2560,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun formatDistance(meters: Float): String =
-        if (Units.miles) Units.short(meters.toDouble()) else when {
-            meters < 1000f -> "${(Math.round(meters / 10f) * 10)} m"
-            meters < 100_000f -> String.format(java.util.Locale.US, "%.1f km", meters / 1000f)
-            else -> "${Math.round(meters / 1000f)} km"
-        }
 
     private fun onDestinationSelected(result: GeocodeResult) {
         if (droppedPin != null) hidePoiCard()
@@ -2819,14 +2813,6 @@ class MainActivity : AppCompatActivity() {
 
     // ---- Speed-camera zone (200 m) ------------------------------------
 
-    private fun angleDiff(
-        a: Double,
-        b: Double,
-    ): Double {
-        var d = ((a - b) % 360.0 + 360.0) % 360.0
-        if (d > 180.0) d -= 360.0
-        return Math.abs(d)
-    }
 
     /** Alerts when the driver ENTERS a camera's 200 m zone on the route:
      * pop-up banner + one spoken warning per camera, with the distance
@@ -2848,7 +2834,7 @@ class MainActivity : AppCompatActivity() {
             val seg = cameraRouteIndex.getOrPut(poiKey(cam)) { GeoUtils.snapToPolyline(camPoint, geometry)?.segmentIndex ?: -1 }
             if (seg < 0 || seg < snapSegmentIndex - 1) continue // not on this route, or already passed
             val heading = smoothedBearing
-            if (heading != null && d > 15.0 && angleDiff(GeoUtils.bearingDegrees(here, camPoint), heading) > 100.0) continue // behind us
+            if (heading != null && d > 15.0 && GeoUtils.angleDiff(GeoUtils.bearingDegrees(here, camPoint), heading) > 100.0) continue // behind us
             if (d < nearestD) {
                 nearest = cam
                 nearestD = d
@@ -2993,14 +2979,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** "Toll" when a toll plaza is on the route, else null. No price. */
-    private fun tollSummary(pois: List<RoadPoi>?): String? =
-        if (pois?.any { it.kind == "toll" } == true) "Toll" else null
 
-    private fun formatRouteMinutes(seconds: Double): String {
-        val minutes = Math.round(seconds / 60.0).toInt().coerceAtLeast(1)
-        return if (minutes >= 60) "${minutes / 60} h ${minutes % 60} min" else "$minutes min"
-    }
 
     private fun styleRouteToggle() {
         val blue = ContextCompat.getColor(this, R.color.navos_blue)
@@ -3027,15 +3006,15 @@ class MainActivity : AppCompatActivity() {
         for (index in order) {
             val route = routeOptions[index]
             val row = LayoutInflater.from(this).inflate(R.layout.item_route_option, routeListItems, false)
-            row.findViewById<TextView>(R.id.routeItemDuration).text = formatRouteMinutes(route.durationSeconds)
+            row.findViewById<TextView>(R.id.routeItemDuration).text = NavFormat.formatRouteMinutes(route.durationSeconds)
             val arrival = Date(System.currentTimeMillis() + (route.durationSeconds * 1000).toLong())
             row.findViewById<TextView>(R.id.routeItemMeta).text =
-                SimpleDateFormat("h:mm a", Locale.US).format(arrival) + "  •  " + formatTripDistance(route.distanceMeters)
-            val via = viaRoadName(route)
+                SimpleDateFormat("h:mm a", Locale.US).format(arrival) + "  •  " + NavFormat.formatTripDistance(route.distanceMeters)
+            val via = NavFormat.viaRoadName(route)
             val viaView = row.findViewById<TextView>(R.id.routeItemVia)
             viaView.text = if (via != null) "Via $via" else ""
             viaView.visibility = if (via != null) View.VISIBLE else View.GONE
-            val toll = tollSummary(routePoisByIndex[index])
+            val toll = NavFormat.tollSummary(routePoisByIndex[index])
             val chip = row.findViewById<TextView>(R.id.routeItemToll)
             chip.text = toll.orEmpty()
             chip.visibility = if (toll != null) View.VISIBLE else View.GONE
@@ -3196,49 +3175,7 @@ class MainActivity : AppCompatActivity() {
         return bitmap
     }
 
-    /** Direction the route line heads just AFTER [point] (0 = north),
-     * measured to a spot ~10 m further along it. */
-    private fun outgoingBearing(
-        geometry: List<com.excellentmindblow.navos.routing.RoutePoint>,
-        point: com.excellentmindblow.navos.routing.RoutePoint,
-    ): Double {
-        if (geometry.size < 2) return 0.0
-        var nearest = 0
-        var best = Double.MAX_VALUE
-        for (i in geometry.indices) {
-            val d = GeoUtils.distanceMeters(geometry[i], point)
-            if (d < best) {
-                best = d
-                nearest = i
-            }
-        }
-        if (nearest >= geometry.size - 1) return GeoUtils.bearingDegrees(geometry[geometry.size - 2], geometry[geometry.size - 1])
-        var j = nearest + 1
-        while (j < geometry.size - 1 && GeoUtils.distanceMeters(geometry[nearest], geometry[j]) < 10.0) j++
-        return GeoUtils.bearingDegrees(geometry[nearest], geometry[j])
-    }
 
-    /** Direction of travel (0 = north) as the route arrives at [point]:
-     * measured from a spot ~6 m back along the route line. */
-    private fun incomingBearing(
-        geometry: List<com.excellentmindblow.navos.routing.RoutePoint>,
-        point: com.excellentmindblow.navos.routing.RoutePoint,
-    ): Double {
-        if (geometry.size < 2) return 0.0
-        var nearest = 0
-        var best = Double.MAX_VALUE
-        for (i in geometry.indices) {
-            val d = GeoUtils.distanceMeters(geometry[i], point)
-            if (d < best) {
-                best = d
-                nearest = i
-            }
-        }
-        if (nearest == 0) return GeoUtils.bearingDegrees(geometry[0], geometry[1])
-        var j = nearest - 1
-        while (j > 0 && GeoUtils.distanceMeters(geometry[j], geometry[nearest]) < 6.0) j--
-        return GeoUtils.bearingDegrees(geometry[j], geometry[nearest])
-    }
 
     /** Draws an arrow + road name on the route line at each upcoming turn
      * (from [fromStep] on). Cleared whenever we're not driving. */
@@ -3267,7 +3204,7 @@ class MainActivity : AppCompatActivity() {
             feature.addStringProperty("icon", turnIconId(R.drawable.ic_turn_straight))
             feature.addStringProperty("name", s.roadName)
             feature.addNumberProperty("order", i)
-            feature.addNumberProperty("bearing", outgoingBearing(geometry, s.point))
+            feature.addNumberProperty("bearing", GeoUtils.outgoingBearing(geometry, s.point))
             features.add(feature)
         }
         src.setGeoJson(FeatureCollection.fromFeatures(features))
@@ -3959,7 +3896,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             val title = if (stop.name.isBlank()) "Stop ${stop.number}" else "Stop ${stop.number}: ${stop.name}"
             nextStopText.text =
-                "$title \u2022 ${formatRouteMinutes(state.durationToNextStopSeconds)} \u2022 ${formatTripDistance(state.distanceToNextStopMeters)}"
+                "$title \u2022 ${NavFormat.formatRouteMinutes(state.durationToNextStopSeconds)} \u2022 ${NavFormat.formatTripDistance(state.distanceToNextStopMeters)}"
             nextStopText.visibility = View.VISIBLE
         }
         updateStopButtons()
@@ -4082,32 +4019,11 @@ class MainActivity : AppCompatActivity() {
     ) {
         val arrival = Date(System.currentTimeMillis() + (durationSeconds * 1000).toLong())
         clockView.text = SimpleDateFormat("h:mm a", Locale.US).format(arrival)
-        detailView.text = "${formatTripDuration(durationSeconds)} • ${formatTripDistance(distanceMeters)}"
+        detailView.text = "${NavFormat.formatTripDuration(durationSeconds)} • ${NavFormat.formatTripDistance(distanceMeters)}"
     }
 
-    private fun formatTripDuration(seconds: Double): String {
-        val totalMinutes = Math.round(seconds / 60.0).toInt().coerceAtLeast(1)
-        return if (totalMinutes >= 60) {
-            String.format(Locale.US, "%d:%02d h", totalMinutes / 60, totalMinutes % 60)
-        } else {
-            "$totalMinutes min"
-        }
-    }
 
-    private fun formatTripDistance(meters: Double): String =
-        if (Units.miles) Units.short(meters) else when {
-            meters < 1000 -> "${meters.toInt()} m"
-            meters < 10_000 -> String.format(Locale.US, "%.1f km", meters / 1000.0)
-            else -> String.format(Locale.US, "%.0f km", meters / 1000.0)
-        }
 
-    /** The road this route spends the most distance on - the "Via ..." line. */
-    private fun viaRoadName(route: Route): String? =
-        route.steps
-            .filter { it.roadName.isNotBlank() }
-            .groupBy { it.roadName }
-            .maxByOrNull { (_, steps) -> steps.sumOf { it.distanceMeters } }
-            ?.key
 
     private fun showRoutePreview() {
         // Opened mid-drive (switch route): the trip is whatever is still ahead.
@@ -4143,8 +4059,8 @@ class MainActivity : AppCompatActivity() {
     private fun updateRoutePreviewSummary() {
         val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
         showTripSummary(selected.durationSeconds, selected.distanceMeters, routePreviewEta, routePreviewSummary)
-        val via = viaRoadName(selected)
-        val toll = tollSummary(routePoisByIndex[selectedRouteIndex])
+        val via = NavFormat.viaRoadName(selected)
+        val toll = NavFormat.tollSummary(routePoisByIndex[selectedRouteIndex])
         routePreviewVia.text = (if (via != null) "Via $via" else "") + (if (toll != null) "\n$toll" else "")
         routePreviewVia.visibility = if (via != null || toll != null) View.VISIBLE else View.GONE
         val destination = destinationName.orEmpty()
@@ -4621,7 +4537,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.arrivalTripSummary).apply {
             val route = activeRoute
             if (route != null) {
-                text = formatTripDistance(route.distanceMeters)
+                text = NavFormat.formatTripDistance(route.distanceMeters)
                 visibility = View.VISIBLE
             } else {
                 visibility = View.GONE
@@ -4806,7 +4722,7 @@ class MainActivity : AppCompatActivity() {
     private fun onNavigationState(state: NavigationState) {
         setRecalculating(state.offRoute && !state.isArrival)
         lastNavState = state
-        val distanceLabel = formatCountdownDistance(state.distanceToNextTurnMeters)
+        val distanceLabel = NavFormat.formatCountdownDistance(state.distanceToNextTurnMeters)
         turnDistanceText.text = if (state.offRoute) "" else distanceLabel
         // Off the planned route: NavigationService is already fetching a new
         // one (and says "Recalculating"), so show that instead of a turn
@@ -4821,14 +4737,14 @@ class MainActivity : AppCompatActivity() {
             renderTurnCallouts(state.currentStepIndex)
         }
 
-        turnIcon.setImageResource(iconForManeuver(state.maneuverType, state.modifier))
+        turnIcon.setImageResource(NavFormat.iconForManeuver(state.maneuverType, state.modifier))
         turnIcon.rotation = 0f
 
         if (nextTurnsSheet.visibility == View.VISIBLE) {
             if (state.currentStepIndex != nextTurnsRenderedIndex) {
                 refreshNextTurns()
             } else {
-                nextTurnsFirstDistance?.text = formatTurnDistance(state.distanceToNextTurnMeters)
+                nextTurnsFirstDistance?.text = NavFormat.formatTurnDistance(state.distanceToNextTurnMeters)
             }
         }
 
@@ -4836,7 +4752,7 @@ class MainActivity : AppCompatActivity() {
         // is close enough that the next one is relevant, same as Waze.
         val nextType = state.nextManeuverType
         if (nextType != null && state.distanceToNextTurnMeters <= 400 && !state.isArrival) {
-            nextTurnIcon.setImageResource(iconForManeuver(nextType, state.nextModifier))
+            nextTurnIcon.setImageResource(NavFormat.iconForManeuver(nextType, state.nextModifier))
             nextTurnIcon.rotation = 0f
             nextTurnStrip.visibility = View.VISIBLE
         } else {
@@ -4862,61 +4778,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Picks the Waze-style arrow for a maneuver: a distinct drawn arrow
-     * for every turn angle, plus U-turn, fork/ramp, roundabout (exit side)
-     * and arrival. No rotation tricks - each is its own icon. */
-    private fun iconForManeuver(
-        maneuverType: String,
-        modifier: String?,
-    ): Int {
-        val mod = modifier.orEmpty()
-        return when {
-            maneuverType == "arrive" -> R.drawable.ic_turn_arrive
-            maneuverType.contains("roundabout") || maneuverType.contains("rotary") ->
-                when {
-                    mod.contains("left") -> R.drawable.ic_turn_roundabout_left
-                    mod.contains("right") -> R.drawable.ic_turn_roundabout_right
-                    else -> R.drawable.ic_turn_roundabout_straight
-                }
-            maneuverType == "uturn" || mod == "uturn" -> R.drawable.ic_turn_uturn
-            maneuverType == "fork" || maneuverType == "off ramp" || maneuverType == "on ramp" ->
-                when {
-                    mod.contains("left") -> R.drawable.ic_turn_fork_left
-                    mod.contains("right") -> R.drawable.ic_turn_fork_right
-                    else -> R.drawable.ic_turn_straight
-                }
-            else ->
-                when (mod) {
-                    "sharp right" -> R.drawable.ic_turn_sharp_right
-                    "right" -> R.drawable.ic_turn_right
-                    "slight right" -> R.drawable.ic_turn_slight_right
-                    "slight left" -> R.drawable.ic_turn_slight_left
-                    "left" -> R.drawable.ic_turn_left
-                    "sharp left" -> R.drawable.ic_turn_sharp_left
-                    else -> R.drawable.ic_turn_straight // straight / depart / continue / new name / merge
-                }
-        }
-    }
 
-    /** Turn countdown shown on the round button: km with one decimal from
-     * 1 km up, then 950 m, 900 m ... 100 m in 50 m steps, then 10 m steps
-     * for the last stretch. */
-    private fun formatCountdownDistance(meters: Double): String =
-        if (Units.miles) Units.short(meters) else when {
-            meters >= 1000 -> String.format(Locale.US, "%.1f km", meters / 1000)
-            meters >= 100 -> "${(Math.round(meters / 50.0) * 50).toInt().coerceAtMost(950)} m"
-            else -> "${(Math.round(meters / 10.0) * 10).toInt().coerceAtLeast(10)} m"
-        }
 
-    private fun formatTurnDistance(meters: Double): String =
-        if (Units.miles) {
-            Units.short(meters)
-        } else if (meters >= 1000) {
-            String.format(Locale.US, "%.1f km", meters / 1000)
-        } else {
-            // Round to 10 m like Waze's list so it doesn't flicker every fix.
-            "${(Math.round(meters / 10.0) * 10).toInt().coerceAtLeast(10)} m"
-        }
 
     private fun openNextTurns() {
         if (navMode != NavMode.ACTIVE) return
@@ -4979,7 +4842,7 @@ class MainActivity : AppCompatActivity() {
         val icon =
             ImageView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(px(52), px(52)).apply { marginEnd = px(18) }
-                setImageResource(iconForManeuver(step.maneuverType, step.modifier))
+                setImageResource(NavFormat.iconForManeuver(step.maneuverType, step.modifier))
                 setColorFilter(textColor)
             }
         val texts =
@@ -4989,7 +4852,7 @@ class MainActivity : AppCompatActivity() {
             }
         val distance =
             TextView(this).apply {
-                text = formatTurnDistance(meters)
+                text = NavFormat.formatTurnDistance(meters)
                 setTextColor(textColor)
                 textSize = 24f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -5047,24 +4910,13 @@ class MainActivity : AppCompatActivity() {
                     setImageResource(R.drawable.ic_turn_straight)
                     setColorFilter(if (lane.valid) validTint else dimTint)
                     setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
-                    rotation = rotationForIndication(indication)
+                    rotation = NavFormat.rotationForIndication(indication)
                 }
             laneContainer.addView(icon)
         }
         laneContainer.visibility = View.VISIBLE
     }
 
-    private fun rotationForIndication(indication: String): Float =
-        when (indication) {
-            "sharp right" -> 135f
-            "right" -> 90f
-            "slight right" -> 45f
-            "slight left" -> -45f
-            "left" -> -90f
-            "sharp left" -> -135f
-            "uturn" -> 180f
-            else -> 0f // straight / none
-        }
 
     // ---- Location / map plumbing ----------------------------------------
 

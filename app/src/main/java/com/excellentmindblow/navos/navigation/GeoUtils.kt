@@ -48,6 +48,38 @@ object GeoUtils {
         return (deg % 360 + 360) % 360
     }
 
+    /** Smallest angle between two compass bearings, 0..180 degrees. */
+    fun angleDiff(
+        a: Double,
+        b: Double,
+    ): Double {
+        var d = ((a - b) % 360.0 + 360.0) % 360.0
+        if (d > 180.0) d -= 360.0
+        return Math.abs(d)
+    }
+
+    /** Direction the route line heads just AFTER [point] (0 = north),
+     * measured to a spot ~10 m further along it. */
+    fun outgoingBearing(
+        geometry: List<RoutePoint>,
+        point: RoutePoint,
+    ): Double {
+        if (geometry.size < 2) return 0.0
+        var nearest = 0
+        var best = Double.MAX_VALUE
+        for (i in geometry.indices) {
+            val d = distanceMeters(geometry[i], point)
+            if (d < best) {
+                best = d
+                nearest = i
+            }
+        }
+        if (nearest >= geometry.size - 1) return bearingDegrees(geometry[geometry.size - 2], geometry[geometry.size - 1])
+        var j = nearest + 1
+        while (j < geometry.size - 1 && distanceMeters(geometry[nearest], geometry[j]) < 10.0) j++
+        return bearingDegrees(geometry[nearest], geometry[j])
+    }
+
     /** Distance (meters) from a point to the nearest point on a polyline,
      * and the index of that nearest segment's starting vertex. Used to
      * detect when the driver has drifted off the planned route. */
