@@ -50,16 +50,11 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import com.google.android.material.checkbox.MaterialCheckBox
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.radiobutton.MaterialRadioButton
-import com.google.android.material.switchmaterial.SwitchMaterial
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
@@ -226,9 +221,9 @@ private const val PREFS_NAME = "navos_prefs"
 private const val KEY_VOICE_ENABLED = "voice_enabled"
 private const val KEY_DARK_MODE_ENABLED = "dark_mode_enabled" // legacy (pre "Follow system")
 private const val KEY_MAP_STYLE_MODE = "map_style_mode"
-private const val MAP_STYLE_SYSTEM = "system"
-private const val MAP_STYLE_LIGHT = "light"
-private const val MAP_STYLE_DARK = "dark"
+internal const val MAP_STYLE_SYSTEM = "system"
+internal const val MAP_STYLE_LIGHT = "light"
+internal const val MAP_STYLE_DARK = "dark"
 
 /** Pause after the last keystroke before a live search fires - long
  * enough not to query on every letter, short enough to feel instant. */
@@ -354,6 +349,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var workButtonLabel: TextView
     private lateinit var prefs: SharedPreferences
     private lateinit var savedPlaces: SavedPlaces
+    private lateinit var settingsDialogs: SettingsDialogs
     private lateinit var recentPlaces: RecentPlaces
     private lateinit var nextTurnStrip: View
     private lateinit var laneContainer: LinearLayout
@@ -668,6 +664,29 @@ class MainActivity : AppCompatActivity() {
         // before super.onCreate so the first inflate already uses it.
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         savedPlaces = SavedPlaces(prefs)
+        settingsDialogs =
+            SettingsDialogs(
+                this,
+                prefs,
+                object : SettingsDialogs.Host {
+                    override fun currentMapStyleMode() = mapStyleMode()
+
+                    override fun onMapStyleModeChosen(mode: String) = this@MainActivity.onMapStyleModeChosen(mode)
+
+                    override fun onDriveViewChanged() {
+                        driveFollower.driveTilt = if (MapDisplayPrefs.view3d) NAV_TILT_DEGREES else 0.0
+                    }
+
+                    override fun applyMapDisplayLayers() = this@MainActivity.applyMapDisplayLayers()
+
+                    override fun isPoiKindShown(kind: PoiKind) = this@MainActivity.isPoiKindShown(kind)
+
+                    override fun setPoiKindShown(
+                        kind: PoiKind,
+                        shown: Boolean,
+                    ) = this@MainActivity.setPoiKindShown(kind, shown)
+                },
+            )
         recentPlaces = RecentPlaces(prefs)
         MapDisplayPrefs.load(prefs)
         driveFollower.driveTilt = if (MapDisplayPrefs.view3d) NAV_TILT_DEGREES else 0.0
@@ -1032,7 +1051,7 @@ class MainActivity : AppCompatActivity() {
     private fun setUpSettings() {
         Units.load(prefs)
         RoutePrefs.load(prefs)
-        findViewById<View>(R.id.navPrefsRow).setOnClickListener { showNavPreferencesDialog() }
+        findViewById<View>(R.id.navPrefsRow).setOnClickListener { settingsDialogs.showNavPreferences() }
         findViewById<Switch>(R.id.voiceGuidanceSwitch).apply {
             isChecked = prefs.getBoolean(KEY_VOICE_ENABLED, true)
             setOnCheckedChangeListener { _, isChecked ->
@@ -1041,7 +1060,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        findViewById<View>(R.id.navMapDisplayRow).setOnClickListener { showMapDisplayDialog() }
+        findViewById<View>(R.id.navMapDisplayRow).setOnClickListener { settingsDialogs.showMapDisplay() }
     }
 
     // ---- Settings > Map display (like Waze's Display & map) ------------------
@@ -1065,165 +1084,6 @@ class MainActivity : AppCompatActivity() {
             ?.setProperties(PropertyFactory.visibility(if (MapDisplayPrefs.buildings3d) Property.VISIBLE else Property.NONE))
         style.getLayer(ROUTE_CHEVRON_LAYER_ID)
             ?.setProperties(PropertyFactory.visibility(if (MapDisplayPrefs.routeArrows) Property.VISIBLE else Property.NONE))
-    }
-
-    private fun showMapDisplayDialog() {
-        val textColor = getColor(R.color.navos_text)
-        val hintColor = getColor(R.color.navos_hint)
-        val column =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(22), dp(8), dp(22), dp(8))
-            }
-
-        fun heading(label: String) =
-            TextView(this).apply {
-                text = label
-                textSize = 15f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(textColor)
-                setPadding(0, dp(14), 0, dp(4))
-            }
-
-        fun note(label: String) =
-            TextView(this).apply {
-                text = label
-                textSize = 12f
-                setTextColor(hintColor)
-                setPadding(0, dp(2), 0, dp(4))
-            }
-
-        fun radio(
-            group: RadioGroup,
-            label: String,
-        ): RadioButton {
-            val button = MaterialRadioButton(this).apply { id = View.generateViewId(); text = label; setTextColor(textColor) }
-            group.addView(button)
-            return button
-        }
-
-        fun switchRow(
-            label: String,
-            checked: Boolean,
-            onChange: (Boolean) -> Unit,
-        ): View =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-                setPadding(0, dp(6), 0, dp(6))
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = label
-                        textSize = 15f
-                        setTextColor(textColor)
-                    },
-                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-                )
-                addView(
-                    SwitchMaterial(this@MainActivity).apply {
-                        isChecked = checked
-                        setOnCheckedChangeListener { _, on -> onChange(on) }
-                    },
-                )
-            }
-
-        // Map colors
-        column.addView(heading("Map colors"))
-        val colors = RadioGroup(this)
-        val rSystem = radio(colors, "Follow system")
-        val rLight = radio(colors, "Light (day)")
-        val rDark = radio(colors, "Dark (night)")
-        colors.check(
-            when (mapStyleMode()) {
-                MAP_STYLE_DARK -> rDark.id
-                MAP_STYLE_LIGHT -> rLight.id
-                else -> rSystem.id
-            },
-        )
-        colors.setOnCheckedChangeListener { _, id ->
-            onMapStyleModeChosen(
-                when (id) {
-                    rDark.id -> MAP_STYLE_DARK
-                    rLight.id -> MAP_STYLE_LIGHT
-                    else -> MAP_STYLE_SYSTEM
-                },
-            )
-        }
-        column.addView(colors)
-
-        // Map view
-        column.addView(heading("Driving view"))
-        val view = RadioGroup(this)
-        val r3d = radio(view, "3D - tilted, looking ahead")
-        val r2d = radio(view, "2D - flat, top-down")
-        view.check(if (MapDisplayPrefs.view3d) r3d.id else r2d.id)
-        view.setOnCheckedChangeListener { _, id ->
-            MapDisplayPrefs.view3d = id == r3d.id
-            MapDisplayPrefs.save(prefs)
-            driveFollower.driveTilt = if (MapDisplayPrefs.view3d) NAV_TILT_DEGREES else 0.0
-        }
-        column.addView(view)
-        column.addView(note("Applies the next time you start driving."))
-
-        // Show on map
-        column.addView(heading("Show on map"))
-        column.addView(
-            switchRow("3D buildings", MapDisplayPrefs.buildings3d) {
-                MapDisplayPrefs.buildings3d = it
-                MapDisplayPrefs.save(prefs)
-                applyMapDisplayLayers()
-            },
-        )
-        column.addView(
-            switchRow("Route direction arrows", MapDisplayPrefs.routeArrows) {
-                MapDisplayPrefs.routeArrows = it
-                MapDisplayPrefs.save(prefs)
-                applyMapDisplayLayers()
-            },
-        )
-        column.addView(
-            switchRow("Petrol stations", showFuelPins) {
-                showFuelPins = it
-                prefs.edit().putBoolean(KEY_SHOW_FUEL, it).apply()
-                onPoiTogglesChanged(if (it) "Petrol stations shown" else "Petrol stations hidden")
-            },
-        )
-        column.addView(
-            switchRow("EV charging", showEvPins) {
-                showEvPins = it
-                prefs.edit().putBoolean(KEY_SHOW_EV, it).apply()
-                onPoiTogglesChanged(if (it) "EV charging shown" else "EV charging hidden")
-            },
-        )
-
-        // While driving
-        column.addView(heading("While driving"))
-        column.addView(
-            switchRow("Speedometer", MapDisplayPrefs.speedometer) {
-                MapDisplayPrefs.speedometer = it
-                MapDisplayPrefs.save(prefs)
-            },
-        )
-        column.addView(
-            switchRow("Speed limit sign", MapDisplayPrefs.speedLimit) {
-                MapDisplayPrefs.speedLimit = it
-                MapDisplayPrefs.save(prefs)
-            },
-        )
-        column.addView(
-            switchRow("Speed camera alerts", MapDisplayPrefs.cameraAlerts) {
-                MapDisplayPrefs.cameraAlerts = it
-                MapDisplayPrefs.save(prefs)
-            },
-        )
-        column.addView(note("Driving options apply the next time you start driving."))
-
-        val scroll = android.widget.ScrollView(this).apply { addView(column) }
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Map display")
-            .setView(scroll)
-            .setPositiveButton("Done", null)
-            .show()
     }
 
     /** The saved map style choice: Follow system (the default), Light or
@@ -1974,68 +1834,6 @@ class MainActivity : AppCompatActivity() {
         startActivity(Intent.createChooser(send, "Share ETA"))
     }
 
-    // ---- Navigation preferences (units, avoid tolls / highways) ------------
-
-    private fun showNavPreferencesDialog() {
-        val textColor = getColor(R.color.navos_text)
-        val column =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(22), dp(8), dp(22), 0)
-            }
-
-        fun heading(label: String) =
-            TextView(this).apply {
-                text = label
-                textSize = 15f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(textColor)
-                setPadding(0, dp(10), 0, dp(4))
-            }
-
-        column.addView(heading("Distance units"))
-        val group = RadioGroup(this)
-        val kmButton = MaterialRadioButton(this).apply { id = View.generateViewId(); text = "Kilometers"; setTextColor(textColor) }
-        val miButton = MaterialRadioButton(this).apply { id = View.generateViewId(); text = "Miles"; setTextColor(textColor) }
-        group.addView(kmButton)
-        group.addView(miButton)
-        group.check(if (Units.miles) miButton.id else kmButton.id)
-        group.setOnCheckedChangeListener { _, checkedId -> Units.save(prefs, checkedId == miButton.id) }
-        column.addView(group)
-
-        column.addView(heading("Route preferences"))
-        val tolls =
-            MaterialCheckBox(this).apply {
-                text = "Avoid tolls"
-                isChecked = RoutePrefs.avoidTolls
-                setTextColor(textColor)
-            }
-        val highways =
-            MaterialCheckBox(this).apply {
-                text = "Avoid highways"
-                isChecked = RoutePrefs.avoidHighways
-                setTextColor(textColor)
-            }
-        tolls.setOnCheckedChangeListener { _, checked -> RoutePrefs.save(prefs, checked, RoutePrefs.avoidHighways) }
-        highways.setOnCheckedChangeListener { _, checked -> RoutePrefs.save(prefs, RoutePrefs.avoidTolls, checked) }
-        column.addView(tolls)
-        column.addView(highways)
-        column.addView(
-            TextView(this).apply {
-                text = "Route preferences apply the next time you search for a route."
-                textSize = 12f
-                setTextColor(getColor(R.color.navos_hint))
-                setPadding(0, dp(6), 0, dp(4))
-            },
-        )
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Navigation preferences")
-            .setView(column)
-            .setPositiveButton("Done", null)
-            .show()
-    }
-
     // ---- Petrol / EV charging pins (active drive) ---------------------------
 
     private fun setUpPoiControls() {
@@ -2055,16 +1853,8 @@ class MainActivity : AppCompatActivity() {
         showEvPins = prefs.getBoolean(KEY_SHOW_EV, true)
         stylePoiToggles()
 
-        fuelToggleButton.setOnClickListener {
-            showFuelPins = !showFuelPins
-            prefs.edit().putBoolean(KEY_SHOW_FUEL, showFuelPins).apply()
-            onPoiTogglesChanged(if (showFuelPins) "Petrol stations shown" else "Petrol stations hidden")
-        }
-        evToggleButton.setOnClickListener {
-            showEvPins = !showEvPins
-            prefs.edit().putBoolean(KEY_SHOW_EV, showEvPins).apply()
-            onPoiTogglesChanged(if (showEvPins) "EV charging shown" else "EV charging hidden")
-        }
+        fuelToggleButton.setOnClickListener { setPoiKindShown(PoiKind.FUEL, !showFuelPins) }
+        evToggleButton.setOnClickListener { setPoiKindShown(PoiKind.EV, !showEvPins) }
 
         findViewById<View>(R.id.poiCloseButton).setOnClickListener { hidePoiCard() }
         findViewById<View>(R.id.poiGoButton).setOnClickListener {
@@ -2092,6 +1882,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isPoiKindShown(kind: PoiKind): Boolean = if (kind == PoiKind.FUEL) showFuelPins else showEvPins
+
+    /** The petrol / EV toggles on the drive map and in Map display. */
+    private fun setPoiKindShown(
+        kind: PoiKind,
+        shown: Boolean,
+    ) {
+        if (kind == PoiKind.FUEL) {
+            showFuelPins = shown
+            prefs.edit().putBoolean(KEY_SHOW_FUEL, shown).apply()
+            onPoiTogglesChanged(if (shown) "Petrol stations shown" else "Petrol stations hidden")
+        } else {
+            showEvPins = shown
+            prefs.edit().putBoolean(KEY_SHOW_EV, shown).apply()
+            onPoiTogglesChanged(if (shown) "EV charging shown" else "EV charging hidden")
+        }
+    }
 
     /** On = filled orange/green with a white icon; off = plain white with
      * a navy icon. */
