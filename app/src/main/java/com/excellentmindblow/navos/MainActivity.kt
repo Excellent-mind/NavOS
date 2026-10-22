@@ -1,9 +1,7 @@
 package com.excellentmindblow.navos
 
 import android.Manifest
-import android.animation.Animator
 import android.animation.ObjectAnimator
-import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.ComponentName
@@ -71,6 +69,9 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.dynamicanimation.animation.FloatValueHolder
+import androidx.dynamicanimation.animation.SpringAnimation
+import androidx.dynamicanimation.animation.SpringForce
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.excellentmindblow.navos.location.DriveFollower
@@ -201,6 +202,11 @@ private const val NAV_ZOOM_FAST_PENALTY = 1.0 // 110 km/h and up: open the view
 // second) and a longer one only for the deliberate "snap into place"
 // moment - the Position button tap or entering active navigation.
 private const val NAV_FOLLOW_EASE_MS = 350
+
+// Home sheet spring: response in seconds (Apple's sheet value), and how hard
+// a release has to fling before the settle is allowed a small overshoot.
+private const val SHEET_SPRING_RESPONSE_S = 0.3f
+private const val SHEET_BOUNCE_FLING_PX_S = 1500f
 private const val SNAP_MAX_METERS = 35.0 // beyond this the fix isn't "on" the route
 private const val SNAP_LOOKAHEAD_SEGMENTS = 150
 private const val SNAP_LOOKBACK_SEGMENTS = 5
@@ -381,7 +387,7 @@ class MainActivity : AppCompatActivity() {
      * velocity tracker + running snap animation for the drag handle. */
     private var dragStartSheetHeight = 0
     private var dragVelocityTracker: VelocityTracker? = null
-    private var sheetSettleAnimator: ValueAnimator? = null
+    private var sheetSettleAnimator: SpringAnimation? = null
 
     /** Whichever search box (the idle sheet's or the mid-drive topBar's)
      * most recently opened - showSearchResults()/runSearch() target this
@@ -1415,6 +1421,7 @@ class MainActivity : AppCompatActivity() {
         bottomNavBar = findViewById(R.id.bottomNavBar)
         arrivalCard = findViewById(R.id.arrivalCard)
         findViewById<View>(R.id.arrivalConfirmButton).setOnClickListener {
+            Motion.confirm(it)
             hideArrivalCard()
             endActiveNavigation()
         }
@@ -1497,6 +1504,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         findViewById<View>(R.id.startNavigationButton).setOnClickListener {
+            Motion.confirm(it)
             beginActiveNavigation()
         }
         findViewById<View>(R.id.cancelRouteButton).setOnClickListener {
@@ -1616,8 +1624,18 @@ class MainActivity : AppCompatActivity() {
                 }
                 val collapsed = sheetCollapsedHeight()
                 val full = sheetFullHeight()
-                val target = (dragStartSheetHeight + deltaY.toInt()).coerceIn(collapsed, full)
-                applySheetDragHeight(target, collapsed, full)
+                val raw = (dragStartSheetHeight + deltaY).toFloat()
+                val range = (full - collapsed).toFloat().coerceAtLeast(1f)
+                // Past either end the sheet keeps following, with growing
+                // resistance, instead of stopping dead under the finger.
+                val target =
+                    when {
+                        raw < collapsed -> collapsed - Motion.rubberband(collapsed - raw, range)
+                        raw > full -> full + Motion.rubberband(raw - full, range)
+                        else -> raw
+                    }
+                val maxHeight = (homeSheet.parent as View).height
+                applySheetDragHeight(target.toInt().coerceAtMost(maxHeight), collapsed, full)
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -1630,14 +1648,12 @@ class MainActivity : AppCompatActivity() {
                     tracker?.recycle()
                     val collapsed = sheetCollapsedHeight()
                     val full = sheetFullHeight()
-                    val progress = (homeSheet.height - collapsed).toFloat() / (full - collapsed).coerceAtLeast(1)
-                    val flingThreshold = 900f
-                    val open =
-                        when {
-                            velocityY < -flingThreshold -> true
-                            velocityY > flingThreshold -> false
-                            else -> progress > 0.5f
-                        }
+                    // Snap to whichever end the gesture is heading for (its
+                    // projected landing point), not just where it let go - so
+                    // a quick short flick is enough to open or close.
+                    val projected = homeSheet.height - Motion.project(velocityY)
+                    val open = kotlin.math.abs(projected - full) < kotlin.math.abs(projected - collapsed)
+                    if (open != (homeSheetState == HomeSheetState.SEARCH)) Motion.snap(homeSheet)
                     animateHomeSheetTo(open, velocityY)
                     return true
                 }
@@ -1711,46 +1727,52 @@ class MainActivity : AppCompatActivity() {
     ) {
         val collapsed = sheetCollapsedHeight()
         val full = sheetFullHeight()
-        val from = homeSheet.height.coerceIn(collapsed, full)
         val to = if (open) full else collapsed
         settlingDrag = true
         sheetSettleAnimator?.cancel()
 
-        // Longer travel takes a little longer, and a hard fling in the
-        // same direction as the snap shortens it - so it keeps the finger's
-        // momentum instead of stopping and restarting.
-        val distanceFraction = kotlin.math.abs(to - from).toFloat() / (full - collapsed).coerceAtLeast(1)
-        val flingBoost = (kotlin.math.abs(velocityY) / 6000f).coerceAtMost(0.4f)
-        val durationMs = (240 + 160 * distanceFraction) * (1f - flingBoost)
+        val finish = {
+            sheetSettleAnimator = null
+            settlingDrag = false
+            homeSearchBody.alpha = 1f
+            setHomeSheetState(if (open) HomeSheetState.SEARCH else HomeSheetState.COLLAPSED)
+            // Dragged down mid-drive: treat as "back to navigation".
+            if (!open && searchOpenedFromNav) exitSearchFromNav()
+        }
+        if (!Motion.animationsEnabled()) {
+            applySheetDragHeight(to, collapsed, full)
+            finish()
+            return
+        }
 
-        var cancelled = false
-        val animator =
-            ValueAnimator.ofInt(from, to).apply {
-                duration = durationMs.toLong().coerceAtLeast(160L)
-                interpolator = Motion.easeDrawer
-                addUpdateListener { anim ->
-                    applySheetDragHeight(anim.animatedValue as Int, collapsed, full)
+        // A spring, not a fixed-duration tween: it starts from wherever the
+        // sheet is on screen right now (mid-drag, rubber-banded or mid-
+        // settle) and carries the finger's release speed straight on, so
+        // there is no seam between dragging and settling. Critically damped
+        // by default; a hard flick in the direction of travel earns a little
+        // overshoot, because the gesture itself had momentum.
+        val heightVelocity = -velocityY // finger up (negative y) = sheet growing
+        val flungTowardTarget = kotlin.math.abs(heightVelocity) > SHEET_BOUNCE_FLING_PX_S &&
+            kotlin.math.sign(heightVelocity) == kotlin.math.sign((to - homeSheet.height).toFloat())
+        val maxHeight = (homeSheet.parent as View).height
+        val settle =
+            SpringAnimation(FloatValueHolder(homeSheet.height.toFloat())).apply {
+                spring =
+                    SpringForce(to.toFloat()).apply {
+                        dampingRatio = if (flungTowardTarget) 0.85f else SpringForce.DAMPING_RATIO_NO_BOUNCY
+                        stiffness = Motion.stiffnessFor(SHEET_SPRING_RESPONSE_S)
+                    }
+                setStartVelocity(heightVelocity)
+                setMinimumVisibleChange(1f)
+                addUpdateListener { _, value, _ ->
+                    applySheetDragHeight(value.toInt().coerceIn(0, maxHeight), collapsed, full)
                 }
-                addListener(
-                    object : AnimatorListenerAdapter() {
-                        override fun onAnimationCancel(animation: Animator) {
-                            cancelled = true
-                        }
-
-                        override fun onAnimationEnd(animation: Animator) {
-                            if (cancelled) return
-                            sheetSettleAnimator = null
-                            settlingDrag = false
-                            homeSearchBody.alpha = 1f
-                            setHomeSheetState(if (open) HomeSheetState.SEARCH else HomeSheetState.COLLAPSED)
-                            // Dragged down mid-drive: treat as "back to navigation".
-                            if (!open && searchOpenedFromNav) exitSearchFromNav()
-                        }
-                    },
-                )
+                addEndListener { _, canceled, _, _ ->
+                    if (!canceled) finish()
+                }
             }
-        sheetSettleAnimator = animator
-        animator.start()
+        sheetSettleAnimator = settle
+        settle.start()
     }
 
     /** Tap on the search pill: same slide-up as a drag. */
@@ -2174,7 +2196,7 @@ class MainActivity : AppCompatActivity() {
             poiChips.addView(chip)
         }
 
-        poiCard.visibility = View.VISIBLE
+        Motion.reveal(poiCard, pivotFraction = 1f)
     }
 
     private fun hidePoiCard() {
@@ -2185,7 +2207,7 @@ class MainActivity : AppCompatActivity() {
             pinSeq++
             clearDestinationMarker()
         }
-        poiCard.visibility = View.GONE
+        Motion.dismiss(poiCard)
     }
 
     /** Drops a pin where the person tapped / long-pressed and shows a card
@@ -2213,7 +2235,7 @@ class MainActivity : AppCompatActivity() {
         poiSpec.visibility = View.GONE
         poiChips.removeAllViews()
         poiFootnote.visibility = View.GONE
-        poiCard.visibility = View.VISIBLE
+        Motion.reveal(poiCard, pivotFraction = 1f)
 
         extrasExecutor.execute {
             val found =
@@ -2795,11 +2817,11 @@ class MainActivity : AppCompatActivity() {
         val distance = Units.short(nearestD.coerceAtLeast(10.0))
         cameraAlertTitle.text = if (limit != null && kmh > limit) "Slow down - speed camera" else "Speed camera ahead"
         cameraAlertSub.text = if (limit != null) "$distance  -  limit ${Units.speed(limit.toDouble())} ${Units.speedUnit}" else distance
-        cameraAlert.visibility = View.VISIBLE
+        Motion.reveal(cameraAlert, pivotFraction = 0f)
     }
 
     private fun hideCameraAlert() {
-        if (::cameraAlert.isInitialized) cameraAlert.visibility = View.GONE
+        if (::cameraAlert.isInitialized) Motion.dismiss(cameraAlert)
     }
 
     // ---- Idle map: POIs around the view, instant from the cache ---------

@@ -3,6 +3,9 @@ package com.excellentmindblow.navos
 import android.animation.ObjectAnimator
 import android.animation.PropertyValuesHolder
 import android.animation.StateListAnimator
+import android.animation.ValueAnimator
+import android.os.Build
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.animation.PathInterpolator
 
@@ -55,4 +58,124 @@ object Motion {
             duration = durationMs
             interpolator = easeOut
         }
+
+    /** False when the user has turned animations off (Developer options /
+     * accessibility "Remove animations"). Springs don't follow the system
+     * duration scale the way ValueAnimator does, so callers check this
+     * and jump straight to the end state instead. */
+    fun animationsEnabled(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.O || ValueAnimator.areAnimatorsEnabled()
+
+    /**
+     * How far a release at [velocityPxPerSec] would carry on coasting, using
+     * the same exponential decay as scroll flinging (Apple's projection from
+     * "Designing Fluid Interfaces"). Snap decisions use the projected
+     * landing point rather than where the finger let go, so a short flick
+     * still throws a sheet all the way.
+     */
+    fun project(
+        velocityPxPerSec: Float,
+        decelerationRate: Float = 0.998f,
+    ): Float = (velocityPxPerSec / 1000f) * decelerationRate / (1f - decelerationRate)
+
+    /** Resistance past an edge: the further the drag goes beyond the bound,
+     * the less the content follows, instead of hitting a hard stop. */
+    fun rubberband(
+        overshoot: Float,
+        dimension: Float,
+        constant: Float = 0.55f,
+    ): Float = (overshoot * dimension * constant) / (dimension + constant * kotlin.math.abs(overshoot))
+
+    /** Spring stiffness for a given response time (seconds), so springs can
+     * be tuned in Apple's "response" terms rather than raw stiffness. */
+    fun stiffnessFor(responseSeconds: Float): Float {
+        val omega = 2f * Math.PI.toFloat() / responseSeconds
+        return omega * omega
+    }
+
+    /** A firm tick for moments that commit something (starting a drive,
+     * confirming arrival). Kept to a handful of places so it stays meaningful. */
+    fun confirm(view: View) {
+        val type =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                HapticFeedbackConstants.CONFIRM
+            } else {
+                HapticFeedbackConstants.VIRTUAL_KEY
+            }
+        view.performHapticFeedback(type)
+    }
+
+    /** A light tick when a dragged sheet snaps to a new resting state. */
+    fun snap(view: View) {
+        val type =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                HapticFeedbackConstants.GESTURE_END
+            } else {
+                HapticFeedbackConstants.CLOCK_TICK
+            }
+        view.performHapticFeedback(type)
+    }
+
+    private const val SURFACE_IN_MS = 240L
+    private const val SURFACE_OUT_MS = 160L
+    private const val SURFACE_SCALE = 0.96f
+
+    /**
+     * Shows a floating card or banner by having it grow out of the edge it
+     * is attached to ([pivotFraction] 0 = top edge, 1 = bottom edge) while
+     * fading in. Uses scale + alpha only, so it never fights code that
+     * positions the view with translationY. Safe to call on every GPS fix:
+     * a view that is already showing (or on its way in) is left alone.
+     */
+    fun reveal(
+        view: View,
+        pivotFraction: Float,
+    ) {
+        if (view.visibility == View.VISIBLE && view.getTag(R.id.motion_leaving) != true) return
+        view.setTag(R.id.motion_leaving, false)
+        view.animate().cancel()
+        if (view.visibility != View.VISIBLE) {
+            view.alpha = 0f
+            view.scaleX = SURFACE_SCALE
+            view.scaleY = SURFACE_SCALE
+            view.visibility = View.VISIBLE
+        }
+        if (!animationsEnabled()) {
+            view.alpha = 1f
+            view.scaleX = 1f
+            view.scaleY = 1f
+            return
+        }
+        val setPivot = {
+            view.pivotX = view.width / 2f
+            view.pivotY = view.height * pivotFraction
+        }
+        if (view.height > 0) setPivot() else view.post(setPivot)
+        view.animate().alpha(1f).scaleX(1f).scaleY(1f)
+            .setDuration(SURFACE_IN_MS).setInterpolator(easeOut).start()
+    }
+
+    /** The reverse of [reveal]: shrinks back toward the same edge it came
+     * from (same path out as in), a little faster than it arrived, then
+     * hides the view. */
+    fun dismiss(view: View) {
+        if (view.visibility != View.VISIBLE || view.getTag(R.id.motion_leaving) == true) return
+        view.animate().cancel()
+        if (!animationsEnabled()) {
+            view.visibility = View.GONE
+            return
+        }
+        view.setTag(R.id.motion_leaving, true)
+        view.animate().alpha(0f).scaleX(SURFACE_SCALE).scaleY(SURFACE_SCALE)
+            .setDuration(SURFACE_OUT_MS).setInterpolator(easeOut)
+            .withEndAction {
+                if (view.getTag(R.id.motion_leaving) == true) {
+                    view.visibility = View.GONE
+                    view.setTag(R.id.motion_leaving, false)
+                    view.alpha = 1f
+                    view.scaleX = 1f
+                    view.scaleY = 1f
+                }
+            }.start()
+    }
 }

@@ -493,6 +493,7 @@
                     android:layout_height="wrap_content"
                     android:textColor="@color/navos_text"
                     android:textSize="28sp"
+                    android:letterSpacing="-0.01"
                     android:textStyle="bold"
                     tools:text="3:38 PM" />
 
@@ -668,6 +669,7 @@
                         android:layout_height="wrap_content"
                         android:textColor="@color/navos_text"
                         android:textSize="28sp"
+                        android:letterSpacing="-0.01"
                         android:textStyle="bold"
                         tools:text="3:38 PM" />
 
@@ -1492,6 +1494,7 @@
                     android:text="Next turns"
                     android:textColor="@color/navos_text"
                     android:textSize="22sp"
+                    android:letterSpacing="-0.01"
                     android:textStyle="bold" />
 
                 <TextView
@@ -1586,6 +1589,7 @@
             android:text="You've arrived"
             android:textColor="@color/navos_text"
             android:textSize="24sp"
+            android:letterSpacing="-0.01"
             android:textStyle="bold" />
 
         <TextView
