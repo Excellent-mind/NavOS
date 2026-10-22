@@ -57,6 +57,8 @@ class DriveFollower(
 
     val arrowLat: Double get() = lat
     val arrowLng: Double get() = lng
+    /** The arrow's distance from the start of the route, as drawn this frame; NaN off the route. */
+    val progressMeters: Double get() = prog
     val arrowHeading: Double get() = if (laneBearing.isNaN()) currentBearing() else laneBearing
 
     var driveTilt = 55.0

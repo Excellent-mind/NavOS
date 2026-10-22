@@ -202,6 +202,29 @@ tap_id homeSearchPill && sleep 1.5 && hide_keyboard && shot 20-dark-search
 tap_id homeSheetBackButton; sleep 1.5
 tap_id homeSettingsButton && sleep 1.5 && shot 21-dark-settings
 adb shell cmd uimode night no
+sleep 6
+
+# 3D road signs: Jalan Gombak -> Genting Highlands. 1.6 km in, the route
+# takes the on-ramp to the DUKE (E33) - the map data signposts it
+# "E33, 2: Kuantan, Seremban" with lane arrows, so a lane gantry and a
+# direction gantry stand ahead; traffic lights along Jalan Gombak too.
+adb emu geo fix 101.71296 3.22910; sleep 2
+adb shell am start -a android.intent.action.VIEW -d "geo:3.4236,101.7932?q=3.4236,101.7932" -p "$PKG" >/dev/null 2>&1
+sleep 6; shot 22-signs-place
+tap_id poiGoButton && sleep 25 && shot 23-signs-route-preview
+tap_id startNavigationButton && sleep 10 && shot 24-signs-start
+for fix in "101.71189 3.23137" "101.71060 3.23318" "101.70905 3.23411"; do
+  adb emu geo fix $fix >/dev/null 2>&1; sleep 2
+done
+sleep 4; shot 25-signs-800m
+for fix in "101.70725 3.23412" "101.70585 3.23430"; do
+  adb emu geo fix $fix >/dev/null 2>&1; sleep 2
+done
+sleep 4; shot 26-signs-1150m
+adb emu geo fix 101.70460 3.23489 >/dev/null 2>&1; sleep 2
+adb emu geo fix 101.70391 3.23524 >/dev/null 2>&1; sleep 4; shot 27-signs-1400m
+adb logcat -d -s NavOSSigns > "$OUT/signs.txt" 2>/dev/null
+tap_id navSheetHandle; sleep 1; tap_id stopNavigationButton; sleep 3
 
 sleep 2
 adb shell pkill -INT screenrecord 2>/dev/null; wait "$REC" 2>/dev/null; sleep 2

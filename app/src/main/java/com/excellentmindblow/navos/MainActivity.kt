@@ -19,6 +19,7 @@ import android.graphics.RectF
 import android.location.Location
 import android.location.LocationManager
 import android.os.Bundle
+import android.util.Log
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
@@ -83,6 +84,8 @@ import com.excellentmindblow.navos.poi.PoiService
 import com.excellentmindblow.navos.routing.LaneInfo
 import com.excellentmindblow.navos.routing.RoadPoi
 import com.excellentmindblow.navos.routing.RoadPoiService
+import com.excellentmindblow.navos.signs.SignOverlayView
+import com.excellentmindblow.navos.signs.SignPlanner
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.routing.RoutePrefs
@@ -441,7 +444,10 @@ class MainActivity : AppCompatActivity() {
             },
         ).also {
             it.driveTilt = NAV_TILT_DEGREES
-            it.onFrame = { updateArrowOverlay() }
+            it.onFrame = {
+                updateArrowOverlay()
+                if (::signOverlay.isInitialized) signOverlay.invalidate()
+            }
         }
     private var smoothedNavZoom: Double? = null
     private var lastNavState: NavigationState? = null
@@ -532,8 +538,10 @@ class MainActivity : AppCompatActivity() {
                 redrawRouteLines()
                 setRecalculating(false)
                 activeRoutePois = emptyList()
+                activeExtras = emptyList()
                 cameraRouteIndex.clear()
                 renderRoutePois()
+                updateRouteSigns(route)
                 loadActiveRoutePois(route)
                 renderedCalloutStep = -1
                 renderTurnCallouts(1)
@@ -683,9 +691,11 @@ class MainActivity : AppCompatActivity() {
             loadedMap.uiSettings.isLogoEnabled = false
             loadedMap.uiSettings.isAttributionEnabled = false
             val compass = findViewById<CompassView>(R.id.compassButton)
+            signOverlay.map = loadedMap
             loadedMap.addOnCameraMoveListener {
                 compass.northAngle = (-loadedMap.cameraPosition.bearing).toFloat()
                 updateArrowOverlay()
+                signOverlay.invalidate()
             }
             // Two views, like other navigation apps: tap to switch between
             // "north up" and "heading up" (map turns to the way you're going).
@@ -921,6 +931,50 @@ class MainActivity : AppCompatActivity() {
         val parent = mapView.parent as ViewGroup
         // Right above the map, below every other control and sheet.
         parent.addView(arrowView, parent.indexOfChild(mapView) + 1, ViewGroup.LayoutParams(arrowSizePx, arrowSizePx))
+        // The 3D road signs stand between the map and the arrow.
+        signOverlay = SignOverlayView(this).apply { progress = { driveFollower.progressMeters } }
+        parent.addView(signOverlay, parent.indexOfChild(mapView) + 1, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
+    /** Road signs and traffic lights standing along the route while driving. */
+    private lateinit var signOverlay: SignOverlayView
+
+    /** Traffic lights / R&Rs beside each previewed route, and the active route's. */
+    private val routeExtrasByIndex = HashMap<Int, List<RoadPoi>>()
+    private var activeExtras: List<RoadPoi> = emptyList()
+
+    /** Where the active route's traffic lights are (metres from its start). */
+    private var activeLights: List<Double> = emptyList()
+
+    /** Re-plans the signs for [route] from what is known about it so far. */
+    private fun updateRouteSigns(route: Route) {
+        val pois = activeRoutePois
+        val extras = activeExtras
+        extrasExecutor.execute {
+            val signs = SignPlanner.plan(route, pois, extras)
+            val lights = SignPlanner.trafficLights(route, extras)
+            Log.i(
+                "NavOSSigns",
+                "planned ${signs.size} signs (${signs.groupingBy { it.content.javaClass.simpleName }.eachCount()}), " +
+                    "${lights.size} traffic lights from ${extras.size} extras / ${pois.size} pois",
+            )
+            mainHandler.post {
+                if (isDestroyed || navMode != NavMode.ACTIVE || activeRoute !== route) return@post
+                activeLights = lights
+                val track = routeTrack?.takeIf { it.source === route.geometry } ?: RouteTrack(route.geometry).also { routeTrack = it }
+                signOverlay.setRoute(track, signs)
+                lastNavState?.let { showTripSummary(it.durationRemainingSeconds, it.distanceRemainingMeters, etaClockText, etaDetailText) }
+            }
+        }
+    }
+
+    /** " • 8 lights" for the drive bar: traffic lights still ahead, or "" if none / unknown. */
+    private fun lightsAheadSuffix(): String {
+        if (navMode != NavMode.ACTIVE || activeLights.isEmpty()) return ""
+        val here = driveFollower.progressMeters
+        if (here.isNaN()) return ""
+        val n = SignPlanner.lightsAhead(activeLights, here)
+        return if (n <= 0) "" else " • " + resources.getQuantityString(R.plurals.n_lights_short, n, n)
     }
 
     private fun updateArrowOverlay() {
@@ -2414,6 +2468,7 @@ class MainActivity : AppCompatActivity() {
         isRestyle: Boolean,
     ) {
         appliedMapDark = styleUrl == MAP_STYLE_URL_DARK
+        if (::signOverlay.isInitialized) signOverlay.setNight(appliedMapDark == true)
         loadedMap.setStyle(Style.Builder().fromUri(styleUrl)) { style ->
             MapLabels.apply(style)
             val sources = MapLayers(this).install(style)
@@ -2733,21 +2788,61 @@ class MainActivity : AppCompatActivity() {
                 updateRoutePreviewSummary()
                 if (routeListShowing) renderRouteList()
             }
+            // Then traffic lights and R&Rs - a second, bigger lookup, so the
+            // toll counts above don't wait for it.
+            val extras =
+                try {
+                    RoadPoiService.fetchExtrasAlong(routes)
+                } catch (e: Exception) {
+                    emptyMap()
+                }
+            val lightCounts = extras.mapValues { (i, list) -> SignPlanner.trafficLights(routes[i], list).size }
+            mainHandler.post {
+                if (token != previewToken || navMode != NavMode.PREVIEW) return@post
+                routeExtrasByIndex.putAll(extras)
+                routeLightCounts.putAll(lightCounts)
+                updateRoutePreviewSummary()
+                if (routeListShowing) renderRouteList()
+            }
         }
     }
 
-    private fun loadActiveRoutePois(route: Route) {
+    /** Traffic lights on each previewed route, once looked up. */
+    private val routeLightCounts = HashMap<Int, Int>()
+
+    private fun loadActiveRoutePois(
+        route: Route,
+        needPois: Boolean = true,
+        needExtras: Boolean = true,
+    ) {
         extrasExecutor.execute {
-            val found =
-                try {
-                    RoadPoiService.fetchAlong(listOf(route))[0].orEmpty()
-                } catch (e: Exception) {
-                    emptyList()
+            if (needPois) {
+                val found =
+                    try {
+                        RoadPoiService.fetchAlong(listOf(route))[0].orEmpty()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                mainHandler.post {
+                    if (navMode == NavMode.ACTIVE && activeRoute === route) {
+                        activeRoutePois = found
+                        renderRoutePois()
+                        updateRouteSigns(route)
+                    }
                 }
-            mainHandler.post {
-                if (navMode == NavMode.ACTIVE && activeRoute === route) {
-                    activeRoutePois = found
-                    renderRoutePois()
+            }
+            if (needExtras) {
+                val extras =
+                    try {
+                        RoadPoiService.fetchExtrasAlong(listOf(route))[0].orEmpty()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                mainHandler.post {
+                    if (navMode == NavMode.ACTIVE && activeRoute === route) {
+                        activeExtras = extras
+                        updateRouteSigns(route)
+                    }
                 }
             }
         }
@@ -2766,7 +2861,13 @@ class MainActivity : AppCompatActivity() {
     /** Inputs for the route cards: time, distance, main road and tolls (null until looked up). */
     private fun routeChoiceInputs(): List<RouteChoices.Input> =
         routeOptions.mapIndexed { i, r ->
-            RouteChoices.Input(r.durationSeconds, r.distanceMeters, NavFormat.viaRoadName(r), routePoisByIndex[i]?.count { it.kind == "toll" })
+            RouteChoices.Input(
+                r.durationSeconds,
+                r.distanceMeters,
+                NavFormat.viaRoadName(r),
+                routePoisByIndex[i]?.count { it.kind == "toll" },
+                routeLightCounts[i],
+            )
         }
 
     /** The "All routes" screen: every route as a card, quickest first; tap one to pick it. */
@@ -2925,6 +3026,8 @@ class MainActivity : AppCompatActivity() {
                     selectedRouteIndex = 0
                     previewToken++
                     routePoisByIndex.clear()
+                    routeExtrasByIndex.clear()
+                    routeLightCounts.clear()
                     destinationName = destination.name
                     destinationAddress = destination.address
                     showDestinationMarker(LatLng(destination.latitude, destination.longitude))
@@ -3356,7 +3459,8 @@ class MainActivity : AppCompatActivity() {
     ) {
         val arrival = Date(System.currentTimeMillis() + (durationSeconds * 1000).toLong())
         clockView.text = SimpleDateFormat("h:mm a", Locale.US).format(arrival)
-        detailView.text = "${NavFormat.formatTripDuration(durationSeconds)} • ${NavFormat.formatTripDistance(distanceMeters)}"
+        detailView.text = "${NavFormat.formatTripDuration(durationSeconds)} • ${NavFormat.formatTripDistance(distanceMeters)}" +
+            if (detailView === etaDetailText) lightsAheadSuffix() else ""
     }
 
 
@@ -3515,6 +3619,8 @@ class MainActivity : AppCompatActivity() {
         routeOptions = emptyList()
         previewToken++
         routePoisByIndex.clear()
+        routeExtrasByIndex.clear()
+        routeLightCounts.clear()
         hideRouteChooser()
         renderRoutePois()
         routePreviewCard.visibility = View.GONE
@@ -3560,11 +3666,17 @@ class MainActivity : AppCompatActivity() {
         hideRouteChooser()
         previewToken++
         activeRoutePois = routePoisByIndex[selectedRouteIndex].orEmpty()
+        activeExtras = routeExtrasByIndex[selectedRouteIndex].orEmpty()
+        activeLights = emptyList()
         renderRoutePois()
-        if (activeRoutePois.isEmpty()) loadActiveRoutePois(route)
+        if (activeRoutePois.isEmpty() || activeExtras.isEmpty()) {
+            loadActiveRoutePois(route, needPois = activeRoutePois.isEmpty(), needExtras = activeExtras.isEmpty())
+        }
         applyNavPadding(true)
         renderedCalloutStep = -1
         renderTurnCallouts(1)
+        signOverlay.setNight(appliedMapDark == true)
+        updateRouteSigns(route)
         bottomNavBar.visibility = View.VISIBLE
         speedBadge.visibility = if (MapDisplayPrefs.speedometer) View.VISIBLE else View.GONE
         poiToggleColumn.visibility = View.VISIBLE
@@ -3990,6 +4102,9 @@ class MainActivity : AppCompatActivity() {
         activeRoute = null
         applyNavPadding(false)
         activeRoutePois = emptyList()
+        activeExtras = emptyList()
+        activeLights = emptyList()
+        signOverlay.clear()
         renderRoutePois()
         setRecalculating(false)
         renderedCalloutStep = -1

@@ -28,6 +28,12 @@ data class RouteStep(
     val lanes: List<LaneInfo>? = null,
     /** Road number of the road taken at this step ("E33"), when the map has one. */
     val ref: String? = null,
+    /** Signposted destinations at this junction, OSM style: "E33: Kuantan, Genting Highlands, Gombak". */
+    val destinations: String? = null,
+    /** Exit number(s) on the sign ("3305A"), expressway exits only. */
+    val exits: String? = null,
+    /** Roundabout steps: which exit to take (1 = first), else 0. */
+    val roundaboutExit: Int = 0,
 )
 
 /** An intermediate stop on a multi-stop trip (the final destination is NOT a
@@ -503,6 +509,9 @@ object RoutingService {
                         point = here,
                         lanes = parseLanes(step),
                         ref = step.optString("ref", "").split(';').map { it.trim() }.firstOrNull { it.isNotEmpty() && it != "null" },
+                        destinations = step.optString("destinations", "").trim().takeIf { it.isNotEmpty() && it != "null" },
+                        exits = step.optString("exits", "").split(';').map { it.trim() }.firstOrNull { it.isNotEmpty() && it != "null" },
+                        roundaboutExit = if (type == "roundabout" || type == "rotary") maneuver.optInt("exit", 0) else 0,
                     ),
                 )
             }

@@ -7,7 +7,9 @@ import java.net.URL
 import java.net.URLEncoder
 import java.util.Locale
 
-/** A toll plaza ("toll") or speed camera ("camera") that lies on a route. */
+/** Something on or beside a route: a toll plaza ("toll"), speed camera
+ * ("camera"), traffic light ("signal") or a rest stop - an R&R with
+ * services ("services") or a plain lay-by ("rest_area"). */
 data class RoadPoi(
     val kind: String,
     val latitude: Double,
@@ -34,6 +36,41 @@ object RoadPoiService {
 
     private const val ON_ROUTE_METERS = 45.0
     private const val TOLL_CLUSTER_METERS = 300.0
+    private const val SIGNAL_METERS = 20.0
+    private const val REST_METERS = 200.0
+
+    private const val BOX_SPAN_METERS = 8000.0
+    private const val SIGNAL_PAD_DEG = 0.0004 // ~45 m
+    private const val REST_PAD_DEG = 0.0025 // ~280 m
+
+    /** A lat/lon box in Overpass order. */
+    internal class Box(
+        val minLat: Double,
+        val minLon: Double,
+        val maxLat: Double,
+        val maxLon: Double,
+    ) {
+        fun padded(d: Double): String = String.format(Locale.US, "%.5f,%.5f,%.5f,%.5f", minLat - d, minLon - d, maxLat + d, maxLon + d)
+    }
+
+    /** Covers [line] with boxes, each spanning at most [BOX_SPAN_METERS] of it. */
+    internal fun boxesAlong(line: List<RoutePoint>): List<Box> {
+        if (line.isEmpty()) return emptyList()
+        val boxes = ArrayList<Box>()
+        var start = 0
+        var run = 0.0
+        for (i in 1 until line.size) {
+            run += GeoUtils.distanceMeters(line[i - 1], line[i])
+            if (run >= BOX_SPAN_METERS || i == line.size - 1) {
+                val part = line.subList(start, i + 1)
+                boxes.add(Box(part.minOf { it.latitude }, part.minOf { it.longitude }, part.maxOf { it.latitude }, part.maxOf { it.longitude }))
+                start = i
+                run = 0.0
+            }
+        }
+        if (boxes.isEmpty()) boxes.add(Box(line[0].latitude, line[0].longitude, line[0].latitude, line[0].longitude))
+        return boxes
+    }
 
     /** Route index -> toll plazas / cameras on that route. */
     @Throws(Exception::class)
@@ -79,6 +116,71 @@ object RoadPoiService {
             result[index] = clusterTolls(onRoute)
         }
         return result
+    }
+
+    /** Traffic lights within [SIGNAL_METERS] of the route line, plus R&Rs and
+     * lay-bys beside it - for the 3D signs and the "how many lights" count.
+     * One query covers every route (each its own around-the-line filter);
+     * the results are then shared out to the route they sit on.
+     * Blocking: call off the main thread. */
+    @Throws(Exception::class)
+    fun fetchExtrasAlong(routes: List<Route>): Map<Int, List<RoadPoi>> {
+        if (routes.isEmpty()) return emptyMap()
+        // Small boxes along each route (a box per ~8 km stretch) rather than
+        // one around-the-line filter: public Overpass servers answer box
+        // queries quickly but time out on long "around" lines, and one box
+        // over a long trip would hold every light in every town it touches.
+        val statements = StringBuilder()
+        for (route in routes) {
+            for (box in boxesAlong(route.geometry)) {
+                val sig = box.padded(SIGNAL_PAD_DEG)
+                val rest = box.padded(REST_PAD_DEG)
+                statements.append("node[\"highway\"=\"traffic_signals\"]($sig);")
+                statements.append("node[\"crossing\"=\"traffic_signals\"]($sig);")
+                statements.append("nwr[\"highway\"~\"^(services|rest_area)$\"]($rest);")
+            }
+        }
+        if (statements.isEmpty()) return emptyMap()
+        val json = runQuery("[out:json][timeout:25];($statements);out center 5000;")
+        val all = parseExtras(json)
+        val result = HashMap<Int, List<RoadPoi>>()
+        routes.forEachIndexed { index, route ->
+            val line = thin(route.geometry, 25.0)
+            result[index] =
+                if (line.size < 2) {
+                    emptyList()
+                } else {
+                    all.filter { poi ->
+                        val limit = if (poi.kind == "signal") SIGNAL_METERS + 5.0 else REST_METERS + 20.0
+                        GeoUtils.distanceToPolyline(RoutePoint(poi.latitude, poi.longitude), line).first <= limit
+                    }
+                }
+        }
+        return result
+    }
+
+    internal fun parseExtras(json: JSONObject): List<RoadPoi> {
+        val elements = json.optJSONArray("elements") ?: return emptyList()
+        val out = ArrayList<RoadPoi>()
+        val seen = HashSet<String>()
+        for (i in 0 until elements.length()) {
+            val e = elements.getJSONObject(i)
+            if (!seen.add(e.optString("type") + e.optLong("id"))) continue
+            val center = e.optJSONObject("center")
+            val lat = if (e.has("lat")) e.getDouble("lat") else center?.optDouble("lat") ?: continue
+            val lon = if (e.has("lon")) e.getDouble("lon") else center?.optDouble("lon") ?: continue
+            val tags = e.optJSONObject("tags") ?: JSONObject()
+            val highway = tags.optString("highway")
+            val kind =
+                when {
+                    highway == "traffic_signals" || tags.optString("crossing") == "traffic_signals" -> "signal"
+                    highway == "services" -> "services"
+                    highway == "rest_area" -> "rest_area"
+                    else -> continue
+                }
+            out.add(RoadPoi(kind = kind, latitude = lat, longitude = lon, name = tags.optString("name").ifBlank { tags.optString("operator") }))
+        }
+        return out
     }
 
     /** Every toll plaza / speed camera within [radiusMeters] of a point, not

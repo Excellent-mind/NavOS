@@ -14,6 +14,8 @@ data class RouteChoice(
     val tolls: Int?,
     val fastest: Boolean,
     val selected: Boolean,
+    /** Traffic lights (one per junction) on the route, or null while looked up. */
+    val lights: Int? = null,
 )
 
 /** Which route cards the preview shows, and where each route's time bubble sits. */
@@ -26,6 +28,7 @@ object RouteChoices {
         val distanceMeters: Double,
         val via: String?,
         val tolls: Int?,
+        val lights: Int? = null,
     )
 
     /**
@@ -45,7 +48,7 @@ object RouteChoices {
         }
         return picked.map { i ->
             val r = routes[i]
-            RouteChoice(i, r.durationSeconds, r.distanceMeters, r.via, r.tolls, fastest = routes.size > 1 && i == fastest, selected = i == selected)
+            RouteChoice(i, r.durationSeconds, r.distanceMeters, r.via, r.tolls, fastest = routes.size > 1 && i == fastest, selected = i == selected, lights = r.lights)
         }
     }
 

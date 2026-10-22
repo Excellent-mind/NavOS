@@ -37,6 +37,15 @@
     <string name="no_tolls">No tolls</string>
     <string name="one_toll">1 toll</string>
     <string name="n_tolls">%d tolls</string>
+    <string name="no_lights">No traffic lights</string>
+    <plurals name="n_lights">
+        <item quantity="one">%d traffic light</item>
+        <item quantity="other">%d traffic lights</item>
+    </plurals>
+    <plurals name="n_lights_short">
+        <item quantity="one">%d light</item>
+        <item quantity="other">%d lights</item>
+    </plurals>
     <string name="all_routes">All %d routes</string>
     <string name="route_hint_arrive">Arrive %s · typical time, no live traffic</string>
     <string name="route_hint_stops">%1$s · one route through every stop</string>

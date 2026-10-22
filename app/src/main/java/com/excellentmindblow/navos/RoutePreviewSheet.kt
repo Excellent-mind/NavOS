@@ -98,8 +98,23 @@ class RoutePreviewSheet(
         tolls.setTextColor(color(if (noTolls) R.color.sig_success else R.color.sig_text_quiet))
         tolls.paint.isFakeBoldText = noTolls
 
+        val lights = row.findViewById<TextView>(R.id.choiceLights)
+        val lightText =
+            when (val n = choice.lights) {
+                null -> null
+                0 -> context.getString(R.string.no_lights)
+                else -> context.resources.getQuantityString(R.plurals.n_lights, n, n)
+            }
+        lights.text = lightText
+        lights.visibility = if (lightText == null) View.GONE else View.VISIBLE
+
         row.contentDescription =
-            context.getString(R.string.route_card_description, duration, distance, listOfNotNull(choice.via?.let { "via $it" }, tollText).joinToString(", "))
+            context.getString(
+                R.string.route_card_description,
+                duration,
+                distance,
+                listOfNotNull(choice.via?.let { "via $it" }, tollText, lightText).joinToString(", "),
+            )
         row.isSelected = choice.selected
         row.setOnClickListener { onSelect(choice.index) }
         Motion.addPressFeedback(row)
