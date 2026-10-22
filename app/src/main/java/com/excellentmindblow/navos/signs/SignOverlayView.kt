@@ -8,13 +8,12 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.util.AttributeSet
 import android.view.View
+import com.excellentmindblow.navos.navigation.GeoUtils
 import com.excellentmindblow.navos.navigation.RouteTrack
 import com.excellentmindblow.navos.routing.RoutePoint
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
-import kotlin.math.cos
 import kotlin.math.hypot
-import kotlin.math.sin
 
 /**
  * Stands the route's road signs up on the tilted driving map.
@@ -104,9 +103,9 @@ class SignOverlayView
                 val spec = specOf(sign.content)
                 val heightM = spec.widthM * bmp.height / bmp.width
                 val heading = t.bearingAt((sign.atMeters - 15.0).coerceAtLeast(0.0), 30.0)
-                val foot = offset(t.pointAt(sign.atMeters), heading + 90.0, sign.sideMeters + spec.sideM)
-                val left = offset(foot, heading - 90.0, spec.widthM / 2)
-                val right = offset(foot, heading + 90.0, spec.widthM / 2)
+                val foot = GeoUtils.offset(t.pointAt(sign.atMeters), heading + 90.0, sign.sideMeters + spec.sideM)
+                val left = GeoUtils.offset(foot, heading - 90.0, spec.widthM / 2)
+                val right = GeoUtils.offset(foot, heading + 90.0, spec.widthM / 2)
                 val l = m.projection.toScreenLocation(LatLng(left.latitude, left.longitude))
                 val r = m.projection.toScreenLocation(LatLng(right.latitude, right.longitude))
 
@@ -227,24 +226,11 @@ class SignOverlayView
                 SignContent.TrafficLight -> Spec(14.0, 0.0, 0.0)
             }
 
-        private fun offset(
-            p: RoutePoint,
-            bearingDeg: Double,
-            meters: Double,
-        ): RoutePoint {
-            if (meters == 0.0) return p
-            val b = Math.toRadians(bearingDeg)
-            val dLat = meters * cos(b) / M_PER_DEG
-            val dLon = meters * sin(b) / (M_PER_DEG * cos(Math.toRadians(p.latitude)).coerceAtLeast(0.2))
-            return RoutePoint(p.latitude + dLat, p.longitude + dLon)
-        }
-
         companion object {
             const val VIEW_AHEAD_M = 1100.0
             const val FADE_IN_M = 200.0
             const val PASSED_M = 30.0
             const val MIN_TILT_DEG = 20.0
             const val MAX_SCREEN_FRACTION = 0.92f
-            private const val M_PER_DEG = 111_195.0
         }
     }

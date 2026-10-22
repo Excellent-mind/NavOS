@@ -34,6 +34,20 @@ object GeoUtils {
         return 2 * EARTH_RADIUS_M * asin(min(1.0, sqrt(h)))
     }
 
+    /** The point [meters] from [p] towards compass [bearingDeg] (flat-earth; fine for a few km). */
+    fun offset(
+        p: RoutePoint,
+        bearingDeg: Double,
+        meters: Double,
+    ): RoutePoint {
+        if (meters == 0.0) return p
+        val b = Math.toRadians(bearingDeg)
+        val mPerDeg = Math.toRadians(1.0) * EARTH_RADIUS_M
+        val dLat = meters * Math.cos(b) / mPerDeg
+        val dLon = meters * Math.sin(b) / (mPerDeg * Math.cos(Math.toRadians(p.latitude)).coerceAtLeast(0.2))
+        return RoutePoint(p.latitude + dLat, p.longitude + dLon)
+    }
+
     /** Compass bearing from a to b, in degrees (0 = north). */
     fun bearingDegrees(
         a: RoutePoint,

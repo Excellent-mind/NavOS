@@ -84,6 +84,7 @@ import com.excellentmindblow.navos.poi.PoiService
 import com.excellentmindblow.navos.routing.LaneInfo
 import com.excellentmindblow.navos.routing.RoadPoi
 import com.excellentmindblow.navos.routing.RoadPoiService
+import com.excellentmindblow.navos.navigation.RouteCorners
 import com.excellentmindblow.navos.signs.SignOverlayView
 import com.excellentmindblow.navos.signs.SignPlanner
 import com.excellentmindblow.navos.routing.Route
@@ -447,6 +448,7 @@ class MainActivity : AppCompatActivity() {
             it.onFrame = {
                 updateArrowOverlay()
                 if (::signOverlay.isInitialized) signOverlay.invalidate()
+                if (::routeArrows.isInitialized) routeArrows.invalidate()
             }
         }
     private var smoothedNavZoom: Double? = null
@@ -692,10 +694,12 @@ class MainActivity : AppCompatActivity() {
             loadedMap.uiSettings.isAttributionEnabled = false
             val compass = findViewById<CompassView>(R.id.compassButton)
             signOverlay.map = loadedMap
+            routeArrows.map = loadedMap
             loadedMap.addOnCameraMoveListener {
                 compass.northAngle = (-loadedMap.cameraPosition.bearing).toFloat()
                 updateArrowOverlay()
                 signOverlay.invalidate()
+                routeArrows.invalidate()
             }
             // Two views, like other navigation apps: tap to switch between
             // "north up" and "heading up" (map turns to the way you're going).
@@ -934,7 +938,13 @@ class MainActivity : AppCompatActivity() {
         // The 3D road signs stand between the map and the arrow.
         signOverlay = SignOverlayView(this).apply { progress = { driveFollower.progressMeters } }
         parent.addView(signOverlay, parent.indexOfChild(mapView) + 1, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // Guide chevrons lie on the line itself, under the signs.
+        routeArrows = RouteArrowsView(this).apply { progress = { driveFollower.progressMeters } }
+        parent.addView(routeArrows, parent.indexOfChild(mapView) + 1, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
+
+    /** Animated guide chevrons through every bend of the route ahead. */
+    private lateinit var routeArrows: RouteArrowsView
 
     /** Road signs and traffic lights standing along the route while driving. */
     private lateinit var signOverlay: SignOverlayView
@@ -953,6 +963,7 @@ class MainActivity : AppCompatActivity() {
         signExecutor.execute {
             val signs = SignPlanner.plan(route, pois, extras)
             val lights = SignPlanner.trafficLights(route, extras)
+            val corners = if (route.geometry.size >= 2) RouteCorners.find(RouteTrack(route.geometry)) else emptyList()
             Log.i(
                 "NavOSSigns",
                 "planned ${signs.size} signs (${signs.groupingBy { it.content.javaClass.simpleName }.eachCount()}), " +
@@ -963,6 +974,7 @@ class MainActivity : AppCompatActivity() {
                 activeLights = lights
                 val track = routeTrack?.takeIf { it.source === route.geometry } ?: RouteTrack(route.geometry).also { routeTrack = it }
                 signOverlay.setRoute(track, signs)
+                routeArrows.setRoute(track, corners)
                 lastNavState?.let { showTripSummary(it.durationRemainingSeconds, it.distanceRemainingMeters, etaClockText, etaDetailText) }
             }
         }
@@ -2469,6 +2481,7 @@ class MainActivity : AppCompatActivity() {
     ) {
         appliedMapDark = styleUrl == MAP_STYLE_URL_DARK
         if (::signOverlay.isInitialized) signOverlay.setNight(appliedMapDark == true)
+        if (::routeArrows.isInitialized) routeArrows.refreshColor()
         loadedMap.setStyle(Style.Builder().fromUri(styleUrl)) { style ->
             MapLabels.apply(style)
             val sources = MapLayers(this).install(style)
@@ -4119,6 +4132,7 @@ class MainActivity : AppCompatActivity() {
         activeExtras = emptyList()
         activeLights = emptyList()
         signOverlay.clear()
+        routeArrows.clear()
         renderRoutePois()
         setRecalculating(false)
         renderedCalloutStep = -1
