@@ -18,4 +18,17 @@
     <color name="navos_chip_off_bg">#2A3349</color>
     <color name="navos_chip_off_text">#8995AB</color>
     <color name="navos_toggle_selected">#1F3A57</color>
+
+    <!-- Signal at night: pure black, like the icon. The loud card turns white. -->
+    <color name="sig_ink">#FFFFFF</color>
+    <color name="sig_on_ink">#0A0A0A</color>
+    <color name="sig_on_ink_quiet">#5C5C5C</color>
+    <color name="sig_text">#FFFFFF</color>
+    <color name="sig_text_quiet">#A6A6A6</color>
+    <color name="sig_sheet">#0B0B0B</color>
+    <color name="sig_field">#1C1C1C</color>
+    <color name="sig_outline">#333333</color>
+    <color name="sig_handle">#3A3A3A</color>
+    <color name="sig_petrol">#F08A2C</color>
+    <color name="sig_ev">#4CC27A</color>
 </resources>

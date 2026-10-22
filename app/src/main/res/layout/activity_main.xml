@@ -2,6 +2,7 @@
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -890,12 +891,12 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
-            android:background="@drawable/bg_bottom_sheet"
+            android:background="@drawable/bg_sig_sheet"
             android:elevation="8dp"
             android:orientation="vertical"
             android:paddingStart="16dp"
             android:paddingEnd="16dp"
-            android:paddingBottom="20dp">
+            android:paddingBottom="24dp">
 
             <!-- Drag target for opening/closing the sheet by hand, separate
                  from the decorative handle View inside it so the touchable
@@ -907,48 +908,124 @@
 
                 <View
                     android:layout_width="40dp"
-                    android:layout_height="4dp"
+                    android:layout_height="5dp"
                     android:layout_gravity="center"
-                    android:background="@drawable/bg_drag_handle" />
+                    android:background="@drawable/bg_sig_handle" />
 
             </FrameLayout>
 
-            <!-- Collapsed row: search pill + settings icon. -->
+            <!-- Home (collapsed sheet), Signal design: search + settings,
+                 Home / Work shortcuts with drive time, petrol / EV pin
+                 toggles, and the latest recent places. The whole block is
+                 swapped for the search header when the sheet opens. -->
             <LinearLayout
                 android:id="@+id/homeSheetCollapsedRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:orientation="vertical">
 
-                <TextView
-                    android:id="@+id/homeSearchPill"
-                    android:layout_width="0dp"
-                    android:layout_height="52dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_search_pill"
-                    android:clickable="true"
-                    android:drawablePadding="12dp"
-                    android:drawableStart="@drawable/ic_search"
-                    android:drawableTint="@color/navos_text_secondary"
-                    android:focusable="true"
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
                     android:gravity="center_vertical"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="Where to?"
-                    android:textColor="@color/navos_text_secondary"
-                    android:textSize="17sp" />
+                    android:orientation="horizontal">
 
-                <ImageButton
-                    android:id="@+id/homeSettingsButton"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:layout_marginStart="10dp"
-                    android:background="@drawable/bg_circle_light"
-                    android:contentDescription="Settings"
-                    android:padding="14dp"
-                    android:src="@drawable/ic_settings"
-                    android:tint="@color/navos_text" />
+                    <TextView
+                        android:id="@+id/homeSearchPill"
+                        android:layout_width="0dp"
+                        android:layout_height="56dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/bg_sig_field"
+                        android:clickable="true"
+                        android:contentDescription="@string/home_search_description"
+                        android:drawablePadding="12dp"
+                        app:drawableStartCompat="@drawable/ic_search"
+                        app:drawableTint="@color/sig_text"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:text="@string/home_search_hint"
+                        android:textAppearance="@style/TextAppearance.Signal.Input"
+                        android:textColor="@color/sig_text_quiet" />
+
+                    <ImageButton
+                        android:id="@+id/homeSettingsButton"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:layout_marginStart="10dp"
+                        android:background="@drawable/bg_sig_field"
+                        android:contentDescription="@string/settings"
+                        android:padding="17dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_settings"
+                        app:tint="@color/sig_text" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <include
+                        android:id="@+id/homeShortcutHome"
+                        layout="@layout/item_home_shortcut"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="5dp"
+                        android:layout_weight="1" />
+
+                    <include
+                        android:id="@+id/homeShortcutWork"
+                        layout="@layout/item_home_shortcut"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="5dp"
+                        android:layout_weight="1" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/homePetrolChip"
+                        style="@style/Widget.Signal.Chip"
+                        android:text="@string/chip_petrol" />
+
+                    <TextView
+                        android:id="@+id/homeEvChip"
+                        style="@style/Widget.Signal.Chip"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/chip_ev" />
+
+                </LinearLayout>
+
+                <!-- Rows are added from code (HomeScreen.renderRecents). -->
+                <LinearLayout
+                    android:id="@+id/homePeekRecents"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="4dp"
+                        android:paddingEnd="4dp"
+                        android:paddingBottom="6dp"
+                        android:text="@string/recent"
+                        android:textAppearance="@style/TextAppearance.Signal.Overline" />
+
+                </LinearLayout>
 
             </LinearLayout>
 

@@ -1,4 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">NavOS</string>
+
+    <!-- Home -->
+    <string name="home_search_hint">Where to?</string>
+    <string name="home_search_description">Search for a destination</string>
+    <string name="settings">Settings</string>
+    <string name="shortcut_home">Home</string>
+    <string name="shortcut_work">Work</string>
+    <string name="shortcut_set">Set</string>
+    <string name="shortcut_set_detail">Tap to add the address</string>
+    <string name="shortcut_no_time">—</string>
+    <string name="shortcut_description">%1$s, %2$s, %3$s</string>
+    <string name="chip_petrol">Petrol</string>
+    <string name="chip_ev">EV charging</string>
+    <string name="recent">Recent</string>
 </resources>

@@ -1,24 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One search result row, Waze-style: pin, bold place name, grey area
-     underneath, distance from the driver on the right. -->
+<!-- One place row (search results, recent places): icon in a grey circle,
+     bold name, quiet address underneath, distance from the driver on the right. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
     android:gravity="center_vertical"
-    android:minHeight="64dp"
+    android:minHeight="60dp"
     android:orientation="horizontal"
-    android:paddingStart="8dp"
+    android:paddingStart="4dp"
     android:paddingTop="10dp"
-    android:paddingEnd="8dp"
+    android:paddingEnd="4dp"
     android:paddingBottom="10dp">
 
-    <ImageView
-        android:id="@+id/resultIcon"
-        android:layout_width="22dp"
-        android:layout_height="22dp"
+    <FrameLayout
+        android:layout_width="40dp"
+        android:layout_height="40dp"
         android:layout_marginEnd="14dp"
-        android:contentDescription="@null"
-        android:src="@drawable/ic_place_pin" />
+        android:background="@drawable/bg_sig_icon_circle">
+
+        <ImageView
+            android:id="@+id/resultIcon"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:layout_gravity="center"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_place_pin"
+            app:tint="@color/sig_text_quiet" />
+
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="0dp"
@@ -32,9 +43,7 @@
             android:layout_height="wrap_content"
             android:ellipsize="end"
             android:maxLines="1"
-            android:textColor="@color/navos_text"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+            android:textAppearance="@style/TextAppearance.Signal.Body" />
 
         <TextView
             android:id="@+id/resultAddress"
@@ -43,8 +52,7 @@
             android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:maxLines="1"
-            android:textColor="@color/navos_text_tertiary"
-            android:textSize="13sp" />
+            android:textAppearance="@style/TextAppearance.Signal.Secondary" />
 
     </LinearLayout>
 
@@ -53,8 +61,6 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="10dp"
-        android:textColor="@color/navos_text_tertiary"
-        android:textSize="14sp"
-        android:textStyle="bold" />
+        android:textAppearance="@style/TextAppearance.Signal.Number.Row" />
 
 </LinearLayout>

@@ -60,4 +60,68 @@
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
         <item name="postSplashScreenTheme">@style/Theme.NavOS</item>
     </style>
+
+    <!-- Signal type scale: 46 sign distance, 38 ETA, 21 street, 17 body, 13 caption. -->
+    <style name="TextAppearance.Signal" parent="">
+        <item name="android:fontFamily">@font/signal_text</item>
+        <item name="fontFamily">@font/signal_text</item>
+        <item name="android:textColor">@color/sig_text</item>
+    </style>
+    <style name="TextAppearance.Signal.Body">
+        <item name="android:textSize">17sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="TextAppearance.Signal.Input">
+        <item name="android:textSize">19sp</item>
+    </style>
+    <style name="TextAppearance.Signal.Label">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="TextAppearance.Signal.Secondary">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/sig_text_quiet</item>
+    </style>
+    <style name="TextAppearance.Signal.Caption">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">@color/sig_text_quiet</item>
+    </style>
+    <style name="TextAppearance.Signal.Overline">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.06</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:textColor">@color/sig_text_quiet</item>
+    </style>
+    <style name="TextAppearance.Signal.Number" parent="">
+        <item name="android:fontFamily">@font/signal_numbers</item>
+        <item name="fontFamily">@font/signal_numbers</item>
+        <item name="android:textColor">@color/sig_text</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+    <style name="TextAppearance.Signal.Number.Card">
+        <item name="android:textSize">28sp</item>
+        <item name="android:letterSpacing">-0.01</item>
+    </style>
+    <style name="TextAppearance.Signal.Number.Row">
+        <item name="android:textSize">17sp</item>
+        <item name="android:textStyle">normal</item>
+        <item name="android:textColor">@color/sig_text_quiet</item>
+    </style>
+
+    <!-- Signal chip: 44dp pill, outline when off, ink when selected. -->
+    <style name="Widget.Signal.Chip" parent="">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">44dp</item>
+        <item name="android:background">@drawable/bg_sig_chip</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:drawablePadding">8dp</item>
+        <item name="android:paddingStart">14dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:textAppearance">@style/TextAppearance.Signal.Label</item>
+        <item name="android:textColor">@color/sig_chip_text</item>
+    </style>
 </resources>

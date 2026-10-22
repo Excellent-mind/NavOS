@@ -991,10 +991,14 @@ class MainActivity : AppCompatActivity() {
         return (parentHeight - sheetTopGap()).coerceAtLeast(sheetCollapsedHeight() + 1)
     }
 
+    /** Laid-out height of the Home content (search row, shortcuts, chips,
+     * recents), remembered while it is shown - it is hidden mid-drag. */
+    private var homeCollapsedContentHeight = 0
+
     /** The sheet's height when collapsed: padding + drag handle (24dp) + the
-     * 52dp search-pill row, with the body hidden. */
+     * Home content, with the search body hidden. */
     private fun sheetCollapsedHeight(): Int =
-        homeSheet.paddingTop + dp(24) + dp(52) + homeSheetBasePaddingBottom
+        homeSheet.paddingTop + dp(24) + homeCollapsedContentHeight.coerceAtLeast(dp(56)) + homeSheetBasePaddingBottom
 
     private fun setUpSettings() {
         Units.load(prefs)
@@ -1143,6 +1147,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.homeRecentsClear).setOnClickListener {
             recentPlaces.clear()
             renderRecents()
+            homeScreen.render()
         }
         homeSearchClearButton = findViewById(R.id.homeSearchClearButton)
         searchClearButton = findViewById(R.id.searchClearButton)
@@ -1301,6 +1306,9 @@ class MainActivity : AppCompatActivity() {
         homeSheet = findViewById(R.id.homeSheet)
         homeSheetBasePaddingBottom = homeSheet.paddingBottom
         homeSheetCollapsedRow = findViewById(R.id.homeSheetCollapsedRow)
+        homeSheetCollapsedRow.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            if (v.visibility == View.VISIBLE && v.height > 0) homeCollapsedContentHeight = v.height
+        }
         homeSheetExpandedRow = findViewById(R.id.homeSheetExpandedRow)
         homeSearchPill = findViewById(R.id.homeSearchPill)
         homeSettingsButton = findViewById(R.id.homeSettingsButton)
@@ -1791,6 +1799,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun onPoiTogglesChanged(message: String) {
         stylePoiToggles()
+        if (::homeScreen.isInitialized) homeScreen.render()
         val selected = selectedPoi
         if (selected != null && !isPoiKindShown(selected.kind)) hidePoiCard()
         renderPoiPins()
@@ -2051,12 +2060,41 @@ class MainActivity : AppCompatActivity() {
         homeButton.setOnClickListener { onSavedPlaceTapped("home") }
         workButton.setOnClickListener { onSavedPlaceTapped("work") }
 
+        homeScreen =
+            HomeScreen(
+                root = homeSheet,
+                savedPlaces = savedPlaces,
+                recentPlaces = recentPlaces,
+                driveTimes =
+                    HomeEtas(
+                        runInBackground = { if (!extrasExecutor.isShutdown) extrasExecutor.execute(it) },
+                        postToMain = { mainHandler.post(it) },
+                        clock = SystemClock::elapsedRealtime,
+                        fetchSeconds = { from, to -> RoutingService.calculateRoutes(from, to).first().durationSeconds },
+                    ),
+                host =
+                    object : HomeScreen.Host {
+                        override fun currentLocation(): Location? = lastKnownLocation
+
+                        override fun onShortcutTapped(key: String) = onSavedPlaceTapped(key)
+
+                        override fun onRecentTapped(place: GeocodeResult) = onDestinationSelected(place)
+
+                        override fun isPoiKindShown(kind: PoiKind): Boolean = this@MainActivity.isPoiKindShown(kind)
+
+                        override fun setPoiKindShown(
+                            kind: PoiKind,
+                            shown: Boolean,
+                        ) = this@MainActivity.setPoiKindShown(kind, shown)
+                    },
+            )
         refreshSavedPlaceLabels()
     }
 
     private fun refreshSavedPlaceLabels() {
         homeButtonLabel.text = savedPlaceLabel("home") ?: "Home"
         workButtonLabel.text = savedPlaceLabel("work") ?: "Work"
+        homeScreen.render()
     }
 
     private fun savedPlaceLabel(key: String): String? = savedPlaces.get(key)?.label
@@ -2157,6 +2195,7 @@ class MainActivity : AppCompatActivity() {
     private val searchCache = LinkedHashMap<String, List<GeocodeResult>>()
     private var lastLiveResults: List<GeocodeResult> = emptyList()
     private lateinit var homeRecentsContainer: LinearLayout
+    private lateinit var homeScreen: HomeScreen
 
     /** Matches shown the moment a key is pressed, before the network
      * answers: recent searches first, then the last live results. */
@@ -2185,7 +2224,7 @@ class MainActivity : AppCompatActivity() {
             row.findViewById<ImageView>(R.id.resultIcon).setImageResource(R.drawable.ic_history)
             row.findViewById<TextView>(R.id.resultName).text = r.name.ifBlank { r.label }
             val address = row.findViewById<TextView>(R.id.resultAddress)
-            address.text = r.address
+            address.text = r.address.trim()
             address.visibility = if (r.address.isBlank()) View.GONE else View.VISIBLE
             val distance = row.findViewById<TextView>(R.id.resultDistance)
             if (origin != null) {
@@ -2223,7 +2262,7 @@ class MainActivity : AppCompatActivity() {
             val result = results[position]
             row.findViewById<TextView>(R.id.resultName).text = result.name.ifBlank { result.label }
             val address = row.findViewById<TextView>(R.id.resultAddress)
-            address.text = result.address
+            address.text = result.address.trim()
             address.visibility = if (result.address.isBlank()) View.GONE else View.VISIBLE
             val distance = row.findViewById<TextView>(R.id.resultDistance)
             if (origin != null) {
@@ -2275,6 +2314,7 @@ class MainActivity : AppCompatActivity() {
 
         recentPlaces.save(result)
         maybeSaveAsPendingPlace(result)
+        homeScreen.render()
         destinationName = result.name
 
         topBar.visibility = View.GONE
@@ -4241,7 +4281,9 @@ class MainActivity : AppCompatActivity() {
     // ever runs for the non-navigating case.
     @SuppressLint("MissingPermission") // permission is confirmed before startLocationTracking() runs
     private fun onLocationUpdate(location: Location) {
+        val firstFix = lastKnownLocation == null
         lastKnownLocation = location
+        if (firstFix) homeScreen.render() else homeScreen.onLocation()
         val bearing =
             if (location.hasBearing() && (!location.hasSpeed() || location.speed > 1f)) {
                 location.bearing.toDouble()

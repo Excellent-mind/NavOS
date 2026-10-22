@@ -24,4 +24,21 @@
     <color name="navos_chip_off_bg">#F1F3F6</color>
     <color name="navos_chip_off_text">#9AA4B5</color>
     <color name="navos_toggle_selected">#E3F4FE</color>
+
+    <!-- Signal design language (black and white from the app icon). Screens
+         move onto these one at a time; night values in values-night. -->
+    <color name="sig_ink">#0A0A0A</color>
+    <color name="sig_on_ink">#FFFFFF</color>
+    <color name="sig_on_ink_quiet">#BDBDBD</color>
+    <color name="sig_text">#0A0A0A</color>
+    <color name="sig_text_quiet">#5C5C5C</color>
+    <color name="sig_sheet">#FFFFFF</color>
+    <color name="sig_field">#F2F2F2</color>
+    <color name="sig_outline">#E0E0E0</color>
+    <color name="sig_handle">#CFCFCF</color>
+    <color name="sig_caution">#F2A900</color>
+    <color name="sig_limit">#D7263D</color>
+    <color name="sig_success">#1F7A45</color>
+    <color name="sig_petrol">#C25E00</color>
+    <color name="sig_ev">#1F8A4C</color>
 </resources>
