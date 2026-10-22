@@ -54,6 +54,7 @@ tap_id() {
 read -r W H < <(adb shell wm size | sed -E 's/.*: ([0-9]+)x([0-9]+).*/\1 \2/')
 log "screen ${W}x${H}"
 
+adb root >/dev/null 2>&1; adb wait-for-device   # lets us pull ANR / stack traces later
 adb install -g app/build/outputs/apk/debug/app-debug.apk
 adb shell settings put secure location_mode 3
 adb emu geo fix 101.6869 3.1390   # Kuala Lumpur (lon lat)
@@ -123,6 +124,12 @@ expect shown etaClockText "drive bar shows ETA"
 for lat in 3.1395 3.1400 3.1405; do adb emu geo fix 101.6875 "$lat" >/dev/null 2>&1; sleep 1; done
 shot 16-driving-after-moves
 
+# Main-thread stack samples during the drive (SIGQUIT writes all thread
+# stacks to /data/anr), to see what the UI thread is busy with.
+NAVPID=$(adb shell pidof "$PKG" | tr -d '\r')
+for i in 1 2 3 4; do adb shell kill -3 "$NAVPID"; sleep 4; done
+adb shell top -b -n 1 -H -p "$NAVPID" 2>/dev/null | head -25 > "$OUT/threads-top.txt"
+
 # Second recording segment for the drive (screenrecord caps at 180 s).
 adb shell pkill -INT screenrecord 2>/dev/null; wait "$REC" 2>/dev/null; sleep 1
 adb pull /sdcard/run.mp4 "$OUT/run-1.mp4" >/dev/null 2>&1
@@ -159,6 +166,7 @@ adb shell pkill -INT screenrecord 2>/dev/null; wait "$REC" 2>/dev/null; sleep 2
 adb pull /sdcard/run.mp4 "$OUT/run-2.mp4" >/dev/null 2>&1 || log "no recording"
 
 adb logcat -d > "$OUT/logcat.txt"
+mkdir -p "$OUT/anr"; adb pull /data/anr "$OUT/anr" >/dev/null 2>&1 || log "could not pull /data/anr"
 # Only NavOS's own crashes count - the emulator image's Google apps crash
 # on their own sometimes.
 if grep -A1 "FATAL EXCEPTION" "$OUT/logcat.txt" | grep -q "Process: $PKG"; then
