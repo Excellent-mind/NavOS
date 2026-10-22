@@ -10,13 +10,34 @@ mkdir -p "$OUT"
 LOG="$OUT/steps.log"
 log() { echo "$*" | tee -a "$LOG"; }
 
-shot() { adb exec-out screencap -p > "$OUT/$1.png"; log "shot $1"; }
+shot() {
+  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+  dismiss_system_dialogs >/dev/null || true
+  adb exec-out screencap -p > "$OUT/$1.png"; log "shot $1"
+}
 
 # Centre of a view by resource id, from a uiautomator dump ("" if absent).
+# The CI emulator is slow enough that Android's own processes sometimes
+# raise "isn't responding" dialogs over the app. Press Wait on any that
+# show up (and note whether it was NavOS).
+dismiss_system_dialogs() {
+  local xml c
+  xml=$(adb shell cat /sdcard/ui.xml 2>/dev/null)
+  echo "$xml" | grep -q 'android:id/aerr_wait' || return 1
+  echo "$xml" | grep -o "text=\"[^\"]*isn't responding\"" | head -1 | sed 's/^/dismissed dialog: /' | tee -a "$LOG"
+  c=$(echo "$xml" | tr '>' '\n' | grep 'android:id/aerr_wait' | head -1 |
+    sed -E 's/.*bounds="\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]".*/\1 \2 \3 \4/' |
+    awk 'NF==4 {printf "%d %d", ($1+$3)/2, ($2+$4)/2}')
+  [ -n "$c" ] && adb shell input tap $c
+  sleep 1
+  return 0
+}
+
 center() {
   local out="" try
-  for try in 1 2 3; do
+  for try in 1 2 3 4; do
     adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+    dismiss_system_dialogs && adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
     out=$(adb shell cat /sdcard/ui.xml 2>/dev/null | tr '>' '\n' |
       grep "resource-id=\"$PKG:id/$1\"" | head -1 |
       sed -E 's/.*bounds="\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]".*/\1 \2 \3 \4/' |
@@ -55,6 +76,9 @@ read -r W H < <(adb shell wm size | sed -E 's/.*: ([0-9]+)x([0-9]+).*/\1 \2/')
 log "screen ${W}x${H}"
 
 adb root >/dev/null 2>&1; adb wait-for-device   # lets us pull ANR / stack traces later
+# Let the freshly booted emulator finish its first-boot work (Play
+# services, launcher) before measuring anything.
+sleep 60
 adb install -g app/build/outputs/apk/debug/app-debug.apk
 adb shell settings put secure location_mode 3
 adb emu geo fix 101.6869 3.1390   # Kuala Lumpur (lon lat)
@@ -175,5 +199,6 @@ if grep -A1 "FATAL EXCEPTION" "$OUT/logcat.txt" | grep -q "Process: $PKG"; then
   exit 1
 fi
 adb shell pidof "$PKG" >/dev/null || { log "app not running at end"; exit 1; }
+grep -q "dismissed dialog.*NavOS" "$LOG" && log "FAIL NavOS raised an isn't-responding dialog"
 if grep -q "^FAIL" "$LOG"; then log "checks failed:"; grep "^FAIL" "$LOG"; exit 1; fi
 log "done - no crash, all checks passed"
