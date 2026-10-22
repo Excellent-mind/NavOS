@@ -114,7 +114,7 @@ if c=$(center homeSheetDragHandle) && [ -n "$c" ]; then
     adb shell input swipe "$hx2" "$hy2" "$hx2" $((hy2 + 200)) 900
     sleep 1.5; shot 06-after-slow-small-drag-down
     expect shown homeSearchInput "slow short drag down springs back open"
-    adb shell input swipe "$hx2" "$hy2" "$hx2" $((hy2 + 300)) 90
+    adb shell input swipe "$hx2" "$hy2" "$hx2" $((hy2 + 600)) 100
     sleep 1.5; shot 07-after-flick-down
     expect shown homeSearchPill "short quick flick down closes the sheet"
   fi
