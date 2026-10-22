@@ -13,11 +13,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import android.net.Uri
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.PointF
-import android.graphics.Paint
 import android.graphics.RectF
 import android.location.Location
 import android.location.LocationManager
@@ -61,7 +58,6 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.graphics.ColorUtils
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -106,14 +102,8 @@ import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
-import org.maplibre.android.style.expressions.Expression
-import org.maplibre.android.style.layers.FillExtrusionLayer
-import org.maplibre.android.style.layers.FillLayer
-import org.maplibre.android.style.layers.Layer
-import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
-import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -138,27 +128,9 @@ private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
 // user picked (confirmed against openfreemap.org's own style list).
 private const val MAP_STYLE_URL_DARK = "https://tiles.openfreemap.org/styles/fiord"
 
-private const val ROUTE_SOURCE_ID = "navos-route-source"
-private const val ROUTE_CASING_LAYER_ID = "navos-route-casing-layer"
-private const val ROUTE_LAYER_ID = "navos-route-layer"
-private const val ROUTE_CHEVRON_LAYER_ID = "navos-route-chevron-layer"
-private const val ROUTE_CHEVRON_ICON_ID = "navos-route-chevron-icon"
-private const val ROUTE_PASSED_SOURCE_ID = "navos-route-passed-source"
-private const val ROUTE_PASSED_LAYER_ID = "navos-route-passed-layer"
 private const val PASSED_TAIL_POINTS = 150 // how much of the driven route stays visible (faded) behind the arrow
-private const val ALT_ROUTE_SOURCE_ID = "navos-alt-route-source"
-private const val ALT_ROUTE_LAYER_ID = "navos-alt-route-layer"
 private const val ROUTE_INDEX_PROPERTY = "routeIndex"
 
-private const val DESTINATION_SOURCE_ID = "navos-destination-source"
-private const val DESTINATION_LAYER_ID = "navos-destination-layer"
-private const val DESTINATION_ICON_ID = "navos-destination-icon"
-
-// Numbered pins for the intermediate stops of a multi-stop trip.
-private const val STOPS_SOURCE_ID = "navos-stops-source"
-private const val STOPS_LAYER_ID = "navos-stops-layer"
-private const val STOP_ICON_PREFIX = "navos-stop-"
-private const val STOP_ICON_COUNT = 9
 
 // Drive camera: 3D tilted view, heading-up, the arrow sitting in the lower
 // part of the screen so more road ahead is visible.
@@ -168,24 +140,13 @@ private const val NAV_TILT_DEGREES = 55.0
 // and ~50 m when stopped, which felt like hugging the road).
 private const val NAV_ZOOM = 17.9 // cruising zoom (higher number = camera closer to the ground)
 private const val NAV_TOP_PADDING_FRACTION = 0.46 // puts the arrow ~73% down the screen
-private const val SHOW_3D_BUILDINGS = true
 
 // Turn callouts on the route line (arrow + road name at every corner).
-private const val TURN_SOURCE_ID = "navos-turn-source"
-private const val TURN_ARROW_LAYER_ID = "navos-turn-arrow-layer"
-private const val TURN_LABEL_LAYER_ID = "navos-turn-label-layer"
 private const val MAX_TURN_CALLOUTS = 12
 
-// Toll plazas / speed cameras drawn on the route, and how many route
+// Toll plazas / speed cameras near the idle map, and how many route
 // choices to offer (Waze gives 4-5).
-private const val ROUTE_POI_SOURCE_ID = "navos-route-poi-source"
-private const val ROUTE_POI_LAYER_ID = "navos-route-poi-layer"
-private const val CAMERA_ZONE_SOURCE_ID = "navos-camera-zone-source"
-private const val CAMERA_ZONE_FILL_ID = "navos-camera-zone-fill"
-private const val CAMERA_ZONE_LINE_ID = "navos-camera-zone-line"
 private const val AREA_FETCH_MIN_MOVE_M = 2500.0 // idle map: refetch after the view moves this far
-private const val POI_ICON_TOLL = "navos-poi-toll"
-private const val POI_ICON_CAMERA = "navos-poi-camera"
 private const val MAX_ROUTE_OPTIONS = 5
 
 // Smart zoom: pull in as a turn / U-turn / roundabout gets close, ease back
@@ -229,12 +190,7 @@ internal const val MAP_STYLE_DARK = "dark"
 private const val LIVE_SEARCH_DEBOUNCE_MS = 120L
 
 // Petrol station / EV charger pins during a drive.
-private const val POI_SOURCE_ID = "navos-poi-source"
-private const val POI_LAYER_ID = "navos-poi-layer"
-private const val POI_ICON_PROPERTY = "poiIcon"
 private const val POI_ID_PROPERTY = "poiId"
-private const val FUEL_PIN_ICON_ID = "navos-icon-fuel-pin"
-private const val EV_PIN_ICON_ID = "navos-icon-ev-pin"
 private const val KEY_SHOW_FUEL = "show_fuel_pins"
 private const val KEY_SHOW_EV = "show_ev_pins"
 private const val FUEL_COLOR = "#E8710A"
@@ -2358,7 +2314,17 @@ class MainActivity : AppCompatActivity() {
     ) {
         appliedMapDark = styleUrl == MAP_STYLE_URL_DARK
         loadedMap.setStyle(Style.Builder().fromUri(styleUrl)) { style ->
-            setUpRouteLayers(style)
+            val sources = MapLayers(this).install(style)
+            altRouteSource = sources.altRoute
+            routeSource = sources.route
+            routePassedSource = sources.routePassed
+            routePoiSource = sources.routePoi
+            cameraZoneSource = sources.cameraZone
+            turnCalloutSource = sources.turnCallouts
+            destinationSource = sources.destination
+            stopsSource = sources.stops
+            poiSource = sources.poi
+            renderPoiPins()
             if (isRestyle) {
                 redrawRouteLines()
                 destinationLatLng?.let { showDestinationMarker(it) }
@@ -2424,23 +2390,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-
-    /** Line width that grows with zoom (z10 / z14 / z18 / z20), so the
-     * route stays thick and easy to follow when driving close-in. */
-    private fun routeWidthByZoom(
-        z10: Float,
-        z14: Float,
-        z18: Float,
-        z20: Float,
-    ): Expression =
-        Expression.interpolate(
-            Expression.exponential(1.5f),
-            Expression.zoom(),
-            Expression.stop(10, z10),
-            Expression.stop(14, z14),
-            Expression.stop(18, z18),
-            Expression.stop(20, z20),
-        )
 
     private var routePoiSource: GeoJsonSource? = null
     private var cameraZoneSource: GeoJsonSource? = null
@@ -2795,106 +2744,8 @@ class MainActivity : AppCompatActivity() {
     private var turnCalloutSource: GeoJsonSource? = null
     private var renderedCalloutStep = -1
 
-    private val TURN_ICON_RES =
-        listOf(
-            R.drawable.ic_turn_arrive,
-            R.drawable.ic_turn_roundabout_left,
-            R.drawable.ic_turn_roundabout_right,
-            R.drawable.ic_turn_roundabout_straight,
-            R.drawable.ic_turn_uturn,
-            R.drawable.ic_turn_fork_left,
-            R.drawable.ic_turn_fork_right,
-            R.drawable.ic_turn_straight,
-            R.drawable.ic_turn_sharp_right,
-            R.drawable.ic_turn_right,
-            R.drawable.ic_turn_slight_right,
-            R.drawable.ic_turn_slight_left,
-            R.drawable.ic_turn_left,
-            R.drawable.ic_turn_sharp_left,
-        )
 
     private fun turnIconId(res: Int): String = "navos-turn-" + resources.getResourceEntryName(res)
-
-    // x position (in the icon's 48-unit grid) where each arrow's tail starts.
-    // The arrow is shifted so this tail sits exactly on the icon's centre, i.e.
-    // on the route line, instead of the whole arrow being centred on it.
-    private val TURN_STEM_X =
-        mapOf(
-            R.drawable.ic_turn_left to 36f,
-            R.drawable.ic_turn_right to 12f,
-            R.drawable.ic_turn_sharp_left to 34f,
-            R.drawable.ic_turn_sharp_right to 14f,
-            R.drawable.ic_turn_slight_left to 33f,
-            R.drawable.ic_turn_slight_right to 15f,
-            R.drawable.ic_turn_uturn to 14f,
-        )
-
-    /** A bold white chevron pointing RIGHT (east). On a line-placed symbol the
-     * icon's "right" is the direction the line runs, so this points the way
-     * the route goes. A faint dark edge keeps it readable on the blue. */
-    private fun makeRouteChevron(): Bitmap {
-        val size = 64
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val path =
-            android.graphics.Path().apply {
-                moveTo(20f, 14f)
-                lineTo(46f, 32f)
-                lineTo(20f, 50f)
-            }
-        val paint =
-            android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                style = android.graphics.Paint.Style.STROKE
-                strokeCap = android.graphics.Paint.Cap.ROUND
-                strokeJoin = android.graphics.Paint.Join.ROUND
-            }
-        paint.color = Color.argb(70, 10, 70, 120)
-        paint.strokeWidth = 15f
-        canvas.drawPath(path, paint)
-        paint.color = Color.WHITE
-        paint.strokeWidth = 10f
-        canvas.drawPath(path, paint)
-        return bitmap
-    }
-
-    /** The same white Waze-style turn arrow as the bottom button, made
-     * bolder with a navy outline, and shifted so its tail lies on the road. */
-    private fun makeTurnArrow(res: Int): Bitmap? {
-        val drawable = ContextCompat.getDrawable(this, res)?.mutate() ?: return null
-        val size = 160
-        val glyph = 100
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val shift = ((24f - (TURN_STEM_X[res] ?: 24f)) / 48f * glyph).toInt()
-        val left = (size - glyph) / 2 + shift
-        val top = (size - glyph) / 2
-        drawable.setBounds(left, top, left + glyph, top + glyph)
-        val dirs =
-            listOf(
-                1f to 0f, 0.71f to 0.71f, 0f to 1f, -0.71f to 0.71f,
-                -1f to 0f, -0.71f to -0.71f, 0f to -1f, 0.71f to -0.71f,
-            )
-
-        fun stamp(
-            color: Int,
-            radius: Float,
-        ) {
-            drawable.setTint(color)
-            for ((dx, dy) in dirs) {
-                canvas.save()
-                canvas.translate(dx * radius, dy * radius)
-                drawable.draw(canvas)
-                canvas.restore()
-            }
-        }
-        stamp(Color.parseColor("#14284B"), 8f) // outline
-        stamp(Color.WHITE, 3f) // fatten the white stroke
-        drawable.setTint(Color.WHITE)
-        drawable.draw(canvas)
-        return bitmap
-    }
-
-
 
     /** Draws an arrow + road name on the route line at each upcoming turn
      * (from [fromStep] on). Cleared whenever we're not driving. */
@@ -2935,288 +2786,6 @@ class MainActivity : AppCompatActivity() {
         val m = map ?: return
         val top = if (on) (mapView.height * NAV_TOP_PADDING_FRACTION).toInt() else 0
         m.setPadding(0, top, 0, 0)
-    }
-
-    private fun setUpRouteLayers(style: Style) {
-        // The base style's own road/POI name labels are symbol layers
-        // further up its layer stack. style.addLayer() appends at the very
-        // top by default, which was silently burying every label under our
-        // route lines and the destination pin - inserting our route layers
-        // below the first symbol layer keeps street names readable on top
-        // of the route, matching how Google Maps/Waze draw it. (The
-        // destination pin is deliberately NOT inserted this way - it's
-        // meant to sit on top of labels too, like a real map pin.)
-        // The base style also has icon-only symbol layers (one-way arrows)
-        // that sit BEFORE its bridge road layers. Anchoring to the first
-        // symbol layer of any kind therefore put the route underneath the
-        // bridges, which painted over it - the blue line "vanished" on every
-        // bridge/flyover. Anchor to the first symbol layer AFTER the last
-        // bridge layer instead, so the route draws over bridges but still
-        // under the street-name labels.
-        val allLayers = style.layers
-        val lastBridgeIndex = allLayers.indexOfLast { it.id.contains("bridge", ignoreCase = true) }
-        val firstSymbolLayerId =
-            allLayers.drop(lastBridgeIndex + 1).firstOrNull { it is SymbolLayer }?.id
-                ?: allLayers.firstOrNull { it is SymbolLayer }?.id
-        fun addBelowLabels(layer: Layer) {
-            if (firstSymbolLayerId != null) {
-                style.addLayerBelow(layer, firstSymbolLayerId)
-            } else {
-                style.addLayer(layer)
-            }
-        }
-
-        // 3D buildings - the liberty style's vector tiles already carry
-        // building height data (OpenMapTiles schema: source-layer
-        // "building", render_height/render_min_height in metres), the
-        // style just never had a layer drawing them as extrusions. Only
-        // visible once the camera is tilted (active nav, or a two-finger
-        // tilt gesture while browsing) - flat top-down looks the same
-        // either way, which is correct, not a sign this isn't working.
-        // Wrapped defensively: if OpenFreeMap ever renames the source or
-        // the fields are absent, this silently draws nothing rather than
-        // crash.
-        try {
-            val buildingsLayer =
-                FillExtrusionLayer("navos-3d-buildings", "openmaptiles")
-                    .withSourceLayer("building")
-                    .withProperties(
-                        PropertyFactory.fillExtrusionColor("#D6D9E0"),
-                        PropertyFactory.fillExtrusionOpacity(0.85f),
-                        PropertyFactory.fillExtrusionHeight(Expression.get("render_height")),
-                        PropertyFactory.fillExtrusionBase(
-                            Expression.switchCase(
-                                Expression.has("render_min_height"),
-                                Expression.toNumber(Expression.get("render_min_height")),
-                                Expression.literal(0f),
-                            ),
-                        ),
-                    )
-            if (SHOW_3D_BUILDINGS) {
-                buildingsLayer.setProperties(
-                    PropertyFactory.visibility(if (MapDisplayPrefs.buildings3d) Property.VISIBLE else Property.NONE),
-                )
-                addBelowLabels(buildingsLayer)
-            }
-        } catch (e: Exception) {
-            // Missing source/source-layer on whatever style version is
-            // live - buildings just stay flat, nothing else breaks.
-        }
-
-        // Alternates first so the selected route's layers (added next) end
-        // up drawn on top of them.
-        val altSource = GeoJsonSource(ALT_ROUTE_SOURCE_ID)
-        style.addSource(altSource)
-        altRouteSource = altSource
-
-        val altLayer =
-            LineLayer(ALT_ROUTE_LAYER_ID, ALT_ROUTE_SOURCE_ID).withProperties(
-                PropertyFactory.lineColor(Color.parseColor("#9AA5B1")),
-                PropertyFactory.lineWidth(4f),
-                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-            )
-        addBelowLabels(altLayer)
-
-        val source = GeoJsonSource(ROUTE_SOURCE_ID)
-        style.addSource(source)
-        routeSource = source
-
-        // A white casing under the blue line, same two-tone look Google
-        // Maps draws its route in, instead of a single flat line.
-        // The part of the route already driven: same width, but faded, drawn
-        // beneath the live line (see trimRoute).
-        val passedSource = GeoJsonSource(ROUTE_PASSED_SOURCE_ID)
-        style.addSource(passedSource)
-        routePassedSource = passedSource
-        val passedLayer =
-            LineLayer(ROUTE_PASSED_LAYER_ID, ROUTE_PASSED_SOURCE_ID).withProperties(
-                PropertyFactory.lineColor(Color.parseColor("#8FA3B5")),
-                PropertyFactory.lineOpacity(0.55f),
-                PropertyFactory.lineWidth(routeWidthByZoom(6f, 11f, 19f, 29f)),
-                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-            )
-        addBelowLabels(passedLayer)
-
-        val routeCasingLayer =
-            LineLayer(ROUTE_CASING_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
-                PropertyFactory.lineColor(Color.WHITE),
-                PropertyFactory.lineWidth(routeWidthByZoom(9f, 15f, 26f, 38f)),
-                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-            )
-        addBelowLabels(routeCasingLayer)
-
-        val layer =
-            LineLayer(ROUTE_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
-                PropertyFactory.lineColor(Color.parseColor("#1CB0F6")),
-                PropertyFactory.lineWidth(routeWidthByZoom(6f, 11f, 19f, 29f)),
-                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-            )
-        addBelowLabels(layer)
-
-        // White direction chevrons painted INSIDE the blue lane, like Google Maps
-        // and Waze. They are placed along the line itself, so each one is turned
-        // to the exact direction of the lane at its spot (through bends too) and
-        // lies flat on the road with the map's tilt instead of floating upright.
-        style.addImage(ROUTE_CHEVRON_ICON_ID, makeRouteChevron())
-        addBelowLabels(
-            SymbolLayer(ROUTE_CHEVRON_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
-                PropertyFactory.symbolPlacement(Property.SYMBOL_PLACEMENT_LINE),
-                PropertyFactory.symbolSpacing(62f),
-                PropertyFactory.iconImage(ROUTE_CHEVRON_ICON_ID),
-                PropertyFactory.iconSize(
-                    Expression.interpolate(
-                        Expression.linear(),
-                        Expression.zoom(),
-                        Expression.stop(11, 0.22f),
-                        Expression.stop(15, 0.34f),
-                        Expression.stop(19, 0.5f),
-                    ),
-                ),
-                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
-                PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
-                PropertyFactory.iconKeepUpright(false),
-                PropertyFactory.visibility(if (MapDisplayPrefs.routeArrows) Property.VISIBLE else Property.NONE),
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true),
-            ),
-        )
-
-        // Turn callouts: a white arrow at every corner of the route plus a
-        // blue name bubble above it, like Waze. Above the route line, below
-        // the destination pin and the driver's arrow (added after this).
-        // Toll plazas and speed cameras along the route (always visible).
-        // Same pin look as the petrol / EV pins (see setUpPoiLayer).
-        registerMapIcon(style, POI_ICON_TOLL, R.drawable.ic_poi_toll_pin)
-        registerMapIcon(style, POI_ICON_CAMERA, R.drawable.ic_poi_camera_pin)
-        val poiSrc = GeoJsonSource(ROUTE_POI_SOURCE_ID)
-        style.addSource(poiSrc)
-        routePoiSource = poiSrc
-        // 200 m alert zone around each speed camera (under the icons).
-        val zoneSrc = GeoJsonSource(CAMERA_ZONE_SOURCE_ID)
-        style.addSource(zoneSrc)
-        cameraZoneSource = zoneSrc
-        addBelowLabels(
-            FillLayer(CAMERA_ZONE_FILL_ID, CAMERA_ZONE_SOURCE_ID).withProperties(
-                PropertyFactory.fillColor(Color.parseColor("#E5484D")),
-                PropertyFactory.fillOpacity(0.13f),
-            ),
-        )
-        addBelowLabels(
-            LineLayer(CAMERA_ZONE_LINE_ID, CAMERA_ZONE_SOURCE_ID).withProperties(
-                PropertyFactory.lineColor(Color.parseColor("#E5484D")),
-                PropertyFactory.lineWidth(2f),
-                PropertyFactory.lineOpacity(0.75f),
-                PropertyFactory.lineDasharray(arrayOf(2f, 2f)),
-            ),
-        )
-        style.addLayer(
-            SymbolLayer(ROUTE_POI_LAYER_ID, ROUTE_POI_SOURCE_ID).withProperties(
-                PropertyFactory.iconImage(Expression.get("icon")),
-                PropertyFactory.iconSize(1.0f),
-                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM), // pin tip on the spot, like the petrol pins
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true),
-            ),
-        )
-        val turnSrc = GeoJsonSource(TURN_SOURCE_ID)
-        style.addSource(turnSrc)
-        turnCalloutSource = turnSrc
-        // One layer: the badge, with the road-name bubble above it. If two
-        // corners are too close, the earlier one wins and the other is
-        // hidden (instead of piling up); a name that doesn't fit is dropped
-        // but its badge stays.
-        style.addLayer(
-            SymbolLayer(TURN_ARROW_LAYER_ID, TURN_SOURCE_ID).withProperties(
-                // Road-name bubble only: the direction arrows are the chevrons
-                // inside the blue lane (see ROUTE_CHEVRON_LAYER_ID).
-                PropertyFactory.textField(Expression.get("name")),
-                PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
-                PropertyFactory.textSize(14f),
-                PropertyFactory.textColor(Color.WHITE),
-                PropertyFactory.textHaloColor(Color.parseColor("#1B77A0")),
-                PropertyFactory.textHaloWidth(5f),
-                PropertyFactory.textMaxWidth(9f),
-                PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM),
-                PropertyFactory.textOffset(arrayOf(0f, -0.9f)),
-                PropertyFactory.textOptional(false),
-                PropertyFactory.textAllowOverlap(false),
-                PropertyFactory.textPadding(6f),
-                PropertyFactory.textRotationAlignment(Property.TEXT_ROTATION_ALIGNMENT_VIEWPORT),
-                PropertyFactory.textPitchAlignment(Property.TEXT_PITCH_ALIGNMENT_VIEWPORT),
-                PropertyFactory.symbolSortKey(Expression.get("order")),
-            ),
-        )
-
-        // Destination pin - added last, with the plain addLayer() that
-        // puts it above everything (including labels), same as a real pin.
-        val pinBitmap = ContextCompat.getDrawable(this, R.drawable.ic_destination_pin)?.toBitmap()
-        if (pinBitmap != null) {
-            style.addImage(DESTINATION_ICON_ID, pinBitmap)
-        }
-
-        val destSource = GeoJsonSource(DESTINATION_SOURCE_ID)
-        style.addSource(destSource)
-        destinationSource = destSource
-
-        val destLayer =
-            SymbolLayer(DESTINATION_LAYER_ID, DESTINATION_SOURCE_ID).withProperties(
-                PropertyFactory.iconImage(DESTINATION_ICON_ID),
-                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
-                PropertyFactory.iconAllowOverlap(true),
-            )
-        style.addLayer(destLayer)
-
-        // Numbered stop pins: drawn below the destination pin so it stays on top.
-        for (n in 1..STOP_ICON_COUNT) style.addImage("$STOP_ICON_PREFIX$n", makeStopPinBitmap(n))
-        val stopsSrc = GeoJsonSource(STOPS_SOURCE_ID)
-        style.addSource(stopsSrc)
-        stopsSource = stopsSrc
-        style.addLayerBelow(
-            SymbolLayer(STOPS_LAYER_ID, STOPS_SOURCE_ID).withProperties(
-                PropertyFactory.iconImage(Expression.get("icon")),
-                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true),
-            ),
-            DESTINATION_LAYER_ID,
-        )
-
-        setUpPoiLayer(style)
-    }
-
-    /** Petrol (orange) and EV (green) pins - above street labels but below
-     * the destination pin, so the destination always stays on top. */
-    private fun setUpPoiLayer(style: Style) {
-        registerMapIcon(style, FUEL_PIN_ICON_ID, R.drawable.ic_poi_fuel_pin)
-        registerMapIcon(style, EV_PIN_ICON_ID, R.drawable.ic_poi_ev_pin)
-
-        val src = GeoJsonSource(POI_SOURCE_ID)
-        style.addSource(src)
-        poiSource = src
-
-        val layer =
-            SymbolLayer(POI_LAYER_ID, POI_SOURCE_ID).withProperties(
-                PropertyFactory.iconImage(Expression.get(POI_ICON_PROPERTY)),
-                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
-                PropertyFactory.iconAllowOverlap(true),
-            )
-        style.addLayerBelow(layer, DESTINATION_LAYER_ID)
-        renderPoiPins()
-    }
-
-    private fun registerMapIcon(
-        style: Style,
-        iconId: String,
-        drawableRes: Int,
-    ) {
-        val bitmap = ContextCompat.getDrawable(this, drawableRes)?.toBitmap()
-        if (bitmap != null) {
-            style.addImage(iconId, bitmap)
-        }
     }
 
     private fun showDestinationMarker(latLng: LatLng) {
@@ -3633,24 +3202,6 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
         src.setGeoJson(FeatureCollection.fromFeatures(features))
-    }
-
-    private fun makeStopPinBitmap(number: Int): Bitmap {
-        val size = dp(30)
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        val r = size / 2f
-        paint.color = Color.WHITE
-        canvas.drawCircle(r, r, r, paint)
-        paint.color = ContextCompat.getColor(this, R.color.navos_navy)
-        canvas.drawCircle(r, r, r - dp(2), paint)
-        paint.color = Color.WHITE
-        paint.textAlign = Paint.Align.CENTER
-        paint.textSize = size * 0.5f
-        paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
-        canvas.drawText(number.toString(), r, r - (paint.descent() + paint.ascent()) / 2f, paint)
-        return bitmap
     }
 
     // Reroute-on-off-route used to live here, recalculating from
