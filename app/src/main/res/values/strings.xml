@@ -28,4 +28,17 @@
     <string name="choose_on_map">Choose on map</string>
     <string name="choose_on_map_hint">Press and hold on the map to choose a place</string>
     <string name="no_petrol_nearby">No petrol stations loaded nearby yet</string>
+
+    <!-- Route preview -->
+    <string name="back_to_search">Back to search</string>
+    <string name="add_stop">Add stop</string>
+    <string name="go_now">Go now</string>
+    <string name="fastest">FASTEST</string>
+    <string name="no_tolls">No tolls</string>
+    <string name="one_toll">1 toll</string>
+    <string name="n_tolls">%d tolls</string>
+    <string name="all_routes">All %d routes</string>
+    <string name="route_hint_arrive">Arrive %s · typical time, no live traffic</string>
+    <string name="route_hint_stops">%1$s · one route through every stop</string>
+    <string name="route_card_description">%1$s, %2$s, %3$s</string>
 </resources>

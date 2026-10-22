@@ -230,7 +230,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var searchInput: EditText
     private lateinit var searchResultsList: ListView
     private lateinit var routePreviewCard: View
-    private lateinit var routePreviewSummary: TextView
     private lateinit var routePreviewHint: TextView
     private lateinit var topNavBar: View
     private lateinit var bottomNavBar: View
@@ -239,9 +238,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var turnDistanceText: TextView
     private lateinit var turnStreetText: TextView
     private lateinit var recalcPill: View
-    private lateinit var routeViewToggle: View
-    private lateinit var toggleMap: TextView
-    private lateinit var toggleList: TextView
+    private lateinit var routeBackButton: View
+    private lateinit var routePreviewSheet: RoutePreviewSheet
     private lateinit var routeListOverlay: View
     private lateinit var routeListItems: LinearLayout
     private lateinit var recalcText: TextView
@@ -254,9 +252,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etaClockText: TextView
     private lateinit var etaDetailText: TextView
     private lateinit var navStopButton: View
-    private lateinit var routePreviewEta: TextView
-    private lateinit var routePreviewVia: TextView
+    private var destinationAddress: String? = null
     private lateinit var routePreviewDestination: TextView
+    private lateinit var routePreviewAddress: TextView
     private var navSheetExpanded = false
     private lateinit var navBarRow: View
     private var destinationName: String? = null
@@ -828,7 +826,8 @@ class MainActivity : AppCompatActivity() {
     private fun setUpPressFeedback() {
         listOf(
             R.id.searchBackButton, R.id.searchClearButton, R.id.compassButton, R.id.recenterButton,
-            R.id.evToggleButton, R.id.fuelToggleButton, R.id.cancelRouteButton, R.id.startNavigationButton,
+            R.id.evToggleButton, R.id.fuelToggleButton, R.id.routeBackButton, R.id.startNavigationButton,
+            R.id.previewAddStopButton, R.id.routeAllRoutes,
             R.id.bottomSearchButton, R.id.bottomAltRouteButton, R.id.stopNavigationButton, R.id.shareEtaButton,
             R.id.poiCloseButton, R.id.poiGoButton, R.id.homeSettingsButton, R.id.homeSheetBackButton,
             R.id.homeSearchClearButton, R.id.homeButton, R.id.workButton, R.id.permissionRetryButton,
@@ -1260,7 +1259,6 @@ class MainActivity : AppCompatActivity() {
     private fun setUpRouteControls() {
         topBar = findViewById(R.id.topBar)
         routePreviewCard = findViewById(R.id.routePreviewCard)
-        routePreviewSummary = findViewById(R.id.routePreviewSummary)
         routePreviewHint = findViewById(R.id.routePreviewHint)
         topNavBar = findViewById(R.id.topNavBar)
         bottomNavBar = findViewById(R.id.bottomNavBar)
@@ -1284,21 +1282,25 @@ class MainActivity : AppCompatActivity() {
         turnDistanceText = findViewById(R.id.turnDistanceText)
         turnStreetText = findViewById(R.id.turnStreetText)
         recalcPill = findViewById(R.id.recalcPill)
-        routeViewToggle = findViewById(R.id.routeViewToggle)
-        toggleMap = findViewById(R.id.toggleMap)
-        toggleList = findViewById(R.id.toggleList)
+        routeBackButton = findViewById(R.id.routeBackButton)
         routeListOverlay = findViewById(R.id.routeListOverlay)
         routeListItems = findViewById(R.id.routeListItems)
-        toggleMap.setOnClickListener { setRouteListVisible(false) }
-        toggleList.setOnClickListener { setRouteListVisible(true) }
+        routePreviewSheet =
+            RoutePreviewSheet(
+                root = findViewById(android.R.id.content),
+                onSelect = { index ->
+                    if (routeListShowing) setRouteListVisible(false)
+                    selectRoute(index)
+                },
+                onShowAll = { setRouteListVisible(true) },
+            )
         recalcText = findViewById(R.id.recalcText)
         recalcLogo = findViewById(R.id.recalcLogo)
         recalcNeedle = findViewById(R.id.recalcNeedle)
         etaClockText = findViewById(R.id.etaClockText)
         etaDetailText = findViewById(R.id.etaDetailText)
         navStopButton = findViewById(R.id.stopNavigationButton)
-        routePreviewEta = findViewById(R.id.routePreviewEta)
-        routePreviewVia = findViewById(R.id.routePreviewVia)
+        routePreviewAddress = findViewById(R.id.routePreviewAddress)
         routePreviewDestination = findViewById(R.id.routePreviewDestination)
         turnIcon = findViewById(R.id.turnIcon)
         speedBadge = findViewById(R.id.speedBadge)
@@ -1355,8 +1357,8 @@ class MainActivity : AppCompatActivity() {
             Motion.confirm(it)
             beginActiveNavigation()
         }
-        findViewById<View>(R.id.cancelRouteButton).setOnClickListener {
-            cancelRoutePreview()
+        routeBackButton.setOnClickListener {
+            if (routeListShowing) setRouteListVisible(false) else cancelRoutePreview()
         }
         navStopButton.setOnClickListener {
             endActiveNavigation()
@@ -1718,7 +1720,7 @@ class MainActivity : AppCompatActivity() {
         } else if (navMode == NavMode.PREVIEW) {
             // Backing out of "Add stop" from the route preview.
             routePreviewCard.visibility = View.VISIBLE
-            routeViewToggle.visibility = if (routeOptions.size > 1) View.VISIBLE else View.GONE
+            routeBackButton.visibility = View.VISIBLE
         }
     }
 
@@ -2322,6 +2324,7 @@ class MainActivity : AppCompatActivity() {
         maybeSaveAsPendingPlace(result)
         homeScreen.render()
         destinationName = result.name
+        destinationAddress = result.address
 
         topBar.visibility = View.GONE
         homeSheet.visibility = View.GONE
@@ -2370,6 +2373,7 @@ class MainActivity : AppCompatActivity() {
             destinationSource = sources.destination
             stopsSource = sources.stops
             poiSource = sources.poi
+            routeTimeSource = sources.routeTimes
             renderPoiPins()
             if (isRestyle) {
                 redrawRouteLines()
@@ -2438,6 +2442,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var routePoiSource: GeoJsonSource? = null
+    private var routeTimeSource: GeoJsonSource? = null
     private var cameraZoneSource: GeoJsonSource? = null
 
     /** Toll plazas / cameras around the plain (idle) map view. */
@@ -2695,69 +2700,40 @@ class MainActivity : AppCompatActivity() {
 
 
 
-    private fun styleRouteToggle() {
-        val blue = ContextCompat.getColor(this, R.color.navos_blue)
-        val grey = ContextCompat.getColor(this, R.color.navos_text_secondary)
-        toggleMap.setBackgroundResource(if (routeListShowing) 0 else R.drawable.bg_toggle_selected)
-        toggleList.setBackgroundResource(if (routeListShowing) R.drawable.bg_toggle_selected else 0)
-        toggleMap.setTextColor(if (routeListShowing) grey else blue)
-        toggleList.setTextColor(if (routeListShowing) blue else grey)
-    }
-
     private fun setRouteListVisible(show: Boolean) {
         if (navMode != NavMode.PREVIEW) return
         routeListShowing = show
         routeListOverlay.visibility = if (show) View.VISIBLE else View.GONE
         routePreviewCard.visibility = if (show) View.GONE else View.VISIBLE
-        styleRouteToggle()
         if (show) renderRouteList() else fitSelectedRoute()
     }
 
-    /** One card per route, quickest first. Tap a card to pick it, Go to start. */
-    private fun renderRouteList() {
-        routeListItems.removeAllViews()
-        val order = routeOptions.indices.sortedBy { routeOptions[it].durationSeconds }
-        for (index in order) {
-            val route = routeOptions[index]
-            val row = LayoutInflater.from(this).inflate(R.layout.item_route_option, routeListItems, false)
-            row.findViewById<TextView>(R.id.routeItemDuration).text = NavFormat.formatRouteMinutes(route.durationSeconds)
-            val arrival = Date(System.currentTimeMillis() + (route.durationSeconds * 1000).toLong())
-            row.findViewById<TextView>(R.id.routeItemMeta).text =
-                SimpleDateFormat("h:mm a", Locale.US).format(arrival) + "  •  " + NavFormat.formatTripDistance(route.distanceMeters)
-            val via = NavFormat.viaRoadName(route)
-            val viaView = row.findViewById<TextView>(R.id.routeItemVia)
-            viaView.text = if (via != null) "Via $via" else ""
-            viaView.visibility = if (via != null) View.VISIBLE else View.GONE
-            val toll = NavFormat.tollSummary(routePoisByIndex[index])
-            val chip = row.findViewById<TextView>(R.id.routeItemToll)
-            chip.text = toll.orEmpty()
-            chip.visibility = if (toll != null) View.VISIBLE else View.GONE
-            if (index == selectedRouteIndex) row.setBackgroundResource(R.drawable.bg_route_card_selected)
-            row.setOnClickListener {
-                selectedRouteIndex = index
-                redrawRouteLines()
-                updateRoutePreviewSummary()
-                renderRouteList()
-            }
-            row.findViewById<View>(R.id.routeItemGo).setOnClickListener {
-                selectedRouteIndex = index
-                beginActiveNavigation()
-            }
-            routeListItems.addView(row)
+    /** Inputs for the route cards: time, distance, main road and tolls (null until looked up). */
+    private fun routeChoiceInputs(): List<RouteChoices.Input> =
+        routeOptions.mapIndexed { i, r ->
+            RouteChoices.Input(r.durationSeconds, r.distanceMeters, NavFormat.viaRoadName(r), routePoisByIndex[i]?.count { it.kind == "toll" })
         }
+
+    /** The "All routes" screen: every route as a card, quickest first; tap one to pick it. */
+    private fun renderRouteList() {
+        routePreviewSheet.renderAll(RouteChoices.order(routeChoiceInputs(), selectedRouteIndex))
     }
 
     private fun fitSelectedRoute() {
         val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
         val bounds = LatLngBounds.Builder()
         selected.geometry.forEach { bounds.include(LatLng(it.latitude, it.longitude)) }
-        map?.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 120, 120, 120, dp(380)), 800)
+        // Fit into the map left above the preview sheet and below the back button.
+        val sheet = if (routePreviewCard.isShown && routePreviewCard.height > 0) routePreviewCard.height else dp(380)
+        val top = dp(104)
+        val bottom = (sheet + dp(24)).coerceAtMost(mapView.height - top - dp(80))
+        map?.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), dp(40), top, dp(40), bottom), 800)
     }
 
     private fun hideRouteChooser() {
         routeListShowing = false
         routeListOverlay.visibility = View.GONE
-        routeViewToggle.visibility = View.GONE
+        routeBackButton.visibility = View.GONE
     }
 
     /** Keeps hunting for more route choices after the first ones are shown. */
@@ -2774,8 +2750,6 @@ class MainActivity : AppCompatActivity() {
                         routeOptions = routeOptions + found
                         redrawRouteLines()
                         updateRoutePreviewSummary()
-                        routeViewToggle.visibility = View.VISIBLE
-                        if (routeListShowing) renderRouteList()
                     }
                 }
             }
@@ -2897,6 +2871,7 @@ class MainActivity : AppCompatActivity() {
                     previewToken++
                     routePoisByIndex.clear()
                     destinationName = destination.name
+                    destinationAddress = destination.address
                     showDestinationMarker(LatLng(destination.latitude, destination.longitude))
                     showRoutePreview()
                     loadRoutePois(routes, previewToken)
@@ -2967,32 +2942,17 @@ class MainActivity : AppCompatActivity() {
         val secondary = ContextCompat.getColor(this, R.color.navos_text_secondary)
         val primary = ContextCompat.getColor(this, R.color.navos_text)
 
-        val card = routePreviewDestination.parent as LinearLayout
-        val at = card.indexOfChild(routePreviewDestination)
+        // Stops are listed in the preview header, under the destination.
+        val header = findViewById<LinearLayout>(R.id.routePreviewHeader)
         tripStopsPanel =
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 visibility = View.GONE
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             }
-        card.addView(tripStopsPanel, at)
-        addStopButton =
-            TextView(this).apply {
-                text = "+  Add stop"
-                gravity = Gravity.CENTER
-                textSize = 15f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                setTextColor(blue)
-                background = roundedBackground(Color.TRANSPARENT, blue)
-                setPadding(dp(20), dp(9), dp(20), dp(9))
-                isClickable = true
-                isFocusable = true
-                layoutParams =
-                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                        .apply { topMargin = dp(10) }
-                setOnClickListener { enterAddStopSearch(AddStopTarget.PREVIEW) }
-            }
-        card.addView(addStopButton, at + 2) // just under the destination line
+        header.addView(tripStopsPanel)
+        addStopButton = findViewById(R.id.previewAddStopButton)
+        addStopButton.setOnClickListener { enterAddStopSearch(AddStopTarget.PREVIEW) }
 
         val bar = bottomNavBar as LinearLayout
         nextStopText =
@@ -3041,16 +3001,21 @@ class MainActivity : AppCompatActivity() {
         val multi = tripPlaces.size > 1
         tripStopsPanel.removeAllViews()
         tripStopsPanel.visibility = if (multi) View.VISIBLE else View.GONE
-        if (multi) routePreviewDestination.visibility = View.GONE
+        if (multi) {
+            // The list below names every stop and the destination.
+            routePreviewDestination.visibility = View.GONE
+            routePreviewAddress.visibility = View.GONE
+        }
         val stopCount = (tripPlaces.size - 1).coerceAtLeast(0)
         addStopButton.visibility =
             if (tripPlaces.isNotEmpty() && stopCount < TripPlanner.MAX_STOPS) View.VISIBLE else View.GONE
         if (!multi) return
 
-        val primary = ContextCompat.getColor(this, R.color.navos_text)
-        val secondary = ContextCompat.getColor(this, R.color.navos_text_secondary)
-        val navy = ContextCompat.getColor(this, R.color.navos_navy)
-        val red = Color.parseColor("#E5484D")
+        val primary = ContextCompat.getColor(this, R.color.sig_text)
+        val secondary = ContextCompat.getColor(this, R.color.sig_text_quiet)
+        val ink = ContextCompat.getColor(this, R.color.sig_ink)
+        val onInk = ContextCompat.getColor(this, R.color.sig_on_ink)
+        val red = ContextCompat.getColor(this, R.color.sig_limit)
 
         fun action(
             glyph: String,
@@ -3080,13 +3045,13 @@ class MainActivity : AppCompatActivity() {
                 TextView(this).apply {
                     gravity = Gravity.CENTER
                     text = if (isDestination) "\u25A0" else "${i + 1}"
-                    setTextColor(Color.WHITE)
+                    setTextColor(if (isDestination) Color.WHITE else onInk)
                     textSize = 13f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                     background =
                         android.graphics.drawable.GradientDrawable().apply {
                             shape = android.graphics.drawable.GradientDrawable.OVAL
-                            setColor(if (isDestination) red else navy)
+                            setColor(if (isDestination) red else ink)
                         }
                     layoutParams = LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginEnd = dp(10) }
                 }
@@ -3113,7 +3078,8 @@ class MainActivity : AppCompatActivity() {
                     text = "Optimize order"
                     textSize = 14f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
-                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.navos_blue))
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.sig_text))
+                    paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
                     setPadding(0, dp(8), 0, dp(4))
                     isClickable = true
                     isFocusable = true
@@ -3159,7 +3125,7 @@ class MainActivity : AppCompatActivity() {
                 addStopTarget = target
                 searchOpenedFromNav = true // same back / drag-down handling as a mid-drive search
                 routePreviewCard.visibility = View.GONE
-                routeViewToggle.visibility = View.GONE
+                routeBackButton.visibility = View.GONE
                 topBar.visibility = View.GONE
                 homeSheet.visibility = View.VISIBLE
                 setHomeSheetState(HomeSheetState.SEARCH)
@@ -3362,36 +3328,37 @@ class MainActivity : AppCompatActivity() {
         redrawRouteLines()
 
         routeOptions.getOrNull(selectedRouteIndex) ?: return
-        fitSelectedRoute()
 
         updateRoutePreviewSummary()
         routePreviewCard.visibility = View.VISIBLE
         routeListShowing = false
         routeListOverlay.visibility = View.GONE
-        routeViewToggle.visibility = if (routeOptions.size > 1) View.VISIBLE else View.GONE
-        styleRouteToggle()
+        routeBackButton.visibility = View.VISIBLE
+        // After layout, so the fit knows how tall the sheet is.
+        routePreviewCard.post { if (navMode == NavMode.PREVIEW) fitSelectedRoute() }
     }
 
     private fun updateRoutePreviewSummary() {
         val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
-        showTripSummary(selected.durationSeconds, selected.distanceMeters, routePreviewEta, routePreviewSummary)
-        val via = NavFormat.viaRoadName(selected)
-        val toll = NavFormat.tollSummary(routePoisByIndex[selectedRouteIndex])
-        routePreviewVia.text = (if (via != null) "Via $via" else "") + (if (toll != null) "\n$toll" else "")
-        routePreviewVia.visibility = if (via != null || toll != null) View.VISIBLE else View.GONE
-        val destination = destinationName.orEmpty()
-        routePreviewDestination.text = destination
-        routePreviewDestination.visibility = if (destination.isNotBlank()) View.VISIBLE else View.GONE
-        renderTripStopsPanel()
+        val inputs = routeChoiceInputs()
+        val arrival = SimpleDateFormat("h:mm a", Locale.US).format(Date(System.currentTimeMillis() + (selected.durationSeconds * 1000).toLong()))
         val stopCount = (tripPlaces.size - 1).coerceAtLeast(0)
-        routePreviewHint.text =
+        val arrive = getString(R.string.route_hint_arrive, arrival)
+        val hint =
             if (stopCount > 0) {
-                "${if (stopCount == 1) "1 stop" else "$stopCount stops"} - one route through all of them\nTypical time - no live traffic"
-            } else if (routeOptions.size > 1) {
-                "${routeOptions.size} routes found - tap a grey route, or open List\nTypical time - no live traffic"
+                getString(R.string.route_hint_stops, if (stopCount == 1) "1 stop" else "$stopCount stops") + "\n" + arrive
             } else {
-                "Typical time - no live traffic"
+                arrive
             }
+        routePreviewSheet.render(
+            shown = RouteChoices.order(inputs, selectedRouteIndex, RouteChoices.SHOWN),
+            totalRoutes = routeOptions.size,
+            destinationName = destinationName,
+            destinationAddress = destinationAddress,
+            hintText = hint,
+        )
+        if (routeListShowing) renderRouteList()
+        renderTripStopsPanel()
     }
 
     /** Redraws the map lines for the current routeOptions/selectedRouteIndex:
@@ -3425,6 +3392,30 @@ class MainActivity : AppCompatActivity() {
         clearPassedRoute()
         renderRoutePois()
         renderStopMarkers(selected.stops)
+        renderRouteTimeLabels()
+    }
+
+    /** Preview only: a time bubble halfway along each route (the chosen one in ink, on top). */
+    private fun renderRouteTimeLabels() {
+        val src = routeTimeSource ?: return
+        val style = map?.style
+        if (navMode != NavMode.PREVIEW || style == null) {
+            src.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+            return
+        }
+        val features =
+            routeOptions.mapIndexedNotNull { index, route ->
+                val at = RouteChoices.labelPoint(route.geometry) ?: return@mapIndexedNotNull null
+                val selected = index == selectedRouteIndex
+                val icon = "navos-route-time-$index-${if (selected) "on" else "off"}"
+                style.addImage(icon, MapIcons.timeBubble(this, NavFormat.formatRouteMinutes(route.durationSeconds), selected))
+                Feature.fromGeometry(Point.fromLngLat(at.longitude, at.latitude)).also {
+                    it.addStringProperty("icon", icon)
+                    it.addNumberProperty(ROUTE_INDEX_PROPERTY, index)
+                    it.addNumberProperty("order", if (selected) 1 else 0)
+                }
+            }
+        src.setGeoJson(FeatureCollection.fromFeatures(features))
     }
 
     private fun onMapTapped(
@@ -3445,7 +3436,7 @@ class MainActivity : AppCompatActivity() {
         val screenPoint = map.projection.toScreenLocation(latLng)
         val tapped =
             try {
-                map.queryRenderedFeatures(screenPoint, ALT_ROUTE_LAYER_ID)
+                map.queryRenderedFeatures(screenPoint, ROUTE_TIME_LAYER_ID, ALT_ROUTE_LAYER_ID)
             } catch (e: Exception) {
                 emptyList()
             }
@@ -3460,6 +3451,7 @@ class MainActivity : AppCompatActivity() {
         selectedRouteIndex = index
         redrawRouteLines()
         updateRoutePreviewSummary()
+        routePreviewCard.post { if (navMode == NavMode.PREVIEW && !routeListShowing) fitSelectedRoute() }
     }
 
     private fun cancelRoutePreview() {
@@ -3473,6 +3465,7 @@ class MainActivity : AppCompatActivity() {
         routePreviewCard.visibility = View.GONE
         routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        renderRouteTimeLabels()
         clearDestinationMarker()
         clearTrip()
         followingUser = true

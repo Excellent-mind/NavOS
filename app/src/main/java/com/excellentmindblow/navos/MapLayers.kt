@@ -46,6 +46,8 @@ internal const val POI_ICON_CAMERA = "navos-poi-camera"
 internal const val POI_SOURCE_ID = "navos-poi-source"
 internal const val POI_LAYER_ID = "navos-poi-layer"
 internal const val POI_ICON_PROPERTY = "poiIcon"
+internal const val ROUTE_TIME_SOURCE_ID = "navos-route-time-source"
+internal const val ROUTE_TIME_LAYER_ID = "navos-route-time-layer"
 internal const val FUEL_PIN_ICON_ID = "navos-icon-fuel-pin"
 internal const val EV_PIN_ICON_ID = "navos-icon-ev-pin"
 
@@ -70,6 +72,7 @@ class MapLayers(
         val destination: GeoJsonSource,
         val stops: GeoJsonSource,
         val poi: GeoJsonSource,
+        val routeTimes: GeoJsonSource,
     )
 
     fun install(style: Style): Sources {
@@ -280,6 +283,20 @@ class MapLayers(
             ),
         )
 
+        // Route preview: a time bubble on each route ("24 min"); its image is
+        // drawn per route by MainActivity (MapIcons.timeBubble).
+        val timeSrc = GeoJsonSource(ROUTE_TIME_SOURCE_ID)
+        style.addSource(timeSrc)
+        style.addLayer(
+            SymbolLayer(ROUTE_TIME_LAYER_ID, ROUTE_TIME_SOURCE_ID).withProperties(
+                PropertyFactory.iconImage(Expression.get("icon")),
+                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.symbolSortKey(Expression.get("order")),
+            ),
+        )
+
         // Destination pin - added last, with the plain addLayer() that
         // puts it above everything (including labels), same as a real pin.
         val pinBitmap = ContextCompat.getDrawable(context, R.drawable.ic_destination_pin)?.toBitmap()
@@ -322,6 +339,7 @@ class MapLayers(
             destination = destSource,
             stops = stopsSrc,
             poi = installPoiLayer(style),
+            routeTimes = timeSrc,
         )
     }
 

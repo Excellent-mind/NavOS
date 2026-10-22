@@ -135,4 +135,55 @@ object MapIcons {
         if (width > maxWidth) paint.textSize *= maxWidth / width
         canvas.drawText(brand.mark, cx, cy - (paint.descent() + paint.ascent()) / 2f, paint)
     }
+
+    /** Route preview bubble with the route's time: ink for the chosen route, sheet colour for the others. */
+    fun timeBubble(
+        context: Context,
+        text: String,
+        selected: Boolean,
+    ): Bitmap {
+        val density = context.resources.displayMetrics.density
+        val paint =
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                typeface = ResourcesCompat.getFont(context, R.font.signal_numbers)?.let { Typeface.create(it, if (selected) Typeface.BOLD else Typeface.NORMAL) }
+                textSize = (if (selected) 17 else 16) * density
+            }
+        val padX = 9 * density
+        val padY = 5 * density
+        val tail = 6 * density
+        val textW = paint.measureText(text)
+        val fm = paint.fontMetrics
+        val textH = fm.descent - fm.ascent
+        val w = (textW + padX * 2).toInt() + 2
+        val boxH = textH + padY * 2
+        val h = (boxH + tail).toInt() + 2
+        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val fill = ContextCompat.getColor(context, if (selected) R.color.sig_ink else R.color.sig_sheet)
+        val ink = ContextCompat.getColor(context, if (selected) R.color.sig_on_ink else R.color.sig_text)
+        val box = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fill }
+        val rect = android.graphics.RectF(1f, 1f, w - 1f, boxH)
+        canvas.drawRoundRect(rect, 10 * density, 10 * density, box)
+        // Small pointer under the bubble, onto the route.
+        val pointer =
+            Path().apply {
+                moveTo(w / 2f - tail, boxH - 1)
+                lineTo(w / 2f, boxH + tail - 1)
+                lineTo(w / 2f + tail, boxH - 1)
+                close()
+            }
+        canvas.drawPath(pointer, box)
+        if (!selected) {
+            val outline =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.STROKE
+                    strokeWidth = density
+                    color = ContextCompat.getColor(context, R.color.sig_outline)
+                }
+            canvas.drawRoundRect(rect, 10 * density, 10 * density, outline)
+        }
+        paint.color = ink
+        canvas.drawText(text, padX + 1, padY - fm.ascent, paint)
+        return bitmap
+    }
 }
