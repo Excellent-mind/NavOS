@@ -1,7 +1,6 @@
 package com.excellentmindblow.navos
 
 import android.content.Context
-import android.graphics.Color
 import com.excellentmindblow.navos.poi.FuelBrand
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
@@ -148,8 +147,8 @@ class MapLayers(
 
         val altLayer =
             LineLayer(ALT_ROUTE_LAYER_ID, ALT_ROUTE_SOURCE_ID).withProperties(
-                PropertyFactory.lineColor(Color.parseColor("#9AA5B1")),
-                PropertyFactory.lineWidth(4f),
+                PropertyFactory.lineColor(color(R.color.sig_route_alt)),
+                PropertyFactory.lineWidth(5f),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
@@ -166,7 +165,7 @@ class MapLayers(
         style.addSource(passedSource)
         val passedLayer =
             LineLayer(ROUTE_PASSED_LAYER_ID, ROUTE_PASSED_SOURCE_ID).withProperties(
-                PropertyFactory.lineColor(Color.parseColor("#8FA3B5")),
+                PropertyFactory.lineColor(color(R.color.sig_route_passed)),
                 PropertyFactory.lineOpacity(0.55f),
                 PropertyFactory.lineWidth(routeWidthByZoom(6f, 11f, 19f, 29f)),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
@@ -176,7 +175,7 @@ class MapLayers(
 
         val routeCasingLayer =
             LineLayer(ROUTE_CASING_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
-                PropertyFactory.lineColor(Color.WHITE),
+                PropertyFactory.lineColor(color(R.color.sig_route_casing)),
                 PropertyFactory.lineWidth(routeWidthByZoom(9f, 15f, 26f, 38f)),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
@@ -185,7 +184,7 @@ class MapLayers(
 
         val layer =
             LineLayer(ROUTE_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
-                PropertyFactory.lineColor(Color.parseColor("#1CB0F6")),
+                PropertyFactory.lineColor(color(R.color.sig_route)),
                 PropertyFactory.lineWidth(routeWidthByZoom(6f, 11f, 19f, 29f)),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
@@ -196,7 +195,7 @@ class MapLayers(
         // and Waze. They are placed along the line itself, so each one is turned
         // to the exact direction of the lane at its spot (through bends too) and
         // lies flat on the road with the map's tilt instead of floating upright.
-        style.addImage(ROUTE_CHEVRON_ICON_ID, MapIcons.routeChevron())
+        style.addImage(ROUTE_CHEVRON_ICON_ID, MapIcons.routeChevron(color(R.color.sig_on_ink)))
         addBelowLabels(
             SymbolLayer(ROUTE_CHEVRON_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
                 PropertyFactory.symbolPlacement(Property.SYMBOL_PLACEMENT_LINE),
@@ -234,13 +233,13 @@ class MapLayers(
         style.addSource(zoneSrc)
         addBelowLabels(
             FillLayer(CAMERA_ZONE_FILL_ID, CAMERA_ZONE_SOURCE_ID).withProperties(
-                PropertyFactory.fillColor(Color.parseColor("#E5484D")),
+                PropertyFactory.fillColor(color(R.color.sig_limit)),
                 PropertyFactory.fillOpacity(0.13f),
             ),
         )
         addBelowLabels(
             LineLayer(CAMERA_ZONE_LINE_ID, CAMERA_ZONE_SOURCE_ID).withProperties(
-                PropertyFactory.lineColor(Color.parseColor("#E5484D")),
+                PropertyFactory.lineColor(color(R.color.sig_limit)),
                 PropertyFactory.lineWidth(2f),
                 PropertyFactory.lineOpacity(0.75f),
                 PropertyFactory.lineDasharray(arrayOf(2f, 2f)),
@@ -268,8 +267,8 @@ class MapLayers(
                 PropertyFactory.textField(Expression.get("name")),
                 PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
                 PropertyFactory.textSize(14f),
-                PropertyFactory.textColor(Color.WHITE),
-                PropertyFactory.textHaloColor(Color.parseColor("#1B77A0")),
+                PropertyFactory.textColor(color(R.color.sig_on_ink)),
+                PropertyFactory.textHaloColor(color(R.color.sig_ink)),
                 PropertyFactory.textHaloWidth(5f),
                 PropertyFactory.textMaxWidth(9f),
                 PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM),
@@ -362,6 +361,8 @@ class MapLayers(
         style.addLayerBelow(layer, DESTINATION_LAYER_ID)
         return src
     }
+
+    private fun color(res: Int): Int = ContextCompat.getColor(context, res)
 
     private fun registerMapIcon(
         style: Style,

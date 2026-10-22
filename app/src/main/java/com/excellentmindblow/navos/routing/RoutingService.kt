@@ -26,6 +26,8 @@ data class RouteStep(
     val roadName: String,
     val point: RoutePoint,
     val lanes: List<LaneInfo>? = null,
+    /** Road number of the road taken at this step ("E33"), when the map has one. */
+    val ref: String? = null,
 )
 
 /** An intermediate stop on a multi-stop trip (the final destination is NOT a
@@ -500,6 +502,7 @@ object RoutingService {
                         roadName = roadName,
                         point = here,
                         lanes = parseLanes(step),
+                        ref = step.optString("ref", "").split(';').map { it.trim() }.firstOrNull { it.isNotEmpty() && it != "null" },
                     ),
                 )
             }

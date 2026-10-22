@@ -37,6 +37,12 @@ data class NavigationState(
     val nextStop: RouteStop? = null,
     val distanceToNextStopMeters: Double = 0.0,
     val durationToNextStopSeconds: Double = 0.0,
+    /** Road number at the upcoming turn ("E33") for the turn sign's tag, when mapped. */
+    val roadRef: String? = null,
+    /** Street of the turn after the upcoming one ("Then ... Jalan Ampang"). */
+    val nextRoadName: String? = null,
+    /** From the upcoming turn to the one after it ("Then ... in 450 m"). */
+    val distanceBetweenTurnsMeters: Double = 0.0,
 )
 
 /**
@@ -303,6 +309,10 @@ class NavigationEngine(
                 nextStop = nextStop,
                 distanceToNextStopMeters = toNextStop?.first ?: 0.0,
                 durationToNextStopSeconds = toNextStop?.second ?: 0.0,
+                roadRef = steps[idx].ref,
+                nextRoadName = nextStep?.roadName?.takeIf { it.isNotBlank() },
+                // A step's distance is the stretch after its maneuver, up to the next one.
+                distanceBetweenTurnsMeters = steps[idx].distanceMeters,
             ),
         )
 

@@ -13,10 +13,11 @@ import com.excellentmindblow.navos.poi.FuelBrand
 
 /** Bitmaps drawn in code: the route chevron, numbered stop pins and petrol brand pins / badges. */
 object MapIcons {
-    /** A bold white chevron pointing RIGHT (east). On a line-placed symbol the
-     * icon's "right" is the direction the line runs, so this points the way
-     * the route goes. A faint dark edge keeps it readable on the blue. */
-    fun routeChevron(): Bitmap {
+    /** A bold chevron pointing RIGHT (east) in [ink] - the opposite of the
+     * route colour (white on the black day route, black on the white night
+     * route). On a line-placed symbol the icon's "right" is the direction
+     * the line runs, so this points the way the route goes. */
+    fun routeChevron(ink: Int): Bitmap {
         val size = 64
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -32,10 +33,7 @@ object MapIcons {
                 strokeCap = android.graphics.Paint.Cap.ROUND
                 strokeJoin = android.graphics.Paint.Join.ROUND
             }
-        paint.color = Color.argb(70, 10, 70, 120)
-        paint.strokeWidth = 15f
-        canvas.drawPath(path, paint)
-        paint.color = Color.WHITE
+        paint.color = ink
         paint.strokeWidth = 10f
         canvas.drawPath(path, paint)
         return bitmap

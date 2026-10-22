@@ -58,6 +58,27 @@ class NavigationEngineTest {
     }
 
     @Test
+    fun theTurnSignGetsTheRoadNumberAndTheThenRowItsStreetAndDistance() {
+        val withRef =
+            route.copy(
+                steps =
+                    listOf(
+                        route.steps[0],
+                        route.steps[1].copy(ref = "E12"),
+                        RouteStep("Turn left onto Jalan Raja Chulan", 0.0, 0.0, "turn", "left", "Jalan Raja Chulan", end),
+                    ),
+            )
+        engine.setRoute(withRef)
+        engine.onLocation(start)
+        val s = states.last()
+
+        assertEquals("E12", s.roadRef)
+        assertEquals("Jalan Raja Chulan", s.nextRoadName)
+        // From the right turn at the corner to the next turn: the east leg.
+        assertEquals(eastLeg, s.distanceBetweenTurnsMeters, 1.0)
+    }
+
+    @Test
     fun atTheStartTheFirstTurnIsUpcomingWithTheWholeTripLeft() {
         engine.onLocation(start)
         val s = states.last()

@@ -109,22 +109,25 @@
 
         </LinearLayout>
 
-        <!-- Active-nav turn instruction banner, pinned to the top like
-             Waze/Google Maps' direction banner - stands in for topBar
-             (hidden) while a route is being previewed or driven. One
-             vertical card so the optional lane-guidance and "and then"
-             rows grow the card instead of needing separate floating
-             cards with fragile fixed offsets. -->
+        <!-- The turn sign (Signal): the one loud thing while driving. Black
+             card with a light rim: turn arrow, distance in big numbers, the
+             street, and the road number on an amber tag when there is one.
+             Below it the lanes (when mapped) and "Then ..." (the turn after).
+             Tap it for the full list of next turns. -->
         <LinearLayout
             android:id="@+id/topNavBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
             android:layout_marginTop="40dp"
-            android:layout_marginStart="12dp"
-            android:layout_marginEnd="12dp"
-            android:background="@drawable/bg_top_card"
-            android:elevation="4dp"
+            android:layout_marginEnd="10dp"
+            android:background="@drawable/bg_sig_turn"
+            android:clickable="true"
+            android:contentDescription="@string/next_turns"
+            android:elevation="8dp"
+            android:focusable="true"
             android:orientation="vertical"
+            android:padding="3dp"
             android:visibility="gone">
 
             <LinearLayout
@@ -132,73 +135,132 @@
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:padding="16dp">
+                android:paddingStart="15dp"
+                android:paddingTop="13dp"
+                android:paddingEnd="15dp"
+                android:paddingBottom="13dp">
+
+                <ImageView
+                    android:id="@+id/turnSignIcon"
+                    android:layout_width="58dp"
+                    android:layout_height="58dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_turn_straight"
+                    app:tint="@color/white" />
 
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
                     android:layout_weight="1"
                     android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/turnSignDistance"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:maxLines="1"
+                        android:textAppearance="@style/TextAppearance.Signal.Number"
+                        android:textColor="@color/white"
+                        android:textSize="46sp"
+                        tools:text="300 m" />
 
                     <TextView
                         android:id="@+id/turnStreetText"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:textColor="@color/navos_text_secondary"
-                        android:textSize="16sp"
-                        tools:text="Lorong Sabudin" />
+                        android:layout_marginTop="2dp"
+                        android:ellipsize="end"
+                        android:maxLines="2"
+                        android:textAppearance="@style/TextAppearance.Signal.Body"
+                        android:textColor="@color/white"
+                        android:textSize="21sp"
+                        tools:text="Jalan Sultan Ismail" />
 
                 </LinearLayout>
 
+                <TextView
+                    android:id="@+id/turnRefTag"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_sig_ref_tag"
+                    android:paddingStart="7dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="7dp"
+                    android:paddingBottom="2dp"
+                    android:textAppearance="@style/TextAppearance.Signal.Number"
+                    android:textColor="#0B0B0B"
+                    android:textSize="17sp"
+                    android:visibility="gone"
+                    tools:text="E33" />
+
             </LinearLayout>
 
-            <!-- Lane guidance for the upcoming turn - populated
-                 programmatically (one icon per lane) since the lane count
-                 varies per junction, and only shown when OSRM actually
-                 returned lane-tagged data for this turn. -->
+            <!-- Lane guidance for the upcoming turn, one arrow per lane (added
+                 from code); only when the road is lane-tagged in the map data. -->
             <LinearLayout
                 android:id="@+id/laneContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:background="@color/sig_lane_fill"
                 android:gravity="center"
                 android:orientation="horizontal"
                 android:paddingStart="16dp"
+                android:paddingTop="8dp"
                 android:paddingEnd="16dp"
-                android:paddingBottom="12dp"
+                android:paddingBottom="10dp"
                 android:visibility="gone" />
 
-            <!-- "and then" secondary preview strip, once the step after
-                 this one is known - same look-ahead Waze/Google Maps show
-                 so the driver isn't surprised by a turn right after this
-                 one. -->
+            <!-- "Then ..." - the turn right after this one, so it never surprises. -->
             <LinearLayout
                 android:id="@+id/nextTurnStrip"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@drawable/bg_strip_light"
+                android:background="@drawable/bg_sig_then"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:paddingStart="16dp"
+                android:paddingTop="10dp"
                 android:paddingEnd="16dp"
-                android:paddingTop="8dp"
-                android:paddingBottom="8dp"
+                android:paddingBottom="10dp"
                 android:visibility="gone">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginEnd="10dp"
-                    android:text="and then"
-                    android:textColor="@color/navos_text_secondary"
-                    android:textSize="13sp" />
+                    android:text="@string/then"
+                    android:textAppearance="@style/TextAppearance.Signal.Secondary"
+                    android:textSize="15sp" />
 
                 <ImageView
                     android:id="@+id/nextTurnIcon"
-                    android:layout_width="22dp"
-                    android:layout_height="22dp"
-                    android:contentDescription="Then"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_marginStart="10dp"
+                    android:contentDescription="@null"
                     android:src="@drawable/ic_turn_straight"
-                    android:tint="@color/navos_text" />
+                    app:tint="@color/sig_text" />
+
+                <TextView
+                    android:id="@+id/nextTurnStreet"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="@style/TextAppearance.Signal.Label"
+                    tools:text="Jalan Ampang" />
+
+                <TextView
+                    android:id="@+id/nextTurnDistance"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:textAppearance="@style/TextAppearance.Signal.Number.Row"
+                    tools:text="in 450 m" />
 
             </LinearLayout>
 
@@ -313,41 +375,36 @@
             android:contentDescription="Compass - tap to face north"
             android:focusable="true" />
 
-        <!-- Live speed badge, shown only during active navigation - same
-             bottom-left circular readout Waze shows. -->
+        <!-- Your speed (big number, red when over the limit) - bottom left. -->
         <TextView
             android:id="@+id/speedBadge"
-            android:fontFeatureSettings="tnum"
+            android:layout_width="76dp"
+            android:layout_height="76dp"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="14dp"
+            android:layout_marginBottom="136dp"
+            android:background="@drawable/bg_sig_float"
+            android:elevation="4dp"
+            android:gravity="center"
+            android:lineSpacingMultiplier="0.85"
+            android:textAppearance="@style/TextAppearance.Signal.Number"
+            android:visibility="gone"
+            tools:text="62\nkm/h" />
+
+        <!-- Posted speed limit (from map data), beside the speed, only when known. -->
+        <TextView
+            android:id="@+id/speedLimitSign"
             android:layout_width="56dp"
             android:layout_height="56dp"
             android:layout_gravity="bottom|start"
-            android:layout_marginStart="12dp"
-            android:layout_marginBottom="140dp"
-            android:background="@drawable/bg_circle_white"
-            android:elevation="4dp"
-            android:gravity="center"
-            android:textColor="@color/navos_text"
-            android:textSize="13sp"
-            android:textStyle="bold"
-            android:visibility="gone"
-            tools:text="0\nkm/h" />
-
-        <!-- Posted speed limit of the road being driven (from map data),
-             shown to the right of the speed badge only when it is known. -->
-        <TextView
-            android:id="@+id/speedLimitSign"
-            android:fontFeatureSettings="tnum"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_gravity="bottom|start"
-            android:layout_marginStart="76dp"
-            android:layout_marginBottom="144dp"
+            android:layout_marginStart="98dp"
+            android:layout_marginBottom="136dp"
             android:background="@drawable/bg_speed_limit"
             android:elevation="4dp"
             android:gravity="center"
+            android:textAppearance="@style/TextAppearance.Signal.Number"
             android:textColor="#111111"
-            android:textSize="17sp"
-            android:textStyle="bold"
+            android:textSize="24sp"
             android:visibility="gone"
             tools:text="60" />
 
@@ -360,11 +417,11 @@
             android:layout_width="wrap_content"
             android:layout_height="48dp"
             android:layout_gravity="bottom|end"
-            android:layout_marginEnd="12dp"
-            android:layout_marginBottom="140dp"
-            android:background="@drawable/bg_pill_surface"
+            android:layout_marginEnd="14dp"
+            android:layout_marginBottom="136dp"
+            android:background="@drawable/bg_sig_float_pill"
             android:clickable="true"
-            android:contentDescription="Re-centre on my location"
+            android:contentDescription="@string/recenter"
             android:elevation="6dp"
             android:focusable="true"
             android:gravity="center_vertical"
@@ -378,52 +435,65 @@
                 android:layout_height="22dp"
                 android:importantForAccessibility="no"
                 android:src="@drawable/ic_recenter"
-                android:tint="@color/navos_blue" />
+                app:tint="@color/sig_text" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:text="Re-center"
-                android:textColor="@color/navos_text"
-                android:textSize="16sp"
-                android:textStyle="bold" />
+                android:text="@string/recenter"
+                android:textAppearance="@style/TextAppearance.Signal.Label"
+                android:textSize="16sp" />
 
         </LinearLayout>
 
-        <!-- Show/hide the petrol (pump) and EV charging (lightning) pins
-             during a drive - sitting above the re-center / speed badge area. Colours
-             (on = orange/green, off = white) are set in code. -->
+        <!-- Right-hand drive controls: mute voice, petrol pins, EV pins. On =
+             filled (petrol orange / EV green), off = plain; set in code. -->
         <LinearLayout
             android:id="@+id/poiToggleColumn"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|end"
-            android:layout_marginEnd="12dp"
-            android:layout_marginBottom="156dp"
+            android:layout_marginEnd="14dp"
+            android:layout_marginBottom="224dp"
             android:orientation="vertical"
             android:visibility="gone">
 
             <ImageButton
-                android:id="@+id/evToggleButton"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginBottom="8dp"
-                android:background="@drawable/bg_circle_white"
-                android:contentDescription="Show or hide EV charging"
+                android:id="@+id/muteButton"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:layout_marginBottom="10dp"
+                android:background="@drawable/bg_sig_float"
+                android:contentDescription="@string/mute_voice"
                 android:elevation="4dp"
-                android:padding="12dp"
-                android:src="@drawable/ic_ev" />
+                android:padding="14dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_volume"
+                app:tint="@color/sig_text" />
 
             <ImageButton
                 android:id="@+id/fuelToggleButton"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="@drawable/bg_circle_white"
-                android:contentDescription="Show or hide petrol stations"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:layout_marginBottom="10dp"
+                android:background="@drawable/bg_sig_float"
+                android:contentDescription="@string/show_petrol"
                 android:elevation="4dp"
-                android:padding="12dp"
+                android:padding="14dp"
+                android:scaleType="fitCenter"
                 android:src="@drawable/ic_fuel" />
+
+            <ImageButton
+                android:id="@+id/evToggleButton"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_sig_float"
+                android:contentDescription="@string/show_ev"
+                android:elevation="4dp"
+                android:padding="14dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_ev" />
 
         </LinearLayout>
 
@@ -562,20 +632,21 @@
 
         </LinearLayout>
 
-        <!-- Drive bar, Waze-style: round search button, big arrival time with
-             "duration • distance" under it, round switch-route button. Tap or
-             swipe up on the handle / time to reveal the red Stop pill. -->
+        <!-- Drive bar (Signal): search along the way, arrival time in big
+             numbers with "time left · distance left", and End (X). End opens
+             the bar to a big End trip button (so a stray tap never ends a
+             drive), Share ETA and, on a trip with stops, the stop controls. -->
         <LinearLayout
             android:id="@+id/bottomNavBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
-            android:background="@drawable/bg_bottom_sheet"
+            android:background="@drawable/bg_sig_sheet"
             android:elevation="8dp"
             android:orientation="vertical"
-            android:paddingStart="20dp"
-            android:paddingEnd="20dp"
-            android:paddingBottom="28dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="26dp"
             android:visibility="gone">
 
             <FrameLayout
@@ -585,9 +656,9 @@
 
                 <View
                     android:layout_width="40dp"
-                    android:layout_height="4dp"
+                    android:layout_height="5dp"
                     android:layout_gravity="center"
-                    android:background="@drawable/bg_drag_handle" />
+                    android:background="@drawable/bg_sig_handle" />
 
             </FrameLayout>
 
@@ -598,17 +669,16 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <!-- Search for a new destination without fully stopping the
-                     current drive. -->
                 <ImageButton
                     android:id="@+id/bottomSearchButton"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:background="@drawable/bg_circle_light"
-                    android:contentDescription="Search for a new destination"
-                    android:padding="14dp"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:background="@drawable/bg_sig_icon_circle"
+                    android:contentDescription="@string/search_along_the_way"
+                    android:padding="16dp"
+                    android:scaleType="fitCenter"
                     android:src="@drawable/ic_search"
-                    android:tint="@color/navos_text_secondary" />
+                    app:tint="@color/sig_text" />
 
                 <LinearLayout
                     android:id="@+id/navEtaCenter"
@@ -622,91 +692,66 @@
 
                     <TextView
                         android:id="@+id/etaClockText"
-                        android:fontFeatureSettings="tnum"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="@color/navos_text"
-                        android:textSize="28sp"
                         android:letterSpacing="-0.01"
-                        android:textStyle="bold"
-                        tools:text="3:38 PM" />
+                        android:textAppearance="@style/TextAppearance.Signal.Number"
+                        android:textSize="38sp"
+                        tools:text="8:42 pm" />
 
                     <TextView
                         android:id="@+id/etaDetailText"
-                        android:fontFeatureSettings="tnum"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="@color/navos_text_secondary"
-                        android:textSize="18sp"
-                        tools:text="1:11 h • 61 km" />
+                        android:layout_marginTop="2dp"
+                        android:textAppearance="@style/TextAppearance.Signal.Number.Row"
+                        android:textSize="19sp"
+                        tools:text="18 min · 12.4 km" />
 
                 </LinearLayout>
 
-                <!-- Opens the "Next turns" list (every upcoming turn with its
-                     arrow, distance and street). Switching route lives in
-                     that sheet's header. -->
-                <LinearLayout
+                <ImageButton
                     android:id="@+id/bottomAltRouteButton"
-                    android:layout_width="72dp"
-                    android:layout_height="72dp"
-                    android:background="@drawable/bg_circle_light"
-                    android:clickable="true"
-                    android:contentDescription="Next turns"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:orientation="vertical">
-
-                    <ImageView
-                        android:id="@+id/turnIcon"
-                        android:layout_width="34dp"
-                        android:layout_height="34dp"
-                        android:contentDescription="Next turn"
-                        android:src="@drawable/ic_turn_straight"
-                        android:tint="@color/navos_text" />
-
-                    <TextView
-                        android:id="@+id/turnDistanceText"
-                        android:fontFeatureSettings="tnum"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:maxLines="1"
-                        android:textColor="@color/navos_text"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        tools:text="550 m" />
-
-                </LinearLayout>
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:background="@drawable/bg_sig_icon_circle"
+                    android:backgroundTint="@color/sig_end_fill"
+                    android:contentDescription="@string/end_navigation"
+                    android:padding="18dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_close"
+                    app:tint="@color/sig_end_ink" />
 
             </LinearLayout>
 
             <TextView
                 android:id="@+id/stopNavigationButton"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
+                android:layout_height="56dp"
                 android:layout_marginTop="14dp"
-                android:background="@drawable/bg_pill_red"
+                android:background="@drawable/bg_sig_card"
+                android:backgroundTint="@color/sig_limit"
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center"
-                android:text="Stop"
+                android:text="@string/end_trip"
+                android:textAppearance="@style/TextAppearance.Signal.Body"
                 android:textColor="@color/white"
                 android:textSize="18sp"
-                android:textStyle="bold"
                 android:visibility="gone" />
 
             <TextView
                 android:id="@+id/shareEtaButton"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
+                android:layout_height="56dp"
                 android:layout_marginTop="10dp"
-                android:background="@drawable/bg_pill_blue"
+                android:background="@drawable/bg_sig_card"
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center"
-                android:text="Share ETA"
-                android:textColor="@color/white"
+                android:text="@string/share_eta"
+                android:textAppearance="@style/TextAppearance.Signal.Body"
                 android:textSize="18sp"
-                android:textStyle="bold"
                 android:visibility="gone" />
 
         </LinearLayout>
@@ -1470,54 +1515,67 @@
         </LinearLayout>
 
 
-        <!-- Speed-camera zone pop-up: appears the moment you enter a
-             camera's 200 m zone and counts the distance down. -->
+        <!-- Speed-camera alert (Signal caution amber): appears on entering a
+             camera's 200 m zone, under the turn sign, counting the distance down. -->
         <LinearLayout
             android:id="@+id/cameraAlert"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="56dp"
+            android:layout_gravity="top"
+            android:layout_marginStart="10dp"
+            android:layout_marginTop="180dp"
+            android:layout_marginEnd="10dp"
             android:background="@drawable/bg_alert_red"
             android:elevation="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:paddingStart="14dp"
-            android:paddingTop="10dp"
-            android:paddingEnd="22dp"
-            android:paddingBottom="10dp"
+            android:paddingTop="12dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="12dp"
             android:visibility="gone">
 
             <ImageView
-                android:layout_width="38dp"
-                android:layout_height="38dp"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
                 android:importantForAccessibility="no"
-                android:src="@drawable/ic_alert_camera" />
+                android:src="@drawable/ic_alert_camera"
+                app:tint="@color/sig_caution" />
 
             <LinearLayout
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
                 android:orientation="vertical">
 
                 <TextView
                     android:id="@+id/cameraAlertTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Speed camera ahead"
-                    android:textColor="@color/white"
-                    android:textSize="18sp"
-                    android:textStyle="bold" />
+                    android:text="@string/camera_ahead"
+                    android:textAppearance="@style/TextAppearance.Signal.Body"
+                    android:textColor="@color/sig_caution_ink" />
 
                 <TextView
                     android:id="@+id/cameraAlertSub"
-                    android:fontFeatureSettings="tnum"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="@color/white"
-                    android:textSize="15sp" />
+                    android:layout_marginTop="1dp"
+                    android:textAppearance="@style/TextAppearance.Signal.Secondary"
+                    android:textColor="@color/sig_caution_sub" />
 
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/cameraAlertDistance"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textAppearance="@style/TextAppearance.Signal.Number"
+                android:textColor="@color/sig_caution_ink"
+                android:textSize="26sp"
+                tools:text="400 m" />
 
         </LinearLayout>
 

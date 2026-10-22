@@ -279,6 +279,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var addStopDriveButton: TextView
     private lateinit var skipStopDriveButton: TextView
     private lateinit var turnIcon: ImageView
+    private lateinit var turnRefTag: TextView
+    private lateinit var nextTurnStreet: TextView
+    private lateinit var nextTurnDistance: TextView
+    private lateinit var cameraAlertDistance: TextView
+    private lateinit var muteButton: ImageButton
     private lateinit var speedBadge: TextView
     private lateinit var recenterButton: View
     private lateinit var nextTurnsSheet: View
@@ -482,7 +487,7 @@ class MainActivity : AppCompatActivity() {
                 maybeFetchPois(location)
                 checkCameraZone(location)
                 val currentKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
-                speedBadge.text = "${Units.speed(currentKmh)}\n${Units.speedUnit}"
+                lastSpeedKmh = currentKmh
                 updateSpeedLimit(location, currentKmh)
             }
 
@@ -1013,13 +1018,24 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.navPrefsRow).setOnClickListener { settingsDialogs.showNavPreferences() }
         findViewById<Switch>(R.id.voiceGuidanceSwitch).apply {
             isChecked = prefs.getBoolean(KEY_VOICE_ENABLED, true)
-            setOnCheckedChangeListener { _, isChecked ->
-                prefs.edit().putBoolean(KEY_VOICE_ENABLED, isChecked).apply()
-                navigationService?.setVoiceEnabled(isChecked)
-            }
+            setOnCheckedChangeListener { _, isChecked -> setVoiceGuidance(isChecked) }
         }
 
         findViewById<View>(R.id.navMapDisplayRow).setOnClickListener { settingsDialogs.showMapDisplay() }
+    }
+
+    /** Voice guidance on/off - from the Settings switch or the drive screen's mute button. */
+    private fun setVoiceGuidance(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_VOICE_ENABLED, enabled).apply()
+        navigationService?.setVoiceEnabled(enabled)
+        findViewById<Switch>(R.id.voiceGuidanceSwitch)?.let { if (it.isChecked != enabled) it.isChecked = enabled }
+        if (::muteButton.isInitialized) styleMuteButton()
+    }
+
+    private fun styleMuteButton() {
+        val on = prefs.getBoolean(KEY_VOICE_ENABLED, true)
+        muteButton.setImageResource(if (on) R.drawable.ic_volume else R.drawable.ic_volume_off)
+        muteButton.contentDescription = getString(if (on) R.string.mute_voice else R.string.unmute_voice)
     }
 
     // ---- Settings > Map display (like Waze's Display & map) ------------------
@@ -1279,7 +1295,7 @@ class MainActivity : AppCompatActivity() {
             updateNavFloatingOffset()
             true
         }
-        turnDistanceText = findViewById(R.id.turnDistanceText)
+        turnDistanceText = findViewById(R.id.turnSignDistance)
         turnStreetText = findViewById(R.id.turnStreetText)
         recalcPill = findViewById(R.id.recalcPill)
         routeBackButton = findViewById(R.id.routeBackButton)
@@ -1302,7 +1318,15 @@ class MainActivity : AppCompatActivity() {
         navStopButton = findViewById(R.id.stopNavigationButton)
         routePreviewAddress = findViewById(R.id.routePreviewAddress)
         routePreviewDestination = findViewById(R.id.routePreviewDestination)
-        turnIcon = findViewById(R.id.turnIcon)
+        turnIcon = findViewById(R.id.turnSignIcon)
+        turnRefTag = findViewById(R.id.turnRefTag)
+        nextTurnStreet = findViewById(R.id.nextTurnStreet)
+        nextTurnDistance = findViewById(R.id.nextTurnDistance)
+        cameraAlertDistance = findViewById(R.id.cameraAlertDistance)
+        muteButton = findViewById(R.id.muteButton)
+        muteButton.setOnClickListener { setVoiceGuidance(!prefs.getBoolean(KEY_VOICE_ENABLED, true)) }
+        styleMuteButton()
+        findViewById<View>(R.id.topNavBar).setOnClickListener { openNextTurns() }
         speedBadge = findViewById(R.id.speedBadge)
         speedLimitSign = findViewById(R.id.speedLimitSign)
         recenterButton = findViewById(R.id.recenterButton)
@@ -1370,8 +1394,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.bottomSearchButton).setOnClickListener {
             enterSearchFromNav()
         }
+        // End (X): opens the bar to the big End trip button, so a stray tap never ends a drive.
         findViewById<View>(R.id.bottomAltRouteButton).setOnClickListener {
-            openNextTurns()
+            setNavSheetExpanded(!navSheetExpanded)
         }
         findViewById<View>(R.id.nextTurnsClose).setOnClickListener { closeNextTurns() }
         findViewById<View>(R.id.nextTurnsSwitchRoute).setOnClickListener {
@@ -1738,18 +1763,42 @@ class MainActivity : AppCompatActivity() {
         val limit = speedLimits.limitAt(here)
         if (limit == null || !MapDisplayPrefs.speedLimit || navMode != NavMode.ACTIVE || searchOpenedFromNav) {
             speedLimitSign.visibility = View.GONE
-            speedBadge.setTextColor(getColor(R.color.navos_text))
+            showSpeed(currentKmh, speeding = false)
             return
         }
-        speedLimitSign.text = Units.speed(limit.toDouble()).toString()
+        val limitText = Units.speed(limit.toDouble()).toString()
+        speedLimitSign.text = limitText
+        speedLimitSign.contentDescription = getString(R.string.speed_limit, limitText)
         speedLimitSign.visibility = View.VISIBLE
-        val speeding = currentKmh > limit + SpeedLimitTracker.SPEEDING_MARGIN_KMH
-        speedBadge.setTextColor(if (speeding) Color.parseColor("#E5484D") else getColor(R.color.navos_text))
+        showSpeed(currentKmh, speeding = currentKmh > limit + SpeedLimitTracker.SPEEDING_MARGIN_KMH)
+    }
+
+    private var lastSpeedKmh = 0.0
+
+    /** The round speed readout: big number (limit red when speeding) over a small unit. */
+    private fun showSpeed(
+        kmh: Double,
+        speeding: Boolean,
+    ) {
+        val number = Units.speed(kmh).toString()
+        val unit = Units.speedUnit
+        val text = android.text.SpannableString("$number\n$unit")
+        text.setSpan(android.text.style.AbsoluteSizeSpan(34, true), 0, number.length, 0)
+        text.setSpan(
+            android.text.style.ForegroundColorSpan(getColor(if (speeding) R.color.sig_limit else R.color.sig_text)),
+            0,
+            number.length,
+            0,
+        )
+        text.setSpan(android.text.style.AbsoluteSizeSpan(12, true), number.length + 1, text.length, 0)
+        text.setSpan(android.text.style.ForegroundColorSpan(getColor(R.color.sig_text_quiet)), number.length + 1, text.length, 0)
+        speedBadge.text = text
+        speedBadge.contentDescription = getString(R.string.your_speed, number, unit)
     }
 
     private fun clearSpeedLimit(resetData: Boolean) {
         if (::speedLimitSign.isInitialized) speedLimitSign.visibility = View.GONE
-        if (::speedBadge.isInitialized) speedBadge.setTextColor(getColor(R.color.navos_text))
+        if (::speedBadge.isInitialized) showSpeed(lastSpeedKmh, speeding = false)
         if (resetData) speedLimits.reset()
     }
 
@@ -1840,21 +1889,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** On = filled orange/green with a white icon; off = plain white with
-     * a navy icon. */
+    /** On = filled petrol orange / EV green with a white icon; off = the
+     * plain floating button with the icon in that colour. */
     private fun stylePoiToggles() {
-        val offIcon = ContextCompat.getColor(this, R.color.navos_text)
-        val offFill = ContextCompat.getColor(this, R.color.navos_surface)
+        val offFill = ContextCompat.getColor(this, R.color.sig_float)
         fun style(
             button: ImageButton,
             on: Boolean,
-            color: String,
+            colorRes: Int,
         ) {
-            button.backgroundTintList = ColorStateList.valueOf(if (on) Color.parseColor(color) else offFill)
-            button.imageTintList = ColorStateList.valueOf(if (on) Color.WHITE else offIcon)
+            val color = ContextCompat.getColor(this, colorRes)
+            button.backgroundTintList = ColorStateList.valueOf(if (on) color else offFill)
+            button.imageTintList = ColorStateList.valueOf(if (on) Color.WHITE else color)
         }
-        style(fuelToggleButton, showFuelPins, FUEL_COLOR)
-        style(evToggleButton, showEvPins, EV_COLOR)
+        style(fuelToggleButton, showFuelPins, R.color.sig_petrol)
+        style(evToggleButton, showEvPins, R.color.sig_ev)
     }
 
     /** Draws the current station list - only during an active drive, and
@@ -2569,8 +2618,10 @@ class MainActivity : AppCompatActivity() {
         val limit = cam.maxspeed?.filter { it.isDigit() }?.toIntOrNull()
         val kmh = if (location.hasSpeed()) (location.speed * 3.6).toInt() else 0
         val distance = Units.short(nearestD.coerceAtLeast(10.0))
-        cameraAlertTitle.text = if (limit != null && kmh > limit) "Slow down - speed camera" else "Speed camera ahead"
-        cameraAlertSub.text = if (limit != null) "$distance  -  limit ${Units.speed(limit.toDouble())} ${Units.speedUnit}" else distance
+        cameraAlertTitle.text = getString(if (limit != null && kmh > limit) R.string.camera_slow_down else R.string.camera_ahead)
+        cameraAlertSub.text = if (limit != null) getString(R.string.camera_limit, Units.speed(limit.toDouble()).toString()) else ""
+        cameraAlertSub.visibility = if (limit != null) View.VISIBLE else View.GONE
+        cameraAlertDistance.text = distance
         Motion.reveal(cameraAlert, pivotFraction = 0f)
     }
 
@@ -4048,6 +4099,9 @@ class MainActivity : AppCompatActivity() {
 
         turnIcon.setImageResource(NavFormat.iconForManeuver(state.maneuverType, state.modifier))
         turnIcon.rotation = 0f
+        val ref = if (state.offRoute) null else state.roadRef
+        turnRefTag.text = ref.orEmpty()
+        turnRefTag.visibility = if (ref == null) View.GONE else View.VISIBLE
 
         if (nextTurnsSheet.visibility == View.VISIBLE) {
             if (state.currentStepIndex != nextTurnsRenderedIndex) {
@@ -4063,6 +4117,13 @@ class MainActivity : AppCompatActivity() {
         if (nextType != null && state.distanceToNextTurnMeters <= 400 && !state.isArrival) {
             nextTurnIcon.setImageResource(NavFormat.iconForManeuver(nextType, state.nextModifier))
             nextTurnIcon.rotation = 0f
+            nextTurnStreet.text = state.nextRoadName ?: state.nextInstruction.orEmpty()
+            nextTurnDistance.text =
+                if (state.distanceBetweenTurnsMeters > 0) {
+                    getString(R.string.in_distance, NavFormat.formatTurnDistance(state.distanceBetweenTurnsMeters))
+                } else {
+                    ""
+                }
             nextTurnStrip.visibility = View.VISIBLE
         } else {
             nextTurnStrip.visibility = View.GONE
@@ -4196,15 +4257,10 @@ class MainActivity : AppCompatActivity() {
         val size = (34 * density).toInt()
         val margin = (4 * density).toInt()
         val iconPadding = (7 * density).toInt()
-        val validColor = ContextCompat.getColor(this, R.color.navos_blue)
-        // Valid lane: blue pill with a dark arrow in both themes.
-        val validTint = ContextCompat.getColor(this, R.color.navos_navy)
-        // Other lanes: the theme's text colour, faded, so they read on
-        // both the light and the dark card.
-        val textColor = ContextCompat.getColor(this, R.color.navos_text)
-        val dimBackground = ColorStateList.valueOf(ColorUtils.setAlphaComponent(textColor, 0x1F))
-        val dimTint = ColorUtils.setAlphaComponent(textColor, 0x66)
-
+        // White arrows on the dark lane strip under the turn sign; lanes
+        // that don't keep you on the route are faded.
+        val validTint = Color.WHITE
+        val dimTint = ColorUtils.setAlphaComponent(Color.WHITE, 0x61)
         lanes.forEach { lane ->
             val indication = lane.indications.firstOrNull() ?: "straight"
             val icon =
@@ -4214,8 +4270,6 @@ class MainActivity : AppCompatActivity() {
                             marginStart = margin
                             marginEnd = margin
                         }
-                    setBackgroundResource(R.drawable.bg_lane_pill)
-                    backgroundTintList = if (lane.valid) ColorStateList.valueOf(validColor) else dimBackground
                     setImageResource(R.drawable.ic_turn_straight)
                     setColorFilter(if (lane.valid) validTint else dimTint)
                     setPadding(iconPadding, iconPadding, iconPadding, iconPadding)

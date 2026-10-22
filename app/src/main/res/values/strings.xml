@@ -41,4 +41,23 @@
     <string name="route_hint_arrive">Arrive %s · typical time, no live traffic</string>
     <string name="route_hint_stops">%1$s · one route through every stop</string>
     <string name="route_card_description">%1$s, %2$s, %3$s</string>
+
+    <!-- Driving -->
+    <string name="next_turns">Next turns</string>
+    <string name="then">Then</string>
+    <string name="in_distance">in %s</string>
+    <string name="recenter">Re-center</string>
+    <string name="mute_voice">Mute voice guidance</string>
+    <string name="unmute_voice">Turn voice guidance on</string>
+    <string name="show_petrol">Show or hide petrol stations</string>
+    <string name="show_ev">Show or hide EV charging</string>
+    <string name="search_along_the_way">Search along the way</string>
+    <string name="end_navigation">End navigation</string>
+    <string name="end_trip">End trip</string>
+    <string name="share_eta">Share ETA</string>
+    <string name="camera_ahead">Speed camera ahead</string>
+    <string name="camera_slow_down">Slow down - speed camera</string>
+    <string name="camera_limit">Limit %s · stay at or under</string>
+    <string name="your_speed">Your speed %1$s %2$s</string>
+    <string name="speed_limit">Speed limit %s</string>
 </resources>
