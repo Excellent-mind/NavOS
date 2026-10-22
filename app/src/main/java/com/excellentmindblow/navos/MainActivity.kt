@@ -24,6 +24,7 @@ import android.location.LocationManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Message
 import android.os.SystemClock
 import android.provider.Settings
 import android.text.Editable
@@ -610,7 +611,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-    private val mainHandler = Handler(Looper.getMainLooper())
+    // Background work (routing, search, POI and speed-limit lookups) reports
+    // back through this handler. If the screen was destroyed in the meantime
+    // (a configuration change, or the app closing) the result is for a screen
+    // that no longer exists and its executors are shut down - acting on it
+    // crashed with RejectedExecutionException. Drop such late results.
+    private val mainHandler =
+        object : Handler(Looper.getMainLooper()) {
+            override fun dispatchMessage(msg: Message) {
+                if (!isDestroyed) super.dispatchMessage(msg)
+            }
+        }
     private val searchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     // Place search gets its own thread so a burst of as-you-type lookups
@@ -5200,7 +5211,7 @@ class MainActivity : AppCompatActivity() {
         placeSearchExecutor.shutdownNow()
         poiExecutor.shutdownNow()
         speedExecutor.shutdownNow()
-        liveSearchRunnable?.let { mainHandler.removeCallbacks(it) }
+        mainHandler.removeCallbacksAndMessages(null)
         unbindNavigationService()
         super.onDestroy()
     }

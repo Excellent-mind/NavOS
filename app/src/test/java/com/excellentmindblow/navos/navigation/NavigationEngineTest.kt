@@ -95,6 +95,46 @@ class NavigationEngineTest {
     }
 
     @Test
+    fun aGpsGapPastTheTurnStillMovesOnToTheNextStep() {
+        // The last fix before the turn is 100 m short of it, the next one is
+        // already 300 m down the new road (a tunnel, or the GPS losing its
+        // fix): neither came within 25 m of the turn point, but the turn
+        // is clearly behind the driver now.
+        engine.onLocation(beforeCorner(100.0))
+        val pastTheTurn = RoutePoint(corner.latitude, corner.longitude + 300.0 / (metersPerDegree * cos(3.16 * PI / 180)))
+        engine.onLocation(pastTheTurn)
+        val s = states.last()
+
+        assertEquals(2, s.currentStepIndex)
+        assertEquals(eastLeg - 300.0, s.distanceToNextTurnMeters, 2.0)
+        assertEquals(eastLeg - 300.0, s.distanceRemainingMeters, 2.0)
+    }
+
+    @Test
+    fun anOutAndBackRouteDoesNotSkipAheadToTheReturnLeg() {
+        // North to the corner, U-turn, back down the same road. Half way up,
+        // the driver is also "on" the return leg's line, but the U-turn is
+        // still ahead.
+        val outAndBack =
+            Route(
+                geometry = listOf(start, corner, start),
+                distanceMeters = 2 * northLeg,
+                durationSeconds = 120.0,
+                steps =
+                    listOf(
+                        RouteStep("Head north", northLeg, 60.0, "depart", null, "", start),
+                        RouteStep("Make a U-turn", northLeg, 60.0, "turn", "uturn", "", corner),
+                        RouteStep("Arrive", 0.0, 0.0, "arrive", null, "", start),
+                    ),
+            )
+        engine.setRoute(outAndBack)
+        engine.onLocation(beforeCorner(northLeg / 2))
+
+        assertEquals(1, states.last().currentStepIndex)
+        assertEquals(northLeg / 2, states.last().distanceToNextTurnMeters, 1.0)
+    }
+
+    @Test
     fun stepIndexNeverGoesBackwards() {
         engine.onLocation(beforeCorner(10.0))
         engine.onLocation(beforeCorner(300.0))

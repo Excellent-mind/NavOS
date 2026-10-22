@@ -66,6 +66,18 @@ class NavigationEngine(
         // Segments of slack either side of the current leg when matching the
         // GPS fix to the route line on a multi-stop trip.
         private const val LEG_MATCH_MARGIN_SEGMENTS = 4
+
+        // Passing a maneuver without a fix inside ADVANCE_STEP_METERS of it (a
+        // GPS gap: tunnel, lost fix, a fast car on a slow GPS) still counts once
+        // the driver is on the line and this far past it along the route.
+        // Without this the engine stayed on the old turn for the rest of the
+        // drive, with its countdown growing.
+        private const val PASSED_STEP_MARGIN_METERS = 15.0
+
+        // How far ahead of the last maneuver the fix is matched to the line,
+        // so a later stretch that reuses the same road (out and back to a
+        // stop) can't be mistaken for where the driver is now.
+        private const val PROGRESS_SEARCH_SEGMENTS = 150
         private const val OFF_ROUTE_METERS = 28.0 // was 40: notice a wrong turn sooner
 
         // Faster check for taking another road: slightly off the line AND
@@ -102,10 +114,62 @@ class NavigationEngine(
     private var stepIndex = 1
     private var stopsByStep: Map<Int, RouteStop> = emptyMap()
 
+    // Where each maneuver sits on the route line: its segment and its
+    // distance from the start. Null when the line is too short to match.
+    private var track: RouteTrack? = null
+    private var stepSegments = IntArray(0)
+    private var stepProgress = DoubleArray(0)
+
     fun setRoute(newRoute: Route?) {
         route = newRoute
         stepIndex = 1
         stopsByStep = newRoute?.stops?.filter { it.stepIndex >= 0 }?.associateBy { it.stepIndex } ?: emptyMap()
+        placeStepsOnLine(newRoute)
+    }
+
+    /** Matches every maneuver to the route line in driving order (each search
+     * starts where the previous maneuver matched, so a route that passes the
+     * same spot twice keeps its maneuvers in sequence). */
+    private fun placeStepsOnLine(newRoute: Route?) {
+        val line = newRoute?.geometry
+        if (newRoute == null || line == null || line.size < 2) {
+            track = null
+            stepSegments = IntArray(0)
+            stepProgress = DoubleArray(0)
+            return
+        }
+        val routeTrack = RouteTrack(line)
+        val segments = IntArray(newRoute.steps.size)
+        val progress = DoubleArray(newRoute.steps.size)
+        var from = 0
+        for ((i, step) in newRoute.steps.withIndex()) {
+            val snap = GeoUtils.snapToPolyline(step.point, line, from)
+            if (snap == null) {
+                segments[i] = from
+                progress[i] = if (i == 0) 0.0 else progress[i - 1]
+            } else {
+                segments[i] = snap.segmentIndex
+                progress[i] = routeTrack.progressOf(snap)
+                from = snap.segmentIndex
+            }
+        }
+        track = routeTrack
+        stepSegments = segments
+        stepProgress = progress
+    }
+
+    /** Distance along the route of [location], matched on the stretch from the
+     * last maneuver passed onward. Null when off the line or no track. */
+    private fun progressAlongRoute(
+        location: RoutePoint,
+        line: List<RoutePoint>,
+        idx: Int,
+    ): Double? {
+        val routeTrack = track ?: return null
+        val from = stepSegments.getOrNull(idx - 1) ?: 0
+        val snap = GeoUtils.snapToPolyline(location, line, from, PROGRESS_SEARCH_SEGMENTS) ?: return null
+        if (snap.distanceMeters > OFF_ROUTE_METERS) return null
+        return routeTrack.progressOf(snap)
     }
 
     /** Distance (m) and time (s) left of the road leading to the step at
@@ -180,6 +244,16 @@ class NavigationEngine(
             stopsByStep[idx]?.let { reachedStops.add(it) }
             idx += 1
             distToTurn = GeoUtils.distanceMeters(location, steps[idx].point)
+        }
+        // Then anything the driver is already past along the line, even if no
+        // fix came close to it.
+        val progress = progressAlongRoute(location, currentRoute.geometry, idx)
+        if (progress != null) {
+            while (idx < steps.size - 1 && idx < stepProgress.size && stepProgress[idx] < progress - PASSED_STEP_MARGIN_METERS) {
+                stopsByStep[idx]?.let { reachedStops.add(it) }
+                idx += 1
+                distToTurn = GeoUtils.distanceMeters(location, steps[idx].point)
+            }
         }
         stepIndex = idx
 
