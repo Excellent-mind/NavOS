@@ -73,16 +73,17 @@ import com.google.android.material.chip.ChipGroup
 import com.excellentmindblow.navos.location.DriveFollower
 import com.excellentmindblow.navos.location.LiveLocationTracker
 import com.excellentmindblow.navos.location.PuckIcon
+import com.excellentmindblow.navos.navigation.CameraZone
 import com.excellentmindblow.navos.navigation.GeoUtils
 import com.excellentmindblow.navos.navigation.RouteTrack
 import com.excellentmindblow.navos.navigation.NavigationService
 import com.excellentmindblow.navos.navigation.NavigationState
+import com.excellentmindblow.navos.navigation.SpeedLimitTracker
 import com.excellentmindblow.navos.poi.Poi
 import com.excellentmindblow.navos.poi.PoiCache
 import com.excellentmindblow.navos.poi.PoiKind
 import com.excellentmindblow.navos.poi.PoiService
 import com.excellentmindblow.navos.routing.LaneInfo
-import com.excellentmindblow.navos.routing.RoadLimit
 import com.excellentmindblow.navos.routing.RoadPoi
 import com.excellentmindblow.navos.routing.RoadPoiService
 import com.excellentmindblow.navos.routing.Route
@@ -91,7 +92,6 @@ import com.excellentmindblow.navos.routing.RoutePrefs
 import com.excellentmindblow.navos.routing.RouteStep
 import com.excellentmindblow.navos.routing.RouteStop
 import com.excellentmindblow.navos.routing.RoutingService
-import com.excellentmindblow.navos.routing.SpeedLimitService
 import com.excellentmindblow.navos.routing.TripPlanner
 import com.excellentmindblow.navos.search.GeocodeResult
 import com.excellentmindblow.navos.search.GeocodingService
@@ -183,7 +183,6 @@ private const val ROUTE_POI_LAYER_ID = "navos-route-poi-layer"
 private const val CAMERA_ZONE_SOURCE_ID = "navos-camera-zone-source"
 private const val CAMERA_ZONE_FILL_ID = "navos-camera-zone-fill"
 private const val CAMERA_ZONE_LINE_ID = "navos-camera-zone-line"
-private const val ZONE_RADIUS_M = 200.0 // speed-camera alert zone
 private const val AREA_FETCH_MIN_MOVE_M = 2500.0 // idle map: refetch after the view moves this far
 private const val POI_ICON_TOLL = "navos-poi-toll"
 private const val POI_ICON_CAMERA = "navos-poi-camera"
@@ -248,16 +247,6 @@ private const val POI_REFETCH_DISTANCE_M = 2000f
 /** ...but never more often than this - Overpass is a free shared server,
  * and a failed lookup also waits this long before retrying. */
 private const val POI_MIN_REFETCH_MS = 60_000L
-
-/** Posted speed limits: download the roads around the driver again once they
- * have moved this far from the last download (the download covers 1.5 km)... */
-private const val SPEED_REFETCH_DISTANCE_M = 700f
-
-/** ...but never more often than this, and a failed download waits this long too. */
-private const val SPEED_MIN_REFETCH_MS = 20_000L
-
-/** Speeding alert tolerance, so GPS noise doesn't flash the badge red. */
-private const val SPEEDING_MARGIN_KMH = 3.0
 
 /** Where the app currently is in the search -> preview -> drive flow. */
 private enum class NavMode { IDLE, PREVIEW, ACTIVE }
@@ -632,10 +621,13 @@ class MainActivity : AppCompatActivity() {
     // Posted speed limit (OpenStreetMap maxspeed) for the road being driven.
     private val speedExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private lateinit var speedLimitSign: TextView
-    private var speedRoads: List<RoadLimit> = emptyList()
-    private var speedRoadsCenter: Location? = null
-    private var speedFetchInFlight = false
-    private var lastSpeedFetchAtMs = 0L
+    private val speedLimits =
+        SpeedLimitTracker(
+            runInBackground = { speedExecutor.execute(it) },
+            postToMain = { mainHandler.post(it) },
+            clock = SystemClock::elapsedRealtime,
+            stillWanted = { !isDestroyed && navMode == NavMode.ACTIVE },
+        )
     private var lastRerouteFailToastMs = 0L
     private var currentResults: List<GeocodeResult> = emptyList()
 
@@ -1762,8 +1754,9 @@ class MainActivity : AppCompatActivity() {
         location: Location,
         currentKmh: Double,
     ) {
-        maybeFetchSpeedLimits(location)
-        val limit = SpeedLimitService.limitAt(speedRoads, RoutePoint(location.latitude, location.longitude))
+        val here = RoutePoint(location.latitude, location.longitude)
+        if (navMode == NavMode.ACTIVE) speedLimits.onLocation(here)
+        val limit = speedLimits.limitAt(here)
         if (limit == null || !MapDisplayPrefs.speedLimit || navMode != NavMode.ACTIVE || searchOpenedFromNav) {
             speedLimitSign.visibility = View.GONE
             speedBadge.setTextColor(getColor(R.color.navos_text))
@@ -1771,46 +1764,14 @@ class MainActivity : AppCompatActivity() {
         }
         speedLimitSign.text = Units.speed(limit.toDouble()).toString()
         speedLimitSign.visibility = View.VISIBLE
-        val speeding = currentKmh > limit + SPEEDING_MARGIN_KMH
+        val speeding = currentKmh > limit + SpeedLimitTracker.SPEEDING_MARGIN_KMH
         speedBadge.setTextColor(if (speeding) Color.parseColor("#E5484D") else getColor(R.color.navos_text))
-    }
-
-    /** Downloads the limited roads around the driver on the first fix of a drive, then
-     * again every 700 m - at most every 20 s (Overpass is a free shared server). */
-    private fun maybeFetchSpeedLimits(location: Location) {
-        if (navMode != NavMode.ACTIVE || speedFetchInFlight) return
-        val now = SystemClock.elapsedRealtime()
-        if (lastSpeedFetchAtMs != 0L && now - lastSpeedFetchAtMs < SPEED_MIN_REFETCH_MS) return
-        val last = speedRoadsCenter
-        if (last != null && last.distanceTo(location) < SPEED_REFETCH_DISTANCE_M) return
-
-        speedFetchInFlight = true
-        lastSpeedFetchAtMs = now
-        val fetchAt = Location(location)
-        speedExecutor.execute {
-            val roads =
-                try {
-                    SpeedLimitService.fetchAround(fetchAt.latitude, fetchAt.longitude)
-                } catch (e: Exception) {
-                    null
-                }
-            mainHandler.post {
-                speedFetchInFlight = false
-                if (isDestroyed || navMode != NavMode.ACTIVE || roads == null) return@post
-                speedRoads = roads
-                speedRoadsCenter = fetchAt
-            }
-        }
     }
 
     private fun clearSpeedLimit(resetData: Boolean) {
         if (::speedLimitSign.isInitialized) speedLimitSign.visibility = View.GONE
         if (::speedBadge.isInitialized) speedBadge.setTextColor(getColor(R.color.navos_text))
-        if (resetData) {
-            speedRoads = emptyList()
-            speedRoadsCenter = null
-            lastSpeedFetchAtMs = 0L
-        }
+        if (resetData) speedLimits.reset()
     }
 
     // ---- Share ETA --------------------------------------------------------
@@ -2514,8 +2475,8 @@ class MainActivity : AppCompatActivity() {
 
     /** 200 m ring around a camera: the alert zone. */
     private fun zoneFeature(poi: RoadPoi): Feature {
-        val dLat = ZONE_RADIUS_M / 111_320.0
-        val dLon = ZONE_RADIUS_M / (111_320.0 * Math.cos(Math.toRadians(poi.latitude)).coerceAtLeast(0.2))
+        val dLat = CameraZone.RADIUS_M / 111_320.0
+        val dLon = CameraZone.RADIUS_M / (111_320.0 * Math.cos(Math.toRadians(poi.latitude)).coerceAtLeast(0.2))
         val ring = ArrayList<Point>()
         for (i in 0..48) {
             val a = 2.0 * Math.PI * i / 48.0
@@ -2563,7 +2524,7 @@ class MainActivity : AppCompatActivity() {
     private fun showCameraInfo(poi: RoadPoi) {
         val limit = poi.maxspeed?.filter { it.isDigit() }?.toIntOrNull()
         val text =
-            "Speed camera - alert zone ${Units.short(ZONE_RADIUS_M)}" +
+            "Speed camera - alert zone ${Units.short(CameraZone.RADIUS_M)}" +
                 (if (limit != null) ", limit ${Units.speed(limit.toDouble())} ${Units.speedUnit}" else "")
         Toast.makeText(this, text, Toast.LENGTH_LONG).show()
     }
@@ -2586,27 +2547,23 @@ class MainActivity : AppCompatActivity() {
             hideCameraAlert()
             return
         }
-        val here = RoutePoint(location.latitude, location.longitude)
-        var nearest: RoadPoi? = null
-        var nearestD = Double.MAX_VALUE
-        for (cam in cameras) {
-            val camPoint = RoutePoint(cam.latitude, cam.longitude)
-            val d = GeoUtils.distanceMeters(here, camPoint)
-            if (d > ZONE_RADIUS_M) continue
-            val seg = cameraRouteIndex.getOrPut(poiKey(cam)) { GeoUtils.snapToPolyline(camPoint, geometry)?.segmentIndex ?: -1 }
-            if (seg < 0 || seg < snapSegmentIndex - 1) continue // not on this route, or already passed
-            val heading = smoothedBearing
-            if (heading != null && d > 15.0 && GeoUtils.angleDiff(GeoUtils.bearingDegrees(here, camPoint), heading) > 100.0) continue // behind us
-            if (d < nearestD) {
-                nearest = cam
-                nearestD = d
+        val approach =
+            CameraZone.nearestAhead(
+                here = RoutePoint(location.latitude, location.longitude),
+                heading = smoothedBearing,
+                cameras = cameras,
+                passedSegment = snapSegmentIndex,
+            ) { cam ->
+                cameraRouteIndex.getOrPut(poiKey(cam)) {
+                    GeoUtils.snapToPolyline(RoutePoint(cam.latitude, cam.longitude), geometry)?.segmentIndex ?: -1
+                }
             }
-        }
-        val cam = if (MapDisplayPrefs.cameraAlerts) nearest else null
-        if (cam == null) {
+        if (approach == null || !MapDisplayPrefs.cameraAlerts) {
             hideCameraAlert()
             return
         }
+        val cam = approach.camera
+        val nearestD = approach.distanceMeters
         val key = poiKey(cam)
         if (alertedCameraKeys.add(key)) navigationService?.announce("camera-$key", "Speed camera ahead")
         val limit = cam.maxspeed?.filter { it.isDigit() }?.toIntOrNull()
