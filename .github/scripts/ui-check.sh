@@ -122,15 +122,41 @@ tap_id startNavigationButton && sleep 6 && shot 15-driving
 expect shown etaClockText "drive bar shows ETA"
 for lat in 3.1395 3.1400 3.1405; do adb emu geo fix 101.6875 "$lat" >/dev/null 2>&1; sleep 1; done
 shot 16-driving-after-moves
-tap_id navSheetHandle && sleep 1 && shot 17-drive-bar-expanded
 
-# Dark mode.
-adb shell cmd uimode night yes; sleep 4; shot 18-dark-driving
-tap_id navSheetHandle; sleep 1; shot 19-dark-drive-bar
+# Second recording segment for the drive (screenrecord caps at 180 s).
+adb shell pkill -INT screenrecord 2>/dev/null; wait "$REC" 2>/dev/null; sleep 1
+adb pull /sdcard/run.mp4 "$OUT/run-1.mp4" >/dev/null 2>&1
+adb shell screenrecord --time-limit 120 --bit-rate 4000000 /sdcard/run.mp4 &
+REC=$!
+sleep 1
+
+# Drive bar handle: a tap should reveal the Stop pill.
+tap_id navSheetHandle; sleep 0.25; shot 17a-drive-bar-tap-quarter-second
+sleep 1; shot 17b-drive-bar-after-tap
+expect shown stopNavigationButton "tap on drive bar handle reveals Stop"
+if [ -z "$(center stopNavigationButton)" ]; then
+  # Fall back to a swipe up on the handle, the other documented gesture.
+  if c=$(center navSheetHandle) && [ -n "$c" ]; then
+    read -r nx ny <<<"$c"
+    adb shell input swipe "$nx" "$ny" "$nx" $((ny - 200)) 200
+    sleep 1.2; shot 17c-drive-bar-after-swipe-up
+    expect shown stopNavigationButton "swipe up on drive bar handle reveals Stop"
+  fi
+fi
+
+# End the drive, then check dark mode while idle (mid-drive it is
+# deliberately deferred until the drive ends).
+tap_id stopNavigationButton; sleep 3; shot 18-after-stop
+foreground
+adb shell cmd uimode night yes; sleep 6; shot 19-dark-idle
+tap_id homeSearchPill && sleep 1.5 && hide_keyboard && shot 20-dark-search
+tap_id homeSheetBackButton; sleep 1.5
+tap_id homeSettingsButton && sleep 1.5 && shot 21-dark-settings
+adb shell cmd uimode night no
 
 sleep 2
 adb shell pkill -INT screenrecord 2>/dev/null; wait "$REC" 2>/dev/null; sleep 2
-adb pull /sdcard/run.mp4 "$OUT/run.mp4" >/dev/null 2>&1 || log "no recording"
+adb pull /sdcard/run.mp4 "$OUT/run-2.mp4" >/dev/null 2>&1 || log "no recording"
 
 adb logcat -d > "$OUT/logcat.txt"
 # Only NavOS's own crashes count - the emulator image's Google apps crash
