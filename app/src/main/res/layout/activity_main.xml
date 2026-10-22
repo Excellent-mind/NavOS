@@ -340,7 +340,7 @@
                     android:layout_height="match_parent"
                     android:importantForAccessibility="no"
                     android:src="@drawable/ic_logo_rest"
-                    android:tint="@color/navos_text" />
+                    app:tint="@color/navos_text" />
 
                 <ImageView
                     android:id="@+id/recalcNeedle"
@@ -348,7 +348,7 @@
                     android:layout_height="match_parent"
                     android:importantForAccessibility="no"
                     android:src="@drawable/ic_logo_needle"
-                    android:tint="@color/navos_blue" />
+                    app:tint="@color/navos_blue" />
             </FrameLayout>
 
             <TextView
@@ -834,7 +834,7 @@
                     android:contentDescription="Close"
                     android:padding="8dp"
                     android:src="@drawable/ic_close"
-                    android:tint="@color/navos_text" />
+                    app:tint="@color/navos_text" />
 
             </LinearLayout>
 
@@ -1645,7 +1645,7 @@
                     android:contentDescription="Close"
                     android:padding="12dp"
                     android:src="@drawable/ic_close"
-                    android:tint="@color/navos_text" />
+                    app:tint="@color/navos_text" />
 
             </LinearLayout>
 
