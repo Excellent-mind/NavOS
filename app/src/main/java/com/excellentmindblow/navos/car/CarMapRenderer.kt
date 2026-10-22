@@ -185,6 +185,7 @@ class CarMapRenderer(private val carContext: CarContext) : SurfaceCallback {
     private fun loadStyle(m: MapLibreMap) {
         val url = if (carContext.isDarkMode) STYLE_DARK else STYLE_LIGHT
         m.setStyle(Style.Builder().fromUri(url)) { st ->
+            com.excellentmindblow.navos.MapLabels.apply(st)
             style = st
             ContextCompat.getDrawable(carContext, R.drawable.ic_destination_pin)
                 ?.toBitmap()

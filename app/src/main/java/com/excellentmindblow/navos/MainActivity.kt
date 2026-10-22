@@ -2412,6 +2412,7 @@ class MainActivity : AppCompatActivity() {
     ) {
         appliedMapDark = styleUrl == MAP_STYLE_URL_DARK
         loadedMap.setStyle(Style.Builder().fromUri(styleUrl)) { style ->
+            MapLabels.apply(style)
             val sources = MapLayers(this).install(style)
             altRouteSource = sources.altRoute
             routeSource = sources.route
