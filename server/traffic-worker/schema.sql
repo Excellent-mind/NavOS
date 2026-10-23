@@ -32,5 +32,31 @@ CREATE TABLE IF NOT EXISTS meta (
   v TEXT NOT NULL
 );
 
+-- Road reports from drivers (accident, police, flood, hazard).
+CREATE TABLE IF NOT EXISTS reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  lat REAL NOT NULL,
+  lon REAL NOT NULL,
+  h INTEGER NOT NULL,    -- heading of the reporter, -1 = unknown
+  sender TEXT NOT NULL,  -- day-keyed code, as for probes
+  t INTEGER NOT NULL,
+  expires INTEGER NOT NULL,
+  up INTEGER NOT NULL,
+  down INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS reports_live ON reports (expires, lat, lon);
+CREATE INDEX IF NOT EXISTS reports_sender ON reports (sender, t);
+
+-- One "still there" / "not there" per sender per report.
+CREATE TABLE IF NOT EXISTS votes (
+  id INTEGER NOT NULL,
+  sender TEXT NOT NULL,
+  v INTEGER NOT NULL,
+  t INTEGER NOT NULL,
+  PRIMARY KEY (id, sender)
+);
+CREATE INDEX IF NOT EXISTS votes_sender ON votes (sender, t);
+
 -- Upgrading a database made before senders existed:
 --   ALTER TABLE probes ADD COLUMN sender TEXT;

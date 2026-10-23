@@ -43,3 +43,20 @@ leaving in 1-3 hours. It needs weeks of drives before it has much to say.
 - Secret: `IP_SALT` (random, 32+ bytes) - `wrangler secret put IP_SALT`.
 - Schema: `schema.sql`. Databases made before senders existed also need
   `ALTER TABLE probes ADD COLUMN sender TEXT;` (done on the live database).
+
+## Road reports (accident, police, flood, hazard)
+
+Drivers report from the drive screen (`/v1/report`); phones fetch the live
+reports in a box around the route (`/v1/reports`) and ask a driver who just
+passed one "Still there?" (`/v1/vote`). No account, the same day-keyed
+sender codes as above.
+
+- A report lives 1 h (police), 1.5 h (accident), 2 h (hazard) or 6 h
+  (flood); each "still there" from someone else renews that.
+- The same kind reported within 250 m, same direction, by another sender
+  counts as a "still there" instead of a second report.
+- Two more "not there" than "still there" removes it.
+- One vote per sender per report; the reporter can't vote on their own.
+  At most 6 reports and 40 votes per sender per hour.
+- Only places inside Malaysia are accepted. Old reports are deleted by the
+  hourly cron a day after they end.

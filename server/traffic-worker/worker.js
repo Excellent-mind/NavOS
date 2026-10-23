@@ -10,6 +10,14 @@
 //   -> {"t": {"<bucket>": {"<seg>": [kmh, samples]}}} the usual speed of each
 //   piece at that time of the week, learned from past probes. A bucket is
 //   weekend*24 + hour, Malaysia time (hour 0-23; weekend = Sat/Sun).
+// POST /v1/report {"k": "accident|police|flood|hazard", "lat": .., "lon": .., "h": heading}
+//   -> {"id": n} a road report from a driver; the same kind reported again
+//   within REPORT_MERGE_M by someone else confirms the first one instead.
+// POST /v1/reports {"box": [south, west, north, east]}
+//   -> {"r": [[id, kind, lat, lon, heading, ageS, up, down], ...]} live reports.
+// POST /v1/vote   {"id": n, "v": 1 | -1}  "still there" / "not there".
+//   A "still there" keeps it alive for another of its life spans; two more
+//   "not there" than "still there" removes it. One vote per sender per report.
 // GET  /v1/health
 //
 // Against fake jams (the code is public, so anyone can call this):
@@ -35,6 +43,13 @@ const MAX_PIECES = 3000;
 const MAX_BUCKETS = 4;
 const TYPICAL_MIN_SAMPLES = 3;
 const TYPICAL_MAX_WEIGHT = 100; // older weeks fade as new ones come in
+// Road reports: how long each kind lives without a "still there".
+const REPORT_TTL = { accident: 5400, police: 3600, flood: 21600, hazard: 7200 };
+const REPORT_MERGE_M = 250;
+const MAX_REPORTS_PER_HOUR = 6;
+const MAX_VOTES_PER_HOUR = 40;
+const MAX_BOX_DEG = 2.5;
+const MAX_REPORTS_OUT = 300;
 const SEG = /^\d{1,12}-\d{1,12}$/;
 const SESS = /^[A-Za-z0-9]{16,64}$/;
 
@@ -166,6 +181,83 @@ async function learnTypical(env) {
   ]);
 }
 
+const inMalaysia = (lat, lon) => typeof lat === "number" && typeof lon === "number" && lat > 0.5 && lat < 7.6 && lon > 99 && lon < 120;
+
+function metersBetween(lat1, lon1, lat2, lon2) {
+  const k = Math.PI / 180;
+  const x = (lon2 - lon1) * k * Math.cos(((lat1 + lat2) / 2) * k);
+  const y = (lat2 - lat1) * k;
+  return Math.sqrt(x * x + y * y) * 6371000;
+}
+
+/** Headings within 60 degrees: the same side of the road. */
+const sameWay = (a, b) => a < 0 || b < 0 || Math.abs(((a - b + 540) % 360) - 180) <= 60;
+
+async function report(req, env) {
+  const b = await readBody(req);
+  const ttl = REPORT_TTL[b.k];
+  if (!ttl || !inMalaysia(b.lat, b.lon)) return json({ error: "bad request" }, 400);
+  const h = Number.isInteger(b.h) && b.h >= 0 && b.h < 360 ? b.h : -1;
+  const t = now();
+  const sender = await senderOf(req, env);
+  const mine = await env.DB.prepare("SELECT COUNT(*) AS n FROM reports WHERE sender = ? AND t > ?").bind(sender, t - 3600).first();
+  if (mine.n >= MAX_REPORTS_PER_HOUR) return json({ error: "slow down" }, 429);
+
+  // Already reported nearby? Then this is a "still there" for that one.
+  const d = REPORT_MERGE_M / 111000;
+  const near = await env.DB.prepare(
+    "SELECT id, lat, lon, h, sender FROM reports WHERE kind = ? AND expires > ? AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?",
+  ).bind(b.k, t, b.lat - d, b.lat + d, b.lon - d * 1.01, b.lon + d * 1.01).all();
+  const same = near.results.find((r) => metersBetween(r.lat, r.lon, b.lat, b.lon) <= REPORT_MERGE_M && sameWay(r.h, h));
+  if (same) {
+    if (same.sender !== sender) await vote1(env, same.id, sender, 1, t);
+    return json({ id: same.id, merged: true });
+  }
+  const res = await env.DB.prepare(
+    "INSERT INTO reports (kind, lat, lon, h, sender, t, expires, up, down) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0) RETURNING id",
+  ).bind(b.k, Math.round(b.lat * 1e5) / 1e5, Math.round(b.lon * 1e5) / 1e5, h, sender, t, t + ttl).first();
+  return json({ id: res.id });
+}
+
+async function vote1(env, id, sender, v, t) {
+  const r = await env.DB.prepare("SELECT kind, sender, expires, up, down FROM reports WHERE id = ?").bind(id).first();
+  if (!r || r.expires <= t || r.sender === sender) return false;
+  const done = await env.DB.prepare("SELECT 1 FROM votes WHERE id = ? AND sender = ?").bind(id, sender).first();
+  if (done) return false;
+  const up = r.up + (v > 0 ? 1 : 0);
+  const down = r.down + (v < 0 ? 1 : 0);
+  let expires = v > 0 ? Math.max(r.expires, t + REPORT_TTL[r.kind]) : r.expires;
+  if (down - up >= 2) expires = t; // gone
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO votes (id, sender, v, t) VALUES (?, ?, ?, ?)").bind(id, sender, v, t),
+    env.DB.prepare("UPDATE reports SET up = ?, down = ?, expires = ? WHERE id = ?").bind(up, down, expires, id),
+  ]);
+  return true;
+}
+
+async function vote(req, env) {
+  const b = await readBody(req);
+  if (!Number.isInteger(b.id) || (b.v !== 1 && b.v !== -1)) return json({ error: "bad request" }, 400);
+  const t = now();
+  const sender = await senderOf(req, env);
+  const mine = await env.DB.prepare("SELECT COUNT(*) AS n FROM votes WHERE sender = ? AND t > ?").bind(sender, t - 3600).first();
+  if (mine.n >= MAX_VOTES_PER_HOUR) return json({ error: "slow down" }, 429);
+  return json({ ok: await vote1(env, b.id, sender, b.v, t) });
+}
+
+async function reports(req, env) {
+  const b = await readBody(req);
+  const box = b.box;
+  if (!Array.isArray(box) || box.length !== 4 || !box.every((x) => typeof x === "number")) return json({ error: "bad request" }, 400);
+  const [s, w, n, e] = box;
+  if (!(n > s && e > w && n - s <= MAX_BOX_DEG && e - w <= MAX_BOX_DEG)) return json({ error: "bad request" }, 400);
+  const t = now();
+  const res = await env.DB.prepare(
+    `SELECT id, kind, lat, lon, h, t, up, down FROM reports WHERE expires > ? AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ? ORDER BY t DESC LIMIT ${MAX_REPORTS_OUT}`,
+  ).bind(t, s, n, w, e).all();
+  return json({ r: res.results.map((x) => [x.id, x.kind, x.lat, x.lon, x.h, t - x.t, x.up, x.down]) });
+}
+
 export default {
   async fetch(req, env) {
     const path = new URL(req.url).pathname;
@@ -173,6 +265,9 @@ export default {
       if (req.method === "POST" && path === "/v1/probe") return await probe(req, env);
       if (req.method === "POST" && path === "/v1/flow") return await flow(req, env);
       if (req.method === "POST" && path === "/v1/typical") return await typical(req, env);
+      if (req.method === "POST" && path === "/v1/report") return await report(req, env);
+      if (req.method === "POST" && path === "/v1/reports") return await reports(req, env);
+      if (req.method === "POST" && path === "/v1/vote") return await vote(req, env);
       if (req.method === "GET" && path === "/v1/health") return json({ ok: true });
     } catch (e) {
       return json({ error: "bad request" }, 400);
@@ -184,6 +279,8 @@ export default {
     await env.DB.batch([
       env.DB.prepare("DELETE FROM probes WHERE t < ?").bind(now() - KEEP_S),
       env.DB.prepare("DELETE FROM quota WHERE w < ?").bind(Math.floor((now() - KEEP_S) / WINDOW_S)),
+      env.DB.prepare("DELETE FROM votes WHERE id IN (SELECT id FROM reports WHERE expires < ?)").bind(now() - KEEP_S),
+      env.DB.prepare("DELETE FROM reports WHERE expires < ?").bind(now() - KEEP_S),
     ]);
   },
 };
