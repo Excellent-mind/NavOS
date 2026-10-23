@@ -7,20 +7,26 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
-/** Whether this phone shares anonymous speeds (asked once, changeable in Settings). */
+/** Whether this phone shares anonymous speeds: on by default like Google Maps
+ * and Waze, can be switched off in Settings. */
 object TrafficPrefs {
     const val PREFS_NAME = "navos_prefs"
     const val KEY_SHARE = "traffic_share"
-    const val KEY_ASKED = "traffic_asked"
+    const val KEY_NOTICE_SHOWN = "traffic_notice_shown"
 
-    fun sharing(prefs: SharedPreferences): Boolean = prefs.getBoolean(KEY_SHARE, false)
-
-    fun asked(prefs: SharedPreferences): Boolean = prefs.getBoolean(KEY_ASKED, false)
+    fun sharing(prefs: SharedPreferences): Boolean = prefs.getBoolean(KEY_SHARE, true)
 
     fun set(
         prefs: SharedPreferences,
         share: Boolean,
-    ) = prefs.edit().putBoolean(KEY_SHARE, share).putBoolean(KEY_ASKED, true).apply()
+    ) = prefs.edit().putBoolean(KEY_SHARE, share).apply()
+
+    /** True the first time only: the drive screen then says live traffic is on. */
+    fun takeFirstNotice(prefs: SharedPreferences): Boolean {
+        if (prefs.getBoolean(KEY_NOTICE_SHOWN, false)) return false
+        prefs.edit().putBoolean(KEY_NOTICE_SHOWN, true).apply()
+        return true
+    }
 }
 
 /**

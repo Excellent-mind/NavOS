@@ -48,17 +48,6 @@ center() {
   echo "$out"
 }
 
-# The "share anonymous traffic speeds" question on the first drive: answer yes.
-answer_traffic_question() {
-  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
-  local c; c=$(adb shell cat /sdcard/ui.xml 2>/dev/null | tr '>' '\n' |
-    grep 'resource-id="android:id/button1"' | head -1 |
-    sed -E 's/.*bounds="\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]".*/\1 \2 \3 \4/' |
-    awk 'NF==4 {printf "%d %d", ($1+$3)/2, ($2+$4)/2}')
-  if [ -n "$c" ]; then log "PASS traffic sharing question shown"; adb shell input tap $c; sleep 1
-  else log "FAIL traffic sharing question not shown"; fi
-}
-
 # PASS/FAIL line for a view that should (or should not) be on screen.
 expect() {
   local want=$1 id=$2 what=$3 c
@@ -172,8 +161,8 @@ expect shown poiGoButton "long-press on the map shows the dropped-pin card"
 # Route preview, then start driving.
 tap_id poiGoButton && sleep 12 && shot 14-route-preview
 expect shown startNavigationButton "route preview with Go now"
-tap_id startNavigationButton && sleep 4 && shot 15a-traffic-question
-answer_traffic_question; sleep 2; shot 15-driving
+tap_id startNavigationButton && sleep 1.5 && shot 15a-traffic-notice
+sleep 4.5; shot 15-driving
 expect shown etaClockText "drive bar shows ETA"
 # Small, realistic steps (~20 m every 1.5 s): never near the end of a short route.
 for lat in 3.1392 3.1394 3.1396; do adb emu geo fix 101.6870 "$lat" >/dev/null 2>&1; sleep 1.5; done

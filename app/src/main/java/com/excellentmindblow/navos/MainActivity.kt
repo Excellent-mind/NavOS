@@ -1229,17 +1229,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** First drive only: ask whether to share anonymous speeds (Settings can change it later). */
-    private fun askTrafficSharingOnce() {
+    /** First drive only: a short note that live traffic is on (no question, nothing to tap). */
+    private fun showTrafficNoticeOnce() {
         val prefs = getSharedPreferences(TrafficPrefs.PREFS_NAME, MODE_PRIVATE)
-        if (TrafficPrefs.asked(prefs)) return
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.traffic_share_title)
-            .setMessage(R.string.traffic_share_body)
-            .setPositiveButton(R.string.traffic_share_yes) { _, _ -> TrafficPrefs.set(prefs, true) }
-            .setNegativeButton(R.string.traffic_share_no) { _, _ -> TrafficPrefs.set(prefs, false) }
-            .setCancelable(false)
-            .show()
+        if (!TrafficPrefs.sharing(prefs) || !TrafficPrefs.takeFirstNotice(prefs)) return
+        Toast.makeText(this, R.string.traffic_notice, Toast.LENGTH_LONG).show()
     }
 
     private fun showAbout() {
@@ -3732,7 +3726,7 @@ class MainActivity : AppCompatActivity() {
         signOverlay.setNight(appliedMapDark == true)
         updateRouteSigns(route)
         trafficLayer.start(route)
-        askTrafficSharingOnce()
+        showTrafficNoticeOnce()
         bottomNavBar.visibility = View.VISIBLE
         speedBadge.visibility = if (MapDisplayPrefs.speedometer) View.VISIBLE else View.GONE
         poiToggleColumn.visibility = View.VISIBLE
