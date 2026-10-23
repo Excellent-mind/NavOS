@@ -4,7 +4,8 @@ import com.excellentmindblow.navos.Lang
 import com.excellentmindblow.navos.Units
 
 /**
- * Every turn instruction and spoken sentence, in English and Bahasa Melayu.
+ * Every turn instruction and spoken sentence, in English and everyday
+ * Malaysian Malay (the way people talk on the road, not formal Bahasa Baku).
  * Pure (the language is a parameter, defaulting to [Lang]), so it is unit tested.
  */
 object Phrases {
@@ -24,10 +25,10 @@ object Phrases {
         ms: Boolean = Lang.malay,
     ): String {
         val then = instruction.replaceFirstChar { it.lowercase() }
-        return if (ms) "Dalam ${spokenDistance(meters, true)}, $then" else "In ${spokenDistance(meters, false)}, $then"
+        return if (ms) "Lagi ${spokenDistance(meters, true)}, $then" else "In ${spokenDistance(meters, false)}, $then"
     }
 
-    fun arrived(ms: Boolean = Lang.malay): String = if (ms) "Anda telah tiba di destinasi" else "You have arrived at your destination"
+    fun arrived(ms: Boolean = Lang.malay): String = if (ms) "Dah sampai destinasi" else "You have arrived at your destination"
 
     fun stopName(
         number: Int,
@@ -40,7 +41,7 @@ object Phrases {
         ms: Boolean = Lang.malay,
     ): String =
         if (ms) {
-            "Anda telah tiba di $label. " + if (moreStops) "Teruskan ke hentian seterusnya." else "Teruskan ke destinasi anda."
+            "Dah sampai $label. " + if (moreStops) "Sekarang gerak ke hentian seterusnya." else "Sekarang gerak ke destinasi."
         } else {
             "You have arrived at $label. " + if (moreStops) "Continuing to your next stop." else "Continuing to your destination."
         }
@@ -89,22 +90,22 @@ object Phrases {
         exit: Int,
     ): String {
         val onto = if (roadName.isBlank()) "" else " ke $roadName"
-        val turn = (modifier?.let { MS_TURN[it] } ?: "teruskan").replaceFirstChar { it.uppercase() }
+        val turn = (modifier?.let { MS_TURN[it] } ?: "terus").replaceFirstChar { it.uppercase() }
         return when (type) {
-            "depart" -> "Mulakan perjalanan$onto"
-            "arrive" -> "Tiba di destinasi anda"
-            "roundabout", "rotary" -> if (exit > 0) "Di bulatan, ambil jalan keluar ${ordinal(exit)}$onto" else "Masuk ke bulatan"
-            "merge" -> "Bergabung$onto".let { if (roadName.isBlank()) "Bergabung ke jalan utama" else it }
-            "on ramp" -> "Ambil susur masuk$onto"
-            "off ramp" -> "Ambil susur keluar$onto"
+            "depart" -> if (roadName.isBlank()) "Jom gerak" else "Gerak$onto"
+            "arrive" -> "Sampai destinasi"
+            "roundabout", "rotary" -> if (exit > 0) "Masuk bulatan, keluar yang ${ordinal(exit)}$onto" else "Masuk bulatan"
+            "merge" -> if (roadName.isBlank()) "Masuk jalan utama" else "Masuk$onto"
+            "on ramp" -> if (roadName.isBlank()) "Masuk highway" else "Masuk$onto"
+            "off ramp" -> if (roadName.isBlank()) "Keluar sini" else "Keluar$onto"
             "fork" ->
                 when (side(modifier)) {
-                    "left" -> "Ikut kiri di simpang$onto"
-                    "right" -> "Ikut kanan di simpang$onto"
-                    else -> "Terus di simpang$onto"
+                    "left" -> "Ikut kiri$onto"
+                    "right" -> "Ikut kanan$onto"
+                    else -> "Jalan terus$onto"
                 }
-            "new name" -> "Teruskan$onto"
-            "continue" -> if (modifier == null || modifier == "straight") "Teruskan$onto" else "$turn$onto"
+            "new name" -> "Terus$onto"
+            "continue" -> if (modifier == null || modifier == "straight") "Terus$onto" else "$turn$onto"
             else -> "$turn$onto"
         }
     }
@@ -117,7 +118,7 @@ object Phrases {
             else -> null
         }
 
-    /** "pertama", "kedua", ... as said on Malaysian roads. */
+    /** "pertama", "kedua", ... */
     fun ordinal(n: Int): String =
         when (n) {
             1 -> "pertama"
@@ -145,13 +146,13 @@ object Phrases {
 
     private val MS_TURN =
         mapOf(
-            "uturn" to "buat pusingan U",
-            "sharp right" to "belok tajam ke kanan",
-            "sharp left" to "belok tajam ke kiri",
+            "uturn" to "buat U-turn",
+            "sharp right" to "belok kanan tajam",
+            "sharp left" to "belok kiri tajam",
             "right" to "belok kanan",
             "left" to "belok kiri",
             "slight right" to "ikut kanan",
             "slight left" to "ikut kiri",
-            "straight" to "terus",
+            "straight" to "jalan terus",
         )
 }

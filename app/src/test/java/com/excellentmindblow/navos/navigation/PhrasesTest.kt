@@ -16,16 +16,18 @@ class PhrasesTest {
     fun malayTurns() {
         assertEquals("Belok kiri ke Jalan Ampang", Phrases.instruction("turn", "left", "Jalan Ampang", 0, ms = true))
         assertEquals("Belok kanan", Phrases.instruction("turn", "right", "", 0, ms = true))
-        assertEquals("Buat pusingan U ke Jalan Tun Razak", Phrases.instruction("continue", "uturn", "Jalan Tun Razak", 0, ms = true))
-        assertEquals("Ikut kanan di simpang ke E2", Phrases.instruction("fork", "slight right", "E2", 0, ms = true))
-        assertEquals("Ambil susur keluar ke Jalan Duta", Phrases.instruction("off ramp", "slight left", "Jalan Duta", 0, ms = true))
-        assertEquals("Di bulatan, ambil jalan keluar ketiga ke Persiaran Perdana", Phrases.instruction("roundabout", null, "Persiaran Perdana", 3, ms = true))
-        assertEquals("Tiba di destinasi anda", Phrases.instruction("arrive", null, "", 0, ms = true))
+        assertEquals("Buat U-turn ke Jalan Tun Razak", Phrases.instruction("continue", "uturn", "Jalan Tun Razak", 0, ms = true))
+        assertEquals("Ikut kanan ke E2", Phrases.instruction("fork", "slight right", "E2", 0, ms = true))
+        assertEquals("Keluar ke Jalan Duta", Phrases.instruction("off ramp", "slight left", "Jalan Duta", 0, ms = true))
+        assertEquals("Masuk bulatan, keluar yang ketiga ke Persiaran Perdana", Phrases.instruction("roundabout", null, "Persiaran Perdana", 3, ms = true))
+        assertEquals("Gerak ke Jalan Ampang", Phrases.instruction("depart", null, "Jalan Ampang", 0, ms = true))
+        assertEquals("Sampai destinasi", Phrases.instruction("arrive", null, "", 0, ms = true))
     }
 
     @Test
     fun malaySpoken() {
-        assertEquals("Dalam 500 meter, belok kiri ke Jalan Ampang", Phrases.inDistance(498.0, "Belok kiri ke Jalan Ampang", ms = true))
-        assertEquals("Anda telah tiba di hentian 2. Teruskan ke hentian seterusnya.", Phrases.stopReached(Phrases.stopName(2, ms = true), true, ms = true))
+        assertEquals("Lagi 500 meter, belok kiri ke Jalan Ampang", Phrases.inDistance(498.0, "Belok kiri ke Jalan Ampang", ms = true))
+        assertEquals("Dah sampai hentian 2. Sekarang gerak ke hentian seterusnya.", Phrases.stopReached(Phrases.stopName(2, ms = true), true, ms = true))
+        assertEquals("Dah sampai destinasi", Phrases.arrived(ms = true))
     }
 }
