@@ -124,6 +124,48 @@ object RoutingService {
         return withConnectors(requestRoutes(points, "false", stops), origin, destination)
     }
 
+    /** Heading of the car (degrees) for the request on this thread: routes start forwards. */
+    private val originHeading = ThreadLocal<Double?>()
+
+    /**
+     * Routes from a moving car: the server is told which way it faces, so
+     * the route starts forwards instead of with a needless U-turn (a common
+     * annoyance on Malaysian dual carriageways). Falls back to an ordinary
+     * request when the server can't place the car that way.
+     */
+    @Throws(Exception::class)
+    fun calculateRoutesFacing(
+        origin: RoutePoint,
+        headingDeg: Double?,
+        stops: List<RouteStop>,
+        destination: RoutePoint,
+    ): List<Route> {
+        if (headingDeg != null && !headingDeg.isNaN()) {
+            originHeading.set(headingDeg)
+            try {
+                val routes = calculateRoutes(origin, stops, destination)
+                if (routes.isNotEmpty()) return routes
+            } catch (e: Exception) {
+                // e.g. "NoSegment" when no road fits that heading - ask without it.
+            } finally {
+                originHeading.remove()
+            }
+        }
+        return calculateRoutes(origin, stops, destination)
+    }
+
+    /** OSRM `bearings`: the first point faces [heading] (±[HEADING_RANGE_DEG]), the rest are free. */
+    internal fun bearingsParam(
+        heading: Double?,
+        points: Int,
+    ): String {
+        if (heading == null || points < 2) return ""
+        val h = ((Math.round(heading) % 360) + 360) % 360
+        return "&bearings=$h,$HEADING_RANGE_DEG" + ";".repeat(points - 1)
+    }
+
+    private const val HEADING_RANGE_DEG = 60
+
     /** Thrown when the server rejects the `exclude` option (not every OSRM build supports it). */
     private class ExcludeUnsupported : Exception()
 
@@ -225,7 +267,8 @@ object RoutingService {
                 "$baseUrl$coords" +
                     "?overview=full&geometries=polyline&steps=true&annotations=nodes,speed&alternatives=$alternatives" +
                     (if (exclude != null) "&exclude=$exclude" else "") +
-                    (if (snapAny) "&snapping=any" else ""),
+                    (if (snapAny) "&snapping=any" else "") +
+                    bearingsParam(originHeading.get(), coords.count { it == ';' } + 1),
             )
         val connection = url.openConnection() as HttpURLConnection
         connection.setRequestProperty("User-Agent", USER_AGENT)

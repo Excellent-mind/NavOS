@@ -29,6 +29,8 @@ data class NavigationState(
     // longer matches the route while drifting off it), not just a noisy GPS
     // fix. The service reroutes on the very first such fix.
     val offRouteConfirmed: Boolean = false,
+    /** How far the car is from the route line (m). */
+    val distanceToRouteMeters: Double = 0.0,
     // Multi-stop trips: how many intermediate stops are still ahead, which
     // one is next (null when only the final destination is left) and how far
     // / how long to it. All zero/null on an ordinary A -> B drive.
@@ -307,6 +309,7 @@ class NavigationEngine(
                 nextModifier = nextStep?.modifier,
                 lanes = steps[idx].lanes,
                 offRouteConfirmed = headingMismatch,
+                distanceToRouteMeters = offLineDistance,
                 stopsRemaining = upcomingStops.size,
                 nextStop = nextStop,
                 distanceToNextStopMeters = toNextStop?.first ?: 0.0,

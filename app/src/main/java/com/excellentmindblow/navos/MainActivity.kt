@@ -4595,7 +4595,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onNavigationState(state: NavigationState) {
-        setRecalculating(state.offRoute && !state.isArrival)
+        // Parked / pulling in off the route (petrol, R&R): no "Recalculating" until it drives on.
+        val pulledIn = lastSpeedKmh < 3.0 * 3.6 && state.distanceToRouteMeters < 300.0
+        setRecalculating(state.offRoute && !state.isArrival && !pulledIn)
         lastNavState = state
         val distanceLabel = NavFormat.formatCountdownDistance(state.distanceToNextTurnMeters)
         turnDistanceText.text = if (state.offRoute) "" else distanceLabel

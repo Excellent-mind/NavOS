@@ -113,6 +113,12 @@ class NavigationService : Service() {
 
         /** No faster-route checks once less than this is left (seconds). */
         private const val FASTER_MIN_TRIP_S = 600.0
+
+        /** Below this speed (m/s) off the route, the car is parked / pulling in: no re-plan yet. */
+        private const val REROUTE_MIN_SPEED_MS = 3.0
+
+        /** ...unless it is this far from the route already (m). */
+        private const val REROUTE_ANYWAY_M = 300.0
         private const val ESTIMATE_MAX_OFF_ROUTE_M = 60.0
 
         const val ACTION_STOP = "com.excellentmindblow.navos.action.STOP_NAVIGATION"
@@ -478,6 +484,11 @@ class NavigationService : Service() {
         }
         offRouteStreak += 1
         val now = android.os.SystemClock.elapsedRealtime()
+        // Pulled into petrol / an R&R / a car park: don't re-plan while parked or
+        // crawling - wait until the car is driving again (like Waze).
+        val speed = lastLocation?.takeIf { it.hasSpeed() }?.speed?.toDouble() ?: 0.0
+        val farOff = state.distanceToRouteMeters > REROUTE_ANYWAY_M
+        if (speed < REROUTE_MIN_SPEED_MS && !farOff) return
         if (!isRerouting &&
             // One fix is enough when the heading proves it's a wrong turn.
             offRouteStreak >= (if (state.offRouteConfirmed) 1 else OFF_ROUTE_FIXES_BEFORE_REROUTE) &&
@@ -510,10 +521,11 @@ class NavigationService : Service() {
 
         val executor = rerouteExecutor ?: Executors.newSingleThreadExecutor().also { rerouteExecutor = it }
         val originPoint = RoutePoint(origin.latitude, origin.longitude)
+        val heading = origin.takeIf { it.hasBearing() && it.hasSpeed() && it.speed > 2f }?.bearing?.toDouble()
         executor.execute {
             var routes: List<Route> = emptyList()
             try {
-                routes = RoutingService.calculateRoutes(originPoint, stopsAhead, destination)
+                routes = RoutingService.calculateRoutesFacing(originPoint, heading, stopsAhead, destination)
             } catch (e: Exception) {
                 // Empty list just means "stay off-route, try again after the
                 // cooldown" rather than crash the service.
@@ -561,11 +573,12 @@ class NavigationService : Service() {
         val stopsAhead = remainingStops()
         val rawRemaining = lastRawRemainingS
         val here = RoutePoint(origin.latitude, origin.longitude)
+        val heading = origin.takeIf { it.hasBearing() && it.hasSpeed() && it.speed > 2f }?.bearing?.toDouble()
         val executor = fasterExecutor ?: Executors.newSingleThreadExecutor().also { fasterExecutor = it }
         executor.execute {
             val found =
                 try {
-                    RoutingService.calculateRoutes(here, stopsAhead, destination)
+                    RoutingService.calculateRoutesFacing(here, heading, stopsAhead, destination)
                 } catch (e: Exception) {
                     emptyList()
                 }
