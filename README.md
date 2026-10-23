@@ -35,6 +35,7 @@ MapLibre's native map engine.
 app/src/main/java/com/excellentmindblow/navos/MainActivity.kt   entry point + map screen
 app/src/main/res/                                                layout, strings, launcher icon
 legacy-expo-rn/                                                  archived RN app (reference only, not built)
+tools/osmand-rebrand/                                            "NavOS Maps": the OsmAnd APK rebranded as NavOS
 ```
 
 ## Building — no computer needed

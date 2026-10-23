@@ -1,0 +1,63 @@
+name: NavOS Maps (rebranded OsmAnd)
+
+# Run manually: Actions tab -> "NavOS Maps (rebranded OsmAnd)" -> Run workflow.
+# Rebrands the official F-Droid OsmAnd~ APK as NavOS - see
+# tools/osmand-rebrand/README.md. Signs with the same 4 secrets as
+# "Release APK (signed)" when they're set; otherwise with a throwaway key,
+# which means each run's APK can't update the previous one.
+on:
+  workflow_dispatch:
+    inputs:
+      abi:
+        description: "CPU type (arm64-v8a for nearly every phone since 2017)"
+        type: choice
+        options: [arm64-v8a, armeabi-v7a, x86_64]
+        default: arm64-v8a
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Python packages
+        run: pip install pillow numpy scikit-image
+
+      - name: Decode keystore
+        if: env.HAS_KEY == 'true'
+        run: echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+
+      - name: Rebrand
+        run: |
+          if [ -f "$RUNNER_TEMP/release.jks" ]; then export KEYSTORE_PATH="$RUNNER_TEMP/release.jks"; fi
+          tools/osmand-rebrand/rebrand.sh "${{ inputs.abi }}" "$RUNNER_TEMP/out"
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Publish APK to a release
+        run: |
+          apk="$RUNNER_TEMP/out/NavOS-maps-5.4.10-${{ inputs.abi }}.apk"
+          tag="navos-maps-${{ inputs.abi }}"
+          gh release delete "$tag" --yes || true
+          git tag -f "$tag"
+          git push origin "$tag" --force
+          gh release create "$tag" "$apk" \
+            --title "NavOS Maps (${{ inputs.abi }})" \
+            --notes "NavOS-branded OsmAnd 5.4.10 (GPLv3), built from the F-Droid APK in run ${GITHUB_RUN_ID}. Source: https://github.com/osmandapp/OsmAnd plus tools/osmand-rebrand in this repo." \
+            --latest=false
+        env:
+          GH_TOKEN: ${{ github.token }}
