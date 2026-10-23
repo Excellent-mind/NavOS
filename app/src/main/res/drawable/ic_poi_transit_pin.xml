@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ink map pin with a white train - train station. Same pin shape, size
+     and white rim as the petrol / EV / parking pins. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="38dp"
+    android:height="38dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#0A0A0A"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.2"
+        android:pathData="M12,1.5C7.86,1.5 4.5,4.86 4.5,9c0,5.6 7.5,13.5 7.5,13.5s7.5,-7.9 7.5,-13.5c0,-4.14 -3.36,-7.5 -7.5,-7.5z" />
+    <group
+        android:scaleX="0.42"
+        android:scaleY="0.42"
+        android:translateX="6.96"
+        android:translateY="3.96">
+        <path android:pathData="M8 3.1V7a4 4 0 0 0 8 0V3.1" android:strokeColor="#FFFFFF" android:strokeWidth="2.6" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M9 19c-2.8 0-5-2.2-5-5v-4a8 8 0 0 1 16 0v4c0 2.8-2.2 5-5 5z" android:strokeColor="#FFFFFF" android:strokeWidth="2.6" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M8 19l-2 3M16 19l2 3" android:strokeColor="#FFFFFF" android:strokeWidth="2.6" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    </group>
+</vector>

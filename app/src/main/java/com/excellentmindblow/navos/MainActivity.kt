@@ -214,6 +214,7 @@ private const val POI_ID_PROPERTY = "poiId"
 private const val KEY_SHOW_FUEL = "show_fuel_pins"
 private const val KEY_SHOW_EV = "show_ev_pins"
 private const val KEY_SHOW_PARKING = "show_parking_pins"
+private const val KEY_SHOW_TRANSIT = "show_transit_pins"
 private const val FUEL_COLOR = "#E8710A"
 private const val EV_COLOR = "#12A150"
 
@@ -427,6 +428,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var navPetrolChip: TextView
     private lateinit var navEvChip: TextView
     private lateinit var navParkingChip: TextView
+    private lateinit var navTransitChip: TextView
     private lateinit var poiCard: View
     private lateinit var poiLogo: View
     private lateinit var poiLogoIcon: ImageView
@@ -468,6 +470,11 @@ class MainActivity : AppCompatActivity() {
     /** Car parks near the destination of this drive (see [loadParking]). */
     private var parkingPois: List<Poi> = emptyList()
     private var parkingFor: RoutePoint? = null
+
+    /** Train stations near the destination (see [loadTransit]); off by default. */
+    private var showTransitPins = false
+    private var transitPois: List<Poi> = emptyList()
+    private var transitFor: RoutePoint? = null
 
     /** Set while waiting for the user to pick a destination to save under
      * "home" or "work" - cleared once that pick is saved. */
@@ -631,6 +638,8 @@ class MainActivity : AppCompatActivity() {
                 runCatching { routeOfflineCache.save(route, mapStyleUrl(), newDrive = false) }
                 if (::roadReportsUi.isInitialized) roadReportsUi.start()
                 loadParking(route)
+                loadTransit(route)
+        loadTransit(route)
         loadParking(route)
                 renderedCalloutStep = -1
                 renderTurnCallouts(1)
@@ -954,7 +963,7 @@ class MainActivity : AppCompatActivity() {
     private fun setUpPressFeedback() {
         listOf(
             R.id.searchBackButton, R.id.searchClearButton, R.id.compassButton, R.id.recenterButton,
-            R.id.navPetrolChip, R.id.navEvChip, R.id.navParkingChip, R.id.routeBackButton, R.id.startNavigationButton,
+            R.id.navPetrolChip, R.id.navEvChip, R.id.navParkingChip, R.id.navTransitChip, R.id.routeBackButton, R.id.startNavigationButton,
             R.id.previewAddStopButton, R.id.routeAllRoutes,
             R.id.bottomSearchButton, R.id.bottomAltRouteButton, R.id.stopNavigationButton, R.id.shareEtaButton,
             R.id.poiCloseButton, R.id.poiGoButton, R.id.homeSettingsButton, R.id.homeSheetBackButton,
@@ -2064,6 +2073,7 @@ class MainActivity : AppCompatActivity() {
         navPetrolChip = findViewById(R.id.navPetrolChip)
         navEvChip = findViewById(R.id.navEvChip)
         navParkingChip = findViewById(R.id.navParkingChip)
+        navTransitChip = findViewById(R.id.navTransitChip)
         poiCard = findViewById(R.id.poiCard)
         poiLogo = findViewById(R.id.poiLogo)
         poiLogoIcon = findViewById(R.id.poiLogoIcon)
@@ -2089,11 +2099,13 @@ class MainActivity : AppCompatActivity() {
         showFuelPins = prefs.getBoolean(KEY_SHOW_FUEL, true)
         showEvPins = prefs.getBoolean(KEY_SHOW_EV, true)
         showParkingPins = prefs.getBoolean(KEY_SHOW_PARKING, true)
+        showTransitPins = prefs.getBoolean(KEY_SHOW_TRANSIT, false)
         stylePoiToggles()
 
         navPetrolChip.setOnClickListener { setPoiKindShown(PoiKind.FUEL, !showFuelPins) }
         navEvChip.setOnClickListener { setPoiKindShown(PoiKind.EV, !showEvPins) }
         navParkingChip.setOnClickListener { setPoiKindShown(PoiKind.PARKING, !showParkingPins) }
+        navTransitChip.setOnClickListener { setPoiKindShown(PoiKind.TRANSIT, !showTransitPins) }
 
         findViewById<View>(R.id.poiCloseButton).setOnClickListener { hidePoiCard() }
         findViewById<View>(R.id.poiGoButton).setOnClickListener {
@@ -2107,6 +2119,18 @@ class MainActivity : AppCompatActivity() {
             hidePoiCard()
             if (poi.kind == PoiKind.PARKING) {
                 onDestinationSelected(GeocodeResult(poi.name, poi.latitude, poi.longitude))
+                return@setOnClickListener
+            }
+            if (poi.kind == PoiKind.TRANSIT) {
+                // Park & Ride: drive to the station's car park; else to the station.
+                val park = poi.parkAndRide
+                onDestinationSelected(
+                    if (park != null) {
+                        GeocodeResult(tr("Park & Ride ${poi.name}", "Park & Ride ${poi.name}"), park.latitude, park.longitude)
+                    } else {
+                        GeocodeResult(poi.name, poi.latitude, poi.longitude)
+                    },
+                )
                 return@setOnClickListener
             }
             if (navMode == NavMode.ACTIVE && navigationService != null) {
@@ -2141,6 +2165,7 @@ class MainActivity : AppCompatActivity() {
             PoiKind.FUEL -> showFuelPins
             PoiKind.EV -> showEvPins
             PoiKind.PARKING -> showParkingPins
+            PoiKind.TRANSIT -> showTransitPins
         }
 
     /** The petrol / EV toggles on the drive map and in Map display. */
@@ -2167,6 +2192,14 @@ class MainActivity : AppCompatActivity() {
                 )
                 if (shown) activeRoute?.let { loadParking(it) }
             }
+            PoiKind.TRANSIT -> {
+                showTransitPins = shown
+                prefs.edit().putBoolean(KEY_SHOW_TRANSIT, shown).apply()
+                onPoiTogglesChanged(
+                    if (shown) tr("Train stations near your destination shown", "Stesen tren dekat destinasi ditunjuk") else tr("Train stations hidden", "Stesen tren disorok"),
+                )
+                if (shown) activeRoute?.let { loadTransit(it) }
+            }
         }
     }
 
@@ -2188,6 +2221,30 @@ class MainActivity : AppCompatActivity() {
         style(navPetrolChip, showFuelPins, R.drawable.ic_fuel, R.color.sig_petrol)
         style(navEvChip, showEvPins, R.drawable.ic_ev, R.color.sig_ev)
         style(navParkingChip, showParkingPins, R.drawable.ic_parking, R.color.sig_flood)
+        style(navTransitChip, showTransitPins, R.drawable.ic_train, R.color.sig_text)
+    }
+
+    /** Train stations within [PoiService.TRANSIT_RADIUS_M] of [route]'s destination
+     * (to park & ride, drop someone off, or walk on), looked up once per destination. */
+    private fun loadTransit(route: Route) {
+        if (!showTransitPins) return
+        val dest = route.geometry.lastOrNull() ?: return
+        val last = transitFor
+        if (last != null && GeoUtils.distanceMeters(last, dest) < 100.0) return
+        transitFor = dest
+        transitPois = emptyList()
+        poiExecutor.execute {
+            val found = runCatching { PoiService.fetchTransit(dest.latitude, dest.longitude) }.getOrNull()
+            mainHandler.post {
+                if (isDestroyed || navMode != NavMode.ACTIVE || transitFor != dest) return@post
+                if (found == null) {
+                    transitFor = null
+                    return@post
+                }
+                transitPois = found
+                renderPoiPins()
+            }
+        }
     }
 
     /** Car parks within [PoiService.PARKING_RADIUS_M] of [route]'s destination,
@@ -2276,7 +2333,8 @@ class MainActivity : AppCompatActivity() {
             } else {
                 (
                     nearbyPois.filter { isPoiKindShown(it.kind) && poiSpot(it) != null } +
-                        parkingPois.takeIf { showParkingPins }.orEmpty()
+                        parkingPois.takeIf { showParkingPins }.orEmpty() +
+                        transitPois.takeIf { showTransitPins }.orEmpty()
                 ).map { poi ->
                     Feature.fromGeometry(Point.fromLngLat(poi.longitude, poi.latitude)).also {
                         it.addStringProperty(
@@ -2285,6 +2343,7 @@ class MainActivity : AppCompatActivity() {
                                 PoiKind.FUEL -> FuelBrand.of(poi.name)?.pinIconId ?: FUEL_PIN_ICON_ID
                                 PoiKind.EV -> EV_PIN_ICON_ID
                                 PoiKind.PARKING -> PARKING_PIN_ICON_ID
+                                PoiKind.TRANSIT -> TRANSIT_PIN_ICON_ID
                             },
                         )
                         it.addStringProperty(POI_ID_PROPERTY, poi.id)
@@ -2354,7 +2413,7 @@ class MainActivity : AppCompatActivity() {
                 emptyList()
             }
         val id = hits.firstNotNullOfOrNull { feature -> feature.getStringProperty(POI_ID_PROPERTY) }
-        val poi = id?.let { poiId -> (nearbyPois + parkingPois).firstOrNull { it.id == poiId } }
+        val poi = id?.let { poiId -> (nearbyPois + parkingPois + transitPois).firstOrNull { it.id == poiId } }
         if (poi == null) {
             // A dropped pin is moved by the caller, not closed by an empty tap.
             if (poiCard.visibility == View.VISIBLE && droppedPin == null) {
@@ -2375,10 +2434,15 @@ class MainActivity : AppCompatActivity() {
         }
         resetPoiCardExtras()
         poiLogoIcon.clearColorFilter()
+        poiLogoIcon.imageTintList = null
         poiFootnote.visibility = View.VISIBLE
         selectedPoi = poi
         if (poi.kind == PoiKind.PARKING) {
             showParkingCard(poi)
+            return
+        }
+        if (poi.kind == PoiKind.TRANSIT) {
+            showTransitCard(poi)
             return
         }
         val isFuel = poi.kind == PoiKind.FUEL
@@ -2433,6 +2497,60 @@ class MainActivity : AppCompatActivity() {
         }
         poiChips.visibility = if (poiChips.childCount == 0) View.GONE else View.VISIBLE
 
+        Motion.reveal(poiCard, pivotFraction = 1f)
+    }
+
+    /** A train station near the destination: its lines (in their colours), the
+     * walk, Park & Ride; "Park & ride here" (or "Drive here"). */
+    private fun showTransitCard(poi: Poi) {
+        poiLogo.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.sig_ink))
+        poiLogoIcon.setImageResource(R.drawable.ic_train)
+        poiLogoIcon.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.sig_on_ink)) // ink flips at night
+        poiLogoIcon.contentDescription = null
+        poiName.text = poi.name
+        val label = tr("Train station", "Stesen tren")
+        val dest = transitFor
+        poiMeta.text =
+            if (dest != null) {
+                val m = GeoUtils.distanceMeters(dest, RoutePoint(poi.latitude, poi.longitude))
+                val walk = Math.round(m / 80.0).toInt().coerceAtLeast(1)
+                tr("$label · ${NavFormat.formatDistance(m.toFloat())} from your destination ($walk min walk)", "$label · ${NavFormat.formatDistance(m.toFloat())} dari destinasi ($walk min jalan kaki)")
+            } else {
+                label
+            }
+        // The lines, full names under the badges.
+        val names = poi.lines.map { it.name.substringBefore(":").trim() }.distinct()
+        val park = poi.parkAndRide
+        val parkLine =
+            park?.let {
+                if (it.spaces != null) tr("Park & Ride · ${it.spaces} spaces", "Park & Ride · ${it.spaces} petak") else tr("Park & Ride", "Park & Ride")
+            }
+        val spec = (names + listOfNotNull(parkLine)).joinToString("\n")
+        poiSpec.text = spec
+        poiSpec.visibility = if (spec.isBlank()) View.GONE else View.VISIBLE
+        poiChips.removeAllViews()
+        for (line in poi.lines) {
+            val fill = line.colour ?: ContextCompat.getColor(this, R.color.sig_ink)
+            val ink = if (androidx.core.graphics.ColorUtils.calculateLuminance(fill) > 0.5) Color.BLACK else Color.WHITE
+            poiChips.addView(
+                TextView(this).apply {
+                    text = line.badge
+                    setTextAppearance(R.style.TextAppearance_Signal_Label)
+                    textSize = 14f
+                    setTextColor(ink)
+                    background = ContextCompat.getDrawable(context, R.drawable.bg_sig_chip)?.mutate()
+                    backgroundTintList = ColorStateList.valueOf(fill)
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(14), 0, dp(14), 0)
+                    minHeight = dp(36)
+                    contentDescription = line.name
+                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36))
+                },
+            )
+        }
+        poiChips.visibility = if (poiChips.childCount == 0) View.GONE else View.VISIBLE
+        poiFootnote.visibility = View.GONE
+        poiGoTitle.text = if (park != null) tr("Park & ride here", "Park & ride sini") else tr("Drive here", "Pergi sini")
         Motion.reveal(poiCard, pivotFraction = 1f)
     }
 
@@ -4734,6 +4852,8 @@ class MainActivity : AppCompatActivity() {
         if (::roadReportsUi.isInitialized) roadReportsUi.stop()
         parkingPois = emptyList()
         parkingFor = null
+        transitPois = emptyList()
+        transitFor = null
         arrivalCardShowing = false
         arrivalCard.animate().cancel()
         arrivalCard.visibility = View.GONE

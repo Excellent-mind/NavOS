@@ -111,4 +111,6 @@
     <string name="report_still_there">Still there</string>
     <string name="report_not_there">Not there</string>
     <string name="chip_parking">Parking</string>
+    <string name="chip_transit">Transit</string>
+    <string name="chip_ev_short">EV</string>
 </resources>

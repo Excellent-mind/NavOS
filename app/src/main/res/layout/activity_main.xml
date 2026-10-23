@@ -774,13 +774,18 @@
 
             <!-- Open sheet: which places to show on the map (petrol / EV on
                  the way, parking at the destination). Selected = ink. -->
-            <LinearLayout
+            <HorizontalScrollView
                 android:id="@+id/navPoiChips"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                android:orientation="horizontal"
+                android:scrollbars="none"
                 android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
 
                 <TextView
                     android:id="@+id/navPetrolChip"
@@ -791,7 +796,7 @@
                     android:id="@+id/navEvChip"
                     style="@style/Widget.Signal.Chip"
                     android:layout_marginStart="8dp"
-                    android:text="@string/chip_ev" />
+                    android:text="@string/chip_ev_short" />
 
                 <TextView
                     android:id="@+id/navParkingChip"
@@ -799,7 +804,14 @@
                     android:layout_marginStart="8dp"
                     android:text="@string/chip_parking" />
 
+                <TextView
+                    android:id="@+id/navTransitChip"
+                    style="@style/Widget.Signal.Chip"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/chip_transit" />
+
             </LinearLayout>
+            </HorizontalScrollView>
 
             <TextView
                 android:id="@+id/stopNavigationButton"

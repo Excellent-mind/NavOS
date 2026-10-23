@@ -107,4 +107,6 @@
     <string name="report_still_there">Masih ada</string>
     <string name="report_not_there">Dah tak ada</string>
     <string name="chip_parking">Parking</string>
+    <string name="chip_transit">Tren</string>
+    <string name="chip_ev_short">EV</string>
 </resources>
