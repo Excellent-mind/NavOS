@@ -6,11 +6,13 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import com.excellentmindblow.navos.navigation.GeoUtils
 import com.excellentmindblow.navos.poi.PoiKind
 import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.search.GeocodeResult
 import com.excellentmindblow.navos.search.RecentPlaces
 import com.excellentmindblow.navos.search.SavedPlaces
+import com.excellentmindblow.navos.search.TripHabits
 
 /**
  * The Home screen's own content (the collapsed bottom sheet, Signal
@@ -23,6 +25,7 @@ class HomeScreen(
     private val savedPlaces: SavedPlaces,
     private val recentPlaces: RecentPlaces,
     private val driveTimes: HomeEtas,
+    private val habits: TripHabits,
     private val host: Host,
 ) {
     interface Host {
@@ -78,7 +81,7 @@ class HomeScreen(
         val places =
             listOf(SavedPlaces.HOME, SavedPlaces.WORK)
                 .mapNotNull { key -> savedPlaces.get(key)?.let { key to RoutePoint(it.latitude, it.longitude) } }
-                .toMap()
+                .toMap() + listOfNotNull(suggestion()?.let { HABIT_KEY to RoutePoint(it.latitude, it.longitude) })
         if (places.isNotEmpty()) driveTimes.refresh(RoutePoint(here.latitude, here.longitude), places)
     }
 
@@ -136,12 +139,39 @@ class HomeScreen(
 
     private fun color(res: Int): Int = ContextCompat.getColor(context, res)
 
+    /** Where the driver probably wants to go now (their habits), unless it is Home / Work (their cards show it). */
+    private fun suggestion(): GeocodeResult? {
+        val here = host.currentLocation()?.let { RoutePoint(it.latitude, it.longitude) }
+        val guess = habits.predict(here) ?: return null
+        val p = RoutePoint(guess.latitude, guess.longitude)
+        val isSaved =
+            listOf(SavedPlaces.HOME, SavedPlaces.WORK).any { key ->
+                savedPlaces.get(key)?.let { GeoUtils.distanceMeters(RoutePoint(it.latitude, it.longitude), p) < TripHabits.Model.SAME_PLACE_M } == true
+            }
+        return if (isSaved) null else guess
+    }
+
     private fun renderRecents() {
         // Child 0 is the "Recent" heading.
         while (recents.childCount > 1) recents.removeViewAt(1)
-        val list = recentPlaces.load().take(PEEK_RECENTS)
-        recents.visibility = if (list.isEmpty()) View.GONE else View.VISIBLE
+        val guess = suggestion()
+        val list = recentPlaces.load().filter { guess == null || it.label != guess.label }.take(PEEK_RECENTS)
+        recents.visibility = if (list.isEmpty() && guess == null) View.GONE else View.VISIBLE
         val origin = host.currentLocation()
+        if (guess != null) {
+            // "Going to Menara X?" with its drive time, before anything is typed.
+            val row = PlaceRows.inflate(recents)
+            val seconds = driveTimes.secondsTo(HABIT_KEY, RoutePoint(guess.latitude, guess.longitude))
+            PlaceRows.bind(
+                row,
+                guess.copy(name = tr("Going to ${guess.name}?", "Nak ke ${guess.name}?")),
+                origin,
+                iconRes = R.drawable.ic_nav_arrow,
+                value = seconds?.let { NavFormat.formatRouteMinutes(it) },
+            )
+            row.setOnClickListener { host.onRecentTapped(guess) }
+            recents.addView(row)
+        }
         for (place in list) {
             val row = PlaceRows.inflate(recents)
             PlaceRows.bind(row, place, origin, iconRes = R.drawable.ic_history)
@@ -155,5 +185,8 @@ class HomeScreen(
     companion object {
         /** Recent places shown on Home; the full list is in search. */
         const val PEEK_RECENTS = 2
+
+        /** Drive-time key for the suggested (habit) trip. */
+        private const val HABIT_KEY = "habit"
     }
 }

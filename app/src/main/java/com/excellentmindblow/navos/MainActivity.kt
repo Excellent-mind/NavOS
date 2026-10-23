@@ -105,6 +105,7 @@ import com.excellentmindblow.navos.search.PlaceTileStore
 import com.excellentmindblow.navos.search.IncomingLocation
 import com.excellentmindblow.navos.search.RecentPlaces
 import com.excellentmindblow.navos.search.SavedPlaces
+import com.excellentmindblow.navos.search.TripHabits
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -320,6 +321,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var savedPlaces: SavedPlaces
     private lateinit var settingsScreen: SettingsScreen
     private lateinit var recentPlaces: RecentPlaces
+
+    /** Learns regular trips (time of day) to suggest the likely one on Home. */
+    private lateinit var tripHabits: TripHabits
     private lateinit var nextTurnStrip: View
     private lateinit var laneContainer: LinearLayout
     private lateinit var permissionDeniedOverlay: View
@@ -704,6 +708,7 @@ class MainActivity : AppCompatActivity() {
                 },
             )
         recentPlaces = RecentPlaces(prefs)
+        tripHabits = TripHabits(prefs)
         MapDisplayPrefs.load(prefs)
         // Language (English / Malay) before any text is made.
         Lang.load(prefs)
@@ -2506,6 +2511,7 @@ class MainActivity : AppCompatActivity() {
                 savedPlaces = savedPlaces,
                 recentPlaces = recentPlaces,
                 driveTimes = driveTimes,
+                habits = tripHabits,
                 host =
                     object : HomeScreen.Host {
                         override fun currentLocation(): Location? = lastKnownLocation
@@ -4046,6 +4052,7 @@ class MainActivity : AppCompatActivity() {
     private fun beginActiveNavigation() {
         val route = routeOptions.getOrNull(selectedRouteIndex) ?: return
         driveStartedAtMs = SystemClock.elapsedRealtime()
+        tripPlaces.lastOrNull()?.let { tripHabits.record(it) }
 
         navMode = NavMode.ACTIVE
         driveFollower.resetArrowHeading()

@@ -16,6 +16,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import com.excellentmindblow.navos.poi.PoiKind
 import com.excellentmindblow.navos.routing.RoutePrefs
+import com.excellentmindblow.navos.search.TripHabits
 import com.excellentmindblow.navos.traffic.TrafficPrefs
 import com.google.android.material.switchmaterial.SwitchMaterial
 
@@ -98,6 +99,11 @@ class SettingsScreen(
                 switchRow(tr("Avoid highways", "Elak highway"), tr("Applies to the next route you search for", "Untuk laluan yang anda cari lepas ni"), RoutePrefs.avoidHighways) {
                     RoutePrefs.save(prefs, RoutePrefs.avoidTolls, it)
                 },
+                switchRow(
+                    tr("Suggest my regular trips", "Cadang perjalanan biasa"),
+                    tr("Learns where you drive and when, on this phone only", "Belajar tempat dan masa anda memandu, dalam telefon ni saja"),
+                    TripHabits(prefs).enabled,
+                ) { TripHabits(prefs).enabled = it },
                 switchRow(tr("Share anonymous traffic speeds", "Kongsi laju trafik tanpa nama"), tr("Helps show jams in red. No account, no start or end of your trip", "Bantu tunjuk jem warna merah. Tak guna akaun, tak hantar tempat mula atau hujung perjalanan"), TrafficPrefs.sharing(prefs)) {
                     TrafficPrefs.set(prefs, it)
                 },
