@@ -205,6 +205,11 @@ class SettingsScreen(
         val sw =
             MaterialSwitch(context).apply {
                 tag = SWITCH_TAG
+                // No "ON/OFF" text in the track: some themes turn showText on,
+                // and SwitchCompat then crashes measuring a null label.
+                showText = false
+                textOn = ""
+                textOff = ""
                 isChecked = checked
                 thumbTintList = states(color(R.color.sig_on_ink), color(R.color.sig_sheet))
                 trackTintList = states(color(R.color.sig_ink), color(R.color.sig_outline))
