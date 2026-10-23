@@ -18,7 +18,7 @@ import kotlin.math.hypot
 /**
  * Stands the route's road signs up on the tilted driving map.
  *
- * Each frame, every sign within [VIEW_AHEAD_M] is placed at its spot on the
+ * Each frame, the signs [SignVisibility] picks are placed at their spot on the
  * route: its two feet are projected by MapLibre (so they sit exactly on the
  * map), then [SignCamera] lifts the board to its height with the map's own
  * camera, and the sign's bitmap is stretched onto those four corners. The
@@ -46,7 +46,6 @@ class SignOverlayView
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         private val postPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeCap = Paint.Cap.BUTT }
         private val src = FloatArray(8)
-        private val visible = ArrayList<Pair<RoadSign, Double>>()
 
         init {
             isClickable = false
@@ -84,13 +83,9 @@ class SignOverlayView
             if (here.isNaN()) return
             val p = painter ?: SignPainter(context, night).also { painter = it }
 
-            visible.clear()
-            for (s in signs) {
-                val d = s.atMeters - here
-                if (d > -PASSED_M && d < VIEW_AHEAD_M) visible.add(s to d)
-            }
+            // One board at a time, never right in front of the arrow (SignVisibility).
+            val visible = SignVisibility.pick(signs, here)
             if (visible.isEmpty()) return
-            visible.sortByDescending { it.second } // far ones first, near ones on top
 
             val cam = m.cameraPosition
             val target = cam.target ?: return
@@ -98,7 +93,7 @@ class SignOverlayView
             val camera = SignCamera(centre.x.toDouble(), centre.y.toDouble(), height.toDouble(), cam.tilt)
             val standing = cam.tilt >= MIN_TILT_DEG
 
-            for ((sign, d) in visible) {
+            for ((sign, _, opacity) in visible) {
                 val bmp = bitmaps.getOrPut(sign.id) { p.paint(sign.content) }
                 val spec = specOf(sign.content)
                 val heightM = spec.widthM * bmp.height / bmp.width
@@ -126,7 +121,7 @@ class SignOverlayView
                 if (offScreen(dst)) continue
                 clampSize(dst, feet)
 
-                val alpha = alphaFor(d)
+                val alpha = (255 * opacity).toInt()
                 if (feet != null) drawPosts(canvas, dst, feet, alpha)
                 src[0] = 0f
                 src[1] = 0f
@@ -199,13 +194,6 @@ class SignOverlayView
             return maxX < 0 || minX > width || maxY < 0 || minY > height
         }
 
-        /** Fades in as it comes into range, out as you pass it. */
-        private fun alphaFor(d: Double): Int {
-            val inFade = ((VIEW_AHEAD_M - d) / FADE_IN_M).coerceIn(0.0, 1.0)
-            val outFade = ((d + PASSED_M) / (PASSED_M + 40.0)).coerceIn(0.0, 1.0)
-            return (255 * inFade * outFade).toInt()
-        }
-
         private class Spec(
             val widthM: Double,
             val postM: Double,
@@ -213,24 +201,22 @@ class SignOverlayView
         )
 
         /** World sizes. Real signs would be tiny on screen, so boards are
-         * drawn about six times life size, the way landmarks are. */
+         * drawn larger than life (about 3.5x), the way landmarks are - but
+         * kept small enough not to cover the road ahead. */
         private fun specOf(c: SignContent): Spec =
             when (c) {
-                is SignContent.Direction -> Spec(if (c.panels.size > 1) 130.0 else 90.0, 26.0, 0.0)
-                is SignContent.Lanes -> Spec((c.lanes.size * 30.0).coerceIn(60.0, 140.0), 26.0, 0.0)
-                is SignContent.Roundabout -> Spec(90.0, 18.0, 0.0)
-                is SignContent.Confirmation -> Spec(80.0, 18.0, -40.0)
-                is SignContent.Toll -> Spec(100.0, 22.0, 0.0)
-                is SignContent.RestStop -> Spec(90.0, 18.0, -40.0)
-                is SignContent.Aes -> Spec(70.0, 16.0, -36.0)
+                is SignContent.Direction -> Spec(if (c.panels.size > 1) 78.0 else 54.0, 18.0, 0.0)
+                is SignContent.Lanes -> Spec((c.lanes.size * 18.0).coerceIn(36.0, 84.0), 18.0, 0.0)
+                is SignContent.Roundabout -> Spec(54.0, 14.0, 0.0)
+                is SignContent.Confirmation -> Spec(48.0, 14.0, -28.0)
+                is SignContent.Toll -> Spec(60.0, 16.0, 0.0)
+                is SignContent.RestStop -> Spec(54.0, 14.0, -28.0)
+                is SignContent.Aes -> Spec(42.0, 12.0, -26.0)
                 SignContent.TrafficLight -> Spec(14.0, 0.0, 0.0)
             }
 
         companion object {
-            const val VIEW_AHEAD_M = 1100.0
-            const val FADE_IN_M = 200.0
-            const val PASSED_M = 30.0
             const val MIN_TILT_DEG = 20.0
-            const val MAX_SCREEN_FRACTION = 0.92f
+            const val MAX_SCREEN_FRACTION = 0.6f
         }
     }
