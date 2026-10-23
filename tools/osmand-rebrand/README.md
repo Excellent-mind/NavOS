@@ -94,24 +94,59 @@ removes them rather than presenting itself as OsmAnd. The app still
 downloads maps from OsmAnd's servers, so heavy public use should be
 discussed with OsmAnd.
 
-## Restyle: the NavOS "Signal" look (`restyle.py`)
+## Restyle: the NavOS app design (`restyle.py`, `mapstyle.py`)
 
-Runs after `rebrand.py`. It changes OsmAnd's shared design tokens, so
-every screen follows without editing screens one by one. Values come from
-the NavOS app's Signal palette (`app/src/main/res/values*/colors.xml`).
+Run after `rebrand.py`. They follow the NavOS app design: light and airy,
+white rounded cards, one bright blue (`#1278D8`), Poppins type, a light
+grey map. Night mode is the design's deep navy. Both scripts change
+OsmAnd's shared tokens, so every screen follows without editing screens
+one by one.
 
-- **Surfaces and text:** white and black, with Signal greys in both themes.
-  The night theme is pure black.
-- **App bar and status bar:** Signal ink (near-black) instead of orange.
-- **Accent:** NavOS navy `#14284B` in the light theme, NavOS blue `#1CB0F6`
-  at night.
-- **Buttons:** primary buttons are ink (black on light, white at night).
-  Secondary buttons are the field grey.
-- **Map buttons:** solid instead of 50% see-through, and all round,
-  including the menu and route buttons. They're white in the light theme
-  and `#1C1C1C` at night, like the NavOS floating buttons.
-- **Type:** Atkinson Hyperlegible for all UI text. XML styles get it from
-  the base themes. Code-drawn text gets it through `FontCache`, which
-  loads it once at app start.
+**`restyle.py`, the app:**
+
+- **Palette:** a light grey-blue screen background, white cards and sheets,
+  ink text `#1B2433` and grey secondary text. The app bar and status bar
+  are brand blue.
+- **Night palette:** navy surfaces (`#0A1630`, `#11203D`) and a lighter
+  blue `#4DA3FF`.
+- **Buttons and chips:** primary buttons are blue. Secondary buttons and
+  outlines are soft grey. Selected chips and rows get a light blue tint.
+- **Shapes:** corners are rounder everywhere, about 12–16dp on cards,
+  buttons and dialogs. Small corners in shape drawables get rounded up too.
+- **Map buttons:** solid white rounded squares (12dp corners) with ink
+  icons, navy at night.
+- **Type:** Poppins (in `fonts/`, OFL) for all UI text. It reaches XML
+  styles through the base themes and code-drawn text through `FontCache`.
+  Scripts Poppins doesn't cover fall back to the system font.
 - **Kept as they are:** data colours (charts, markers, profile colours,
-  speed tolerance), because they carry meaning.
+  speed tolerance), because they carry meaning. The orange
+  context-menu pin is recoloured blue.
+
+**`mapstyle.py`, the map:** recolours OsmAnd's default map style. It
+patches both copies: the Java one, and the Qt-compressed one the native
+renderer uses.
+
+- **Day:** the land is a cool light grey `#EEF1F5`. Roads are white with
+  soft grey edges, water is a soft blue, and parks and woods are muted
+  green. Everything else (buildings, labels, landuse) goes to cool greys
+  of the same brightness.
+- **Night:** deep navy land `#0E1A2E` and slate roads.
+- **Route:** the brand blue, or the lighter blue at night.
+- **Kept as they are:** colours that carry information, like route and
+  track colours, subway lines, and hiking, surface and access overlays.
+
+## No OsmAnd name on screen
+
+`rebrand.py` replaces the name everywhere you can see it:
+
+- **All 100+ languages:** case endings ("OsmAndin", "OsmAnd는"), caps
+  ("OSMAND"), Arabic `أوسماند` and Serbian `ОсмАнд`.
+- **On-screen text in the code:** the map source name, the routing
+  service name, the print title, the feedback subject and error messages.
+- **The `Music/OsmAnd` folder:** it's now `Music/NavOS`.
+- **Images:** the wordmarks ("OsmAnd Pro", "OsmAnd+"…) become a NavOS
+  wordmark in Poppins, and the pin logos become the NavOS glyph.
+
+Links stay as they are, so osmand.net and GitHub links still work. So do
+identifiers nobody sees: the user agent OsmAnd's servers check, the GPX
+creator tag, log tags and resource names.

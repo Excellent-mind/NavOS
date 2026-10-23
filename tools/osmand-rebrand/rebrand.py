@@ -98,9 +98,24 @@ def patch_code(root: Path, app_id: str):
 
 # --- Text ------------------------------------------------------------------
 
-# "OsmAnd" as a word in UI text. Not when it's part of a URL or path
-# (github.com/osmandapp/OsmAnd/issues) or of a longer identifier.
-BRAND_WORD = re.compile(r"(?<![\w/.@-])Osm[Aa]nd(?:\+|~)?(?![\w/]|\.\w)")
+# The name in every spelling the translations use: Latin with any case or
+# grammatical ending ("OsmAndin", "OsmAnd는", "OSMAND+"), Arabic, Serbian
+# Cyrillic. Tags and URLs are masked first, so string names and links to
+# osmand.net / GitHub are left working.
+NAME = re.compile(r"(?i)osm\s?and(?:\s?\+|~)?|أوسماند|[ОО]смАнд")
+MASK = re.compile(r"<[^>]+>|https?://[^\s<\"']+|www\.[^\s<\"']+|[\w.-]+\.(?:net|com|org)\b[^\s<\"']*")
+
+
+def rename_text(text: str) -> tuple[str, int]:
+    kept = []
+
+    def hide(m):
+        kept.append(m.group(0))
+        return f"\x00{len(kept) - 1}\x00"
+
+    masked = MASK.sub(hide, text)
+    masked, n = NAME.subn(APP_NAME, masked)
+    return re.sub("\x00(\\d+)\x00", lambda m: kept[int(m.group(1))], masked), n
 
 
 def patch_strings(root: Path):
@@ -108,34 +123,65 @@ def patch_strings(root: Path):
     for f in sorted((root / "res").glob("values*/*.xml")):
         if f.name not in ("strings.xml", "plurals.xml", "arrays.xml"):
             continue
-        text = f.read_text(encoding="utf-8")
-        text, n = BRAND_WORD.subn(APP_NAME, text)
+        text, n = rename_text(f.read_text(encoding="utf-8"))
         # The OsmAnd acronym's expansion doesn't describe NavOS.
         text = text.replace(f"{APP_NAME} (OSM Automated Navigation Directions)", APP_NAME)
-        text, m = re.subn(r'(<string name="app_name"[^>]*>)[^<]*(</string>)', rf"\g<1>{APP_NAME}\g<2>", text)
-        if n or m:
-            f.write_text(text, encoding="utf-8")
-            total += n
-    if total < 100:
-        fail(f"only {total} 'OsmAnd' mentions replaced; string resources changed shape")
+        text = re.sub(r'(<string name="app_name"[^>]*>)[^<]*(</string>)', rf"\g<1>{APP_NAME}\g<2>", text)
+        f.write_text(text, encoding="utf-8")
+        total += n
+    if total < 7000:
+        fail(f"only {total} name mentions replaced; string resources changed shape")
     return total
+
+
+# Names the code shows on screen (map source, routing service, print title,
+# feedback subject, error and status messages) and the Music/OsmAnd folder.
+# Identifiers nobody sees stay: the user agent OsmAnd's servers check, the
+# GPX creator OsmAnd reads back, log tags, AIDL names.
+CODE_TEXT = {
+    "net/osmand/map/TileSourceManager.smali": ['"OsmAnd (online tiles)"'],
+    "net/osmand/plus/routing/RouteService.smali": ['"OsmAnd (offline)"'],
+    "net/osmand/plus/activities/PrintDialogActivity.smali": ['"OsmAnd route info"'],
+    "net/osmand/plus/feedback/FeedbackHelper.smali": ['"OsmAnd bug"'],
+    "net/osmand/plus/inapp/InAppPurchaseHelper.smali": ['"OsmAnd Pro subscription purchased."'],
+    "net/osmand/plus/settings/mediastorage/MediaStorageUtils.smali": ['"OsmAnd"'],
+}
+
+
+def patch_code_text(root: Path):
+    for rel, literals in CODE_TEXT.items():
+        f = smali(root, rel)
+        text = f.read_text(encoding="utf-8")
+        for lit in literals:
+            if lit not in text:
+                fail(f"{rel}: {lit} not found")
+            text = text.replace(lit, lit.replace("OsmAnd", APP_NAME))
+        f.write_text(text, encoding="utf-8")
+    # Error and status messages built in code.
+    for f in root.glob("smali*/net/osmand/**/*.smali"):
+        text = f.read_text(encoding="utf-8")
+        new = re.sub(r'(const-string(?:/jumbo)? [vp]\d+, "[^"]*?)(?<=[ (])OsmAnd(?= (?:Cloud|navigation URL|voice|storage))',
+                     rf"\g<1>{APP_NAME}", text)
+        if new != text:
+            f.write_text(new, encoding="utf-8")
 
 
 # --- Colours ---------------------------------------------------------------
 
-# OsmAnd's orange becomes the NavOS navy / blue. Light-theme blues (#237bff)
-# stay: they're already close to the brand and pass contrast on white.
+# OsmAnd's orange becomes the NavOS blue (restyle.py sets the rest of the
+# palette). The splash is the white NavOS logo on that blue.
+BLUE, BLUE_DARK, BLUE_NIGHT = "#1278d8", "#0e63b5", "#4da3ff"
 COLORS = {
-    "app_bar_main_light": "#14284b",
-    "osmand_orange": "#1cb0f6",
-    "osmand_orange_dark": "#1599d6",
-    "icon_color_osmand_light": "#14284b",
-    "icon_color_osmand_dark": "#1cb0f6",
-    "active_color_primary_dark": "#1cb0f6",
-    "active_color_primary_dark_v2": "#1cb0f6",
-    "icon_color_active_dark": "#1cb0f6",
-    "icon_color_active_dark_v2": "#1cb0f6",
-    "splash_screen_background_color": "#000000",  # NavOS splash: logo on black
+    "app_bar_main_light": BLUE,
+    "osmand_orange": BLUE,
+    "osmand_orange_dark": BLUE_DARK,
+    "icon_color_osmand_light": BLUE,
+    "icon_color_osmand_dark": BLUE_NIGHT,
+    "active_color_primary_dark": BLUE_NIGHT,
+    "active_color_primary_dark_v2": BLUE_NIGHT,
+    "icon_color_active_dark": BLUE_NIGHT,
+    "icon_color_active_dark_v2": BLUE_NIGHT,
+    "splash_screen_background_color": BLUE,
 }
 
 
@@ -199,10 +245,47 @@ def patch_artwork(root: Path):
         with art.Image.open(f) as old:
             size = old.size
         save(art.wordmark(*size), f)
+    # "OsmAnd", "OsmAnd+", "OsmAnd Pro"... wordmarks: one "NavOS" wordmark,
+    # same size, same (runtime-tinted) colour.
+    words = sorted(res.glob("drawable/image_text_osmand*.xml"))
+    if len(words) < 5:
+        fail(f"only {len(words)} wordmark drawables found")
+    for f in words:
+        save_text(f, wordmark_vector(f.read_text(encoding="utf-8")))
+    # Pin logos on plan, purchase and menu screens.
+    for name, color in [
+        ("ic_action_osmand_maps_plus", art.BRAND_BLUE),
+        ("ic_action_osmand_maps_plus_desaturated", "#727272"),
+        ("ic_action_osmand_start", art.BRAND_BLUE),
+        ("ic_action_osmand_xv", art.BRAND_BLUE),
+        ("ic_action_subscription_osmand_live", art.BRAND_BLUE),
+    ]:
+        f = res / f"drawable/{name}.xml"
+        size = re.search(r'android:width="([\d.]+)dp"', f.read_text(encoding="utf-8")).group(1)
+        save_text(f, art.vector_xml(round(float(size)), 24, 0.84, color))
+    for f in res.glob("drawable-*/img_help_osmand_live.webp"):
+        with art.Image.open(f) as old:
+            size = old.size[0]
+        save(art.round_icon(size), f)
     for f in res.glob("drawable-*/img_logo_38dp_osmand.png"):
         with art.Image.open(f) as old:
             size = old.size[0]
         save(art.round_icon(size), f)
+
+
+def wordmark_vector(old: str) -> str:
+    attr = lambda n: re.search(rf'android:{n}="([^"]+)"', old).group(1)
+    vw, vh = float(attr("viewportWidth")), float(attr("viewportHeight"))
+    color = re.search(r'android:fillColor="([^"]+)"', old)
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        f'<vector xmlns:android="http://schemas.android.com/apk/res/android"'
+        f' android:width="{attr("width")}" android:height="{attr("height")}"'
+        f' android:viewportWidth="{vw:g}" android:viewportHeight="{vh:g}">\n'
+        f'    <path android:fillColor="{color.group(1) if color else "#ffffff"}"\n'
+        f'        android:pathData="{art.text_path(APP_NAME, vw, vh)}" />\n'
+        "</vector>\n"
+    )
 
 
 def save_text(path: Path, text: str):
@@ -219,6 +302,7 @@ def main():
     patch_manifest(root, app_id)
     patch_code(root, app_id)
     n = patch_strings(root)
+    patch_code_text(root)
     patch_colors(root)
     patch_artwork(root)
     print(f"rebrand: {app_id}, {n} text mentions renamed, colours and artwork replaced")

@@ -31,7 +31,7 @@ jobs:
           java-version: "17"
 
       - name: Python packages
-        run: pip install pillow numpy scikit-image
+        run: pip install pillow numpy scikit-image fonttools
 
       - name: Decode keystore
         if: env.HAS_KEY == 'true'

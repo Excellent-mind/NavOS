@@ -1,121 +1,135 @@
-"""Restyles an apktool-decoded (and rebranded) OsmAnd APK in the NavOS
-"Signal" design language, in place.
+"""Restyles an apktool-decoded (and rebranded) OsmAnd APK in the NavOS app
+design, in place: light and airy, white rounded cards, one bright blue,
+Poppins type, rounded-square map buttons.
 
 Usage: python3 restyle.py DECODED_DIR
 
-Everything goes through OsmAnd's shared tokens - colour resources, base
-themes, the font helper, map button defaults - so every screen follows
-without per-screen edits. Values come from the NavOS app
-(app/src/main/res/values/colors.xml, values-night/colors.xml, font/).
+Everything goes through OsmAnd's shared tokens - colour resources, corner
+radii, base themes, the font helper, map button defaults - so every screen
+follows without per-screen edits.
 """
 import re
 import shutil
 import sys
 from pathlib import Path
 
+from PIL import Image
+
 from rebrand import fail, smali, method_body, replace_once
 
-REPO = Path(__file__).resolve().parents[2]
-NAVOS_RES = REPO / "app/src/main/res"
+HERE = Path(__file__).resolve().parent
 
-# Signal tokens (NavOS app), light / dark.
-INK, ON_INK = "#0a0a0a", "#ffffff"
-NIGHT_INK, NIGHT_ON_INK = "#ffffff", "#0a0a0a"
-TEXT_QUIET, NIGHT_TEXT_QUIET = "#5c5c5c", "#a6a6a6"
-SHEET, NIGHT_SHEET = "#ffffff", "#0b0b0b"
-FIELD, NIGHT_FIELD = "#f2f2f2", "#1c1c1c"
-FLOAT, NIGHT_FLOAT = "#ffffff", "#1c1c1c"
-OUTLINE, NIGHT_OUTLINE = "#e0e0e0", "#333333"
-DIVIDER, NIGHT_DIVIDER = "#ededed", "#1c1c1c"
-# Accent: the NavOS brand pair - navy on light, blue at night.
-NAVY, BLUE = "#14284b", "#1cb0f6"
-NAVY_PRESSED, BLUE_PRESSED = "#0e1d38", "#1599d6"
-SELECTED, NIGHT_SELECTED = "#e3f4fe", "#1f3a57"
+# Design tokens, light / night. Night is the design's deep navy.
+INK, NIGHT_INK = "#1b2433", "#ffffff"                    # text
+QUIET, NIGHT_QUIET = "#8a94a6", "#9fb0cc"                # secondary text
+BG, NIGHT_BG = "#f4f6fa", "#0a1630"                      # screen background
+SHEET, NIGHT_SHEET = "#ffffff", "#11203d"                # cards, sheets, lists
+FIELD, NIGHT_FIELD = "#f0f3f8", "#1a2c4d"                # inputs, secondary buttons
+OUTLINE, NIGHT_OUTLINE = "#dce3ee", "#24395e"
+DIVIDER, NIGHT_DIVIDER = "#edf1f6", "#1a2c4d"
+BLUE, NIGHT_BLUE = "#1278d8", "#4da3ff"                  # the one accent
+BLUE_PRESSED, NIGHT_BLUE_PRESSED = "#0e63b5", "#2f8ef0"
+SELECTED, NIGHT_SELECTED = "#e4f0fc", "#17345c"          # selected chip / row tint
 
 COLORS = {
     # Surfaces
-    "activity_background_color_light": FIELD,
-    "activity_background_color_dark": "#000000",
+    "activity_background_color_light": BG,
+    "activity_background_color_dark": NIGHT_BG,
     "list_background_color_light": SHEET,
     "list_background_color_dark": NIGHT_SHEET,
     "card_and_list_background_light": SHEET,
     "card_and_list_background_dark": NIGHT_SHEET,
-    # App bar and status bar: Signal ink
-    "app_bar_main_light": INK,
+    # App bar and status bar: the brand blue by day, navy at night
+    "app_bar_main_light": BLUE,
     "app_bar_main_dark": NIGHT_SHEET,
     "app_bar_secondary_dark": NIGHT_SHEET,
-    "status_bar_main_light": INK,
-    "status_bar_main_dark": NIGHT_SHEET,
-    "status_bar_secondary_light": FIELD,
-    "status_bar_secondary_dark": NIGHT_SHEET,
-    "status_bar_dim_light": "#000000",
+    "status_bar_main_light": BLUE,
+    "status_bar_main_dark": NIGHT_BG,
+    "status_bar_secondary_light": BG,
+    "status_bar_secondary_dark": NIGHT_BG,
+    "status_bar_dim_light": BLUE_PRESSED,
     # Text
     "text_color_primary_light": INK,
     "text_color_primary_dark": NIGHT_INK,
-    "text_color_secondary_light": TEXT_QUIET,
-    "text_color_secondary_dark": NIGHT_TEXT_QUIET,
+    "text_color_secondary_light": QUIET,
+    "text_color_secondary_dark": NIGHT_QUIET,
     # Lines
     "divider_color_light": DIVIDER,
     "divider_color_dark": NIGHT_DIVIDER,
     "stroked_buttons_and_links_outline_light": OUTLINE,
     "stroked_buttons_and_links_outline_dark": NIGHT_OUTLINE,
     # Accent
-    "active_color_primary_light": NAVY,
-    "active_color_primary_dark": BLUE,
-    "active_color_primary_light_v2": NAVY,
-    "active_color_primary_dark_v2": BLUE,
-    "icon_color_active_light": NAVY,
-    "icon_color_active_light_v2": NAVY,
-    "icon_color_active_dark": BLUE,
-    "icon_color_active_dark_v2": BLUE,
+    "active_color_primary_light": BLUE,
+    "active_color_primary_dark": NIGHT_BLUE,
+    "active_color_primary_light_v2": BLUE,
+    "active_color_primary_dark_v2": NIGHT_BLUE,
+    "icon_color_active_light": BLUE,
+    "icon_color_active_light_v2": BLUE,
+    "icon_color_active_dark": NIGHT_BLUE,
+    "icon_color_active_dark_v2": NIGHT_BLUE,
     "active_color_secondary_light": SELECTED,
     "active_color_secondary_dark": NIGHT_SELECTED,
-    "active_buttons_and_links_bg_pressed_light": NAVY_PRESSED,
-    "active_buttons_and_links_bg_pressed_dark": BLUE_PRESSED,
-    "active_buttons_and_links_trans_light": "#6614284b",
-    "active_buttons_and_links_trans_dark": "#661cb0f6",
-    "switch_button_active_light": "#1a14284b",
-    "switch_button_active_dark": "#1a1cb0f6",
-    "switch_button_active_stroke_dark": "#801cb0f6",
-    "material_switch_outline_dark": BLUE_PRESSED,
-    # Buttons: primary is Signal ink, secondary is the field grey
-    "btn_bg_primary_light": INK,
-    "btn_bg_primary_dark": NIGHT_INK,
-    "btn_text_on_primary_light": ON_INK,
-    "btn_text_on_primary_dark": NIGHT_ON_INK,
+    "active_buttons_and_links_bg_pressed_light": BLUE_PRESSED,
+    "active_buttons_and_links_bg_pressed_dark": NIGHT_BLUE_PRESSED,
+    "active_buttons_and_links_trans_light": "#661278d8",
+    "active_buttons_and_links_trans_dark": "#664da3ff",
+    "switch_button_active_light": "#1a1278d8",
+    "switch_button_active_dark": "#1a4da3ff",
+    "switch_button_active_stroke_dark": "#804da3ff",
+    "material_switch_outline_dark": NIGHT_BLUE_PRESSED,
+    # Buttons: primary blue, secondary outlined on white
+    "btn_bg_primary_light": BLUE,
+    "btn_bg_primary_dark": NIGHT_BLUE,
+    "btn_text_on_primary_light": "#ffffff",
+    "btn_text_on_primary_dark": "#0a1630",
     "btn_bg_secondary_light": FIELD,
     "btn_bg_secondary_dark": NIGHT_FIELD,
-    "btn_text_on_secondary_light": INK,
-    "btn_text_on_secondary_dark": NIGHT_INK,
-    "btn_icon_on_secondary_light": INK,
-    "btn_icon_on_secondary_dark": NIGHT_INK,
-    # Map buttons and widgets: the Signal floating button
-    "map_button_background_color_light": FLOAT,
-    "map_button_background_color_dark": NIGHT_FLOAT,
+    "btn_text_on_secondary_light": BLUE,
+    "btn_text_on_secondary_dark": NIGHT_BLUE,
+    "btn_icon_on_secondary_light": BLUE,
+    "btn_icon_on_secondary_dark": NIGHT_BLUE,
+    # Map buttons and widgets: white rounded squares, navy at night
+    "map_button_background_color_light": SHEET,
+    "map_button_background_color_dark": NIGHT_SHEET,
     "map_button_icon_color_light": INK,
     "map_button_icon_color_dark": NIGHT_INK,
-    "widget_background_color_light": FLOAT,
-    "widget_background_color_dark": NIGHT_FLOAT,
+    "widget_background_color_light": SHEET,
+    "widget_background_color_dark": NIGHT_SHEET,
     "map_widget_icon_color": BLUE,
     # OsmAnd orange left in UI chrome (data colours - charts, markers, profile
     # colours, speed tolerance - keep their meaning and stay)
-    "banner_downloads_remaining_light": NAVY,
-    "banner_downloads_remaining_dark": BLUE,
+    "banner_downloads_remaining_light": BLUE,
+    "banner_downloads_remaining_dark": NIGHT_BLUE,
     "coordinate_input_edit_text_activated": BLUE,
-    "ctx_menu_bottom_buttons_text_color_dark": BLUE,
-    "ctx_menu_controller_button_bg_color_dark_p": BLUE_PRESSED,
-    "ctx_menu_controller_button_outline_color_dark_p": BLUE,
-    "ctx_menu_controller_button_text_color_dark_n": BLUE,
-    "download_pressed_light": "#8c14284b",
-    "fab_color": NAVY,
-    "fab_color_pressed": NAVY_PRESSED,
-    "multi_selection_menu_close_btn_dark": BLUE,
-    "region_backuped": "#551cb0f6",
-    "route_info_go_btn_bg_dark": BLUE_PRESSED,
-    "route_info_go_btn_bg_dark_p": BLUE,
-    "route_info_go_btn_inking_dark": BLUE,
-    "tool_bar_orange_color_light": "#b414284b",
+    "ctx_menu_bottom_buttons_text_color_dark": NIGHT_BLUE,
+    "ctx_menu_controller_button_bg_color_dark_p": NIGHT_BLUE_PRESSED,
+    "ctx_menu_controller_button_outline_color_dark_p": NIGHT_BLUE,
+    "ctx_menu_controller_button_text_color_dark_n": NIGHT_BLUE,
+    "download_pressed_light": "#8c1278d8",
+    "fab_color": BLUE,
+    "fab_color_pressed": BLUE_PRESSED,
+    "multi_selection_menu_close_btn_dark": NIGHT_BLUE,
+    "region_backuped": "#554da3ff",
+    "route_info_go_btn_bg_dark": NIGHT_BLUE_PRESSED,
+    "route_info_go_btn_bg_dark_p": NIGHT_BLUE,
+    "route_info_go_btn_inking_dark": NIGHT_BLUE,
+    "tool_bar_orange_color_light": "#b41278d8",
 }
+
+# Softer, rounder shapes: the design's cards and buttons sit around 12-16dp.
+DIMENS = {
+    "corner_radius": "12.0dp",
+    "radius_small": "8.0dp",
+    "radius_normal": "12.0dp",
+    "radius_large": "16.0dp",
+    "radius_double_large": "24.0dp",
+    "cardview_default_radius": "16.0dp",
+    "dlg_button_rect_rad": "12.0dp",
+    "map_button_rect_rad": "12.0dp",
+}
+# Literal corners in shape drawables, small to round.
+LITERAL_CORNERS = {"2.0dp": "8.0dp", "3.0dp": "10.0dp", "4.0dp": "12.0dp", "5.0dp": "12.0dp", "6.0dp": "14.0dp"}
+MAP_BUTTON_RADIUS_DP = 12
 
 BASE_THEMES = ("OsmandDarkTheme", "OsmandLightTheme", "OsmandMaterialDarkTheme", "OsmandMaterialLightTheme")
 
@@ -130,11 +144,56 @@ def patch_colors(root: Path):
     f.write_text(text, encoding="utf-8")
 
 
+def patch_shapes(root: Path):
+    f = root / "res/values/dimens.xml"
+    text = f.read_text(encoding="utf-8")
+    for name, value in DIMENS.items():
+        text, n = re.subn(rf'(<dimen name="{name}">)[^<]*(</dimen>)', rf"\g<1>{value}\g<2>", text)
+        if n != 1:
+            fail(f"dimen {name}: found {n}")
+    f.write_text(text, encoding="utf-8")
+    changed = 0
+    for d in (root / "res").glob("drawable*/*.xml"):
+        text = d.read_text(encoding="utf-8")
+        if "<corners" not in text:
+            continue
+        new = re.sub(r'(<corners[^>]*android:radius=")([\d.]+dp)(")',
+                     lambda m: m.group(1) + LITERAL_CORNERS.get(m.group(2), m.group(2)) + m.group(3), text)
+        if new != text:
+            d.write_text(new, encoding="utf-8")
+            changed += 1
+    if changed < 50:
+        fail(f"only {changed} shape drawables rounded")
+
+
+def patch_pins(root: Path):
+    """The orange context-menu pin, in the design's blue."""
+    found = 0
+    for f in (root / "res").glob("drawable-*/map_pin_context_menu.png"):
+        im = Image.open(f).convert("RGBA")
+        px = im.load()
+        for y in range(im.height):
+            for x in range(im.width):
+                r, g, b, a = px[x, y]
+                if a and r > g > b and r - b > 60:      # orange family -> blue, same lightness
+                    lum = (r * 0.3 + g * 0.59 + b * 0.11) / 255
+                    k = lum / 0.62
+                    px[x, y] = (min(255, int(0x12 * k)), min(255, int(0x78 * k)), min(255, int(0xd8 * k)), a)
+        im.save(f)
+        found += 1
+    if not found:
+        fail("map_pin_context_menu.png not found")
+
+
 FONT_FAMILY = """<?xml version="1.0" encoding="utf-8"?>
 <font-family xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <font android:font="@font/navos_text_regular" android:fontStyle="normal" android:fontWeight="400"
         app:font="@font/navos_text_regular" app:fontStyle="normal" app:fontWeight="400" />
+    <font android:font="@font/navos_text_medium" android:fontStyle="normal" android:fontWeight="500"
+        app:font="@font/navos_text_medium" app:fontStyle="normal" app:fontWeight="500" />
+    <font android:font="@font/navos_text_semibold" android:fontStyle="normal" android:fontWeight="600"
+        app:font="@font/navos_text_semibold" app:fontStyle="normal" app:fontWeight="600" />
     <font android:font="@font/navos_text_bold" android:fontStyle="normal" android:fontWeight="700"
         app:font="@font/navos_text_bold" app:fontStyle="normal" app:fontWeight="700" />
 </font-family>
@@ -169,11 +228,12 @@ FONT_CACHE_INIT = """
 
 
 def patch_type(root: Path):
-    """Atkinson Hyperlegible (the NavOS text font) for all UI text."""
+    """Poppins (the design's typeface, OFL) for all UI text. Scripts it doesn't
+    cover fall back to the system font glyph by glyph."""
     font_dir = root / "res/font"
     font_dir.mkdir(exist_ok=True)
-    shutil.copy(NAVOS_RES / "font/atkinson_hyperlegible_regular.ttf", font_dir / "navos_text_regular.ttf")
-    shutil.copy(NAVOS_RES / "font/atkinson_hyperlegible_bold.ttf", font_dir / "navos_text_bold.ttf")
+    for weight in ("Regular", "Medium", "SemiBold", "Bold"):
+        shutil.copy(HERE / f"fonts/Poppins-{weight}.ttf", font_dir / f"navos_text_{weight.lower()}.ttf")
     (font_dir / "navos_text.xml").write_text(FONT_FAMILY, encoding="utf-8")
 
     # XML-styled text: the base themes, and styles that name the system sans.
@@ -227,13 +287,16 @@ def set_const(path: Path, method: str, old: str, new: str):
 
 
 def patch_map_buttons(root: Path):
-    """Signal floating buttons: solid, and all round."""
+    """The design's map buttons: solid white rounded squares."""
     base = "net/osmand/plus/views/mapwidgets/configure/buttons/"
-    set_const(smali(root, base + "MapButtonState.smali"), "public getDefaultOpacity()F",
+    state = smali(root, base + "MapButtonState.smali")
+    set_const(state, "public getDefaultOpacity()F",
               "const/high16 v0, 0x3f000000    # 0.5f", "const/high16 v0, 0x3f800000    # 1.0f")
+    radius = f"const/16 v0, {hex(MAP_BUTTON_RADIUS_DP)}"
+    set_const(state, "public getDefaultCornerRadius()I", "const/16 v0, 0x24", radius)
     for name in ("DrawerMenuButtonState", "NavigationMenuButtonState"):
         set_const(smali(root, base + f"{name}.smali"), "public getDefaultCornerRadius()I",
-                  "const/4 v0, 0x2", "const/16 v0, 0x24")
+                  "const/4 v0, 0x2", radius)
 
 
 def main():
@@ -241,9 +304,11 @@ def main():
         fail("usage: restyle.py DECODED_DIR")
     root = Path(sys.argv[1])
     patch_colors(root)
+    patch_shapes(root)
     patch_type(root)
     patch_map_buttons(root)
-    print(f"restyle: {len(COLORS)} colour tokens, Atkinson Hyperlegible UI type, Signal map buttons")
+    patch_pins(root)
+    print(f"restyle: {len(COLORS)} colour tokens, rounded shapes, Poppins UI type, rounded-square map buttons")
 
 
 if __name__ == "__main__":

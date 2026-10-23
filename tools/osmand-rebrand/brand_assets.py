@@ -5,7 +5,7 @@ follows the app's icon whenever that changes:
 
   app/src/main/res/drawable-nodpi/ic_splash_logo.png   white glyph, transparent
   app/src/main/res/mipmap-*/ic_launcher_round.png      round launcher icon
-  app/src/main/res/font/saira_semicondensed_bold.ttf   wordmark font
+  tools/osmand-rebrand/fonts/Poppins-SemiBold.ttf      wordmark font (OFL)
 
 The glyph is also traced into a vector path for OsmAnd's vector logos (the
 themed-icon monochrome layer and the 24dp in-app / notification logo).
@@ -19,10 +19,10 @@ from skimage import measure
 REPO = Path(__file__).resolve().parents[2]
 RES = REPO / "app/src/main/res"
 GLYPH_PNG = RES / "drawable-nodpi/ic_splash_logo.png"
-WORDMARK_FONT = RES / "font/saira_semicondensed_bold.ttf"
+WORDMARK_FONT = Path(__file__).resolve().parent / "fonts/Poppins-SemiBold.ttf"
 
 INK = (0, 0, 0, 255)          # icon background (matches the NavOS launcher)
-NAVY = (20, 40, 75, 255)      # navos_navy, for the wordmark on light screens
+NAVY = (27, 36, 51, 255)      # design ink, for the wordmark on light screens
 
 DENSITIES = {"mdpi": 1.0, "hdpi": 1.5, "xhdpi": 2.0, "xxhdpi": 3.0, "xxxhdpi": 4.0}
 
@@ -108,3 +108,28 @@ def vector_xml(size_dp: int, viewport: float, share: float, color: str) -> str:
         f'        android:pathData="{glyph_path(viewport, share)}" />\n'
         "</vector>\n"
     )
+
+
+def text_path(text: str, viewport_w: float, viewport_h: float, height_share: float = 0.62) -> str:
+    """[text] in the wordmark font as one vector path, left-aligned and
+    vertically centred in the viewport, capital height [height_share] of it."""
+    from fontTools.pens.svgPathPen import SVGPathPen
+    from fontTools.pens.transformPen import TransformPen
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(str(WORDMARK_FONT))
+    glyphs, cmap = font.getGlyphSet(), font.getBestCmap()
+    cap = font["OS/2"].sCapHeight or 700
+    names = [cmap[ord(c)] for c in text]
+    advance = sum(font["hmtx"][n][0] for n in names)
+    scale = min(viewport_h * height_share / cap, viewport_w * 0.98 / advance)
+    baseline = (viewport_h + cap * scale) / 2
+    pen = SVGPathPen(glyphs, ntos=lambda v: f"{v:.2f}")
+    x = 0.0
+    for n in names:
+        # Font units are y-up; vector drawables are y-down.
+        glyphs[n].draw(TransformPen(pen, (scale, 0, 0, -scale, x * scale, baseline)))
+        x += font["hmtx"][n][0]
+    return pen.getCommands()
+
+BRAND_BLUE = "#1278d8"  # primary blue of the NavOS app design

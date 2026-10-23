@@ -10,7 +10,7 @@
 # KEY_PASSWORD) set, signs with that key - use the same key every time, or
 # phones refuse the update. Without them, makes a throwaway test key in OUT_DIR.
 #
-# Needs: Java 17+, Maven, Python 3 with Pillow, numpy, scikit-image, curl.
+# Needs: Java 17+, Maven, Python 3 with Pillow, numpy, scikit-image, fonttools, curl.
 set -euo pipefail
 
 ABI="${1:-arm64-v8a}"
@@ -65,8 +65,9 @@ apktool d -f -o "$WORK" "$SRC"
 echo "== Rebranding"
 python3 "$HERE/rebrand.py" "$WORK" "$APP_ID"
 
-echo "== Restyling (NavOS Signal design)"
+echo "== Restyling (NavOS design)"
 python3 "$HERE/restyle.py" "$WORK"
+python3 "$HERE/mapstyle.py" "$WORK"
 
 echo "== Building"
 UNSIGNED="$OUT/unsigned-$ABI.apk"
