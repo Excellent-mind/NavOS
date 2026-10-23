@@ -3657,7 +3657,11 @@ class MainActivity : AppCompatActivity() {
     private fun tollEstimate(i: Int): com.excellentmindblow.navos.routing.TollEstimate? {
         val pricer = com.excellentmindblow.navos.routing.TollFares.pricer ?: return null
         val strip = routeStrips[i] ?: return null
-        val names = strip.marks.filter { it.kind == TripStrip.Kind.TOLL }.map { it.name }
+        // A plaza merged from several booths: price it by the first name LLM knows.
+        val names =
+            strip.marks.filter { it.kind == TripStrip.Kind.TOLL }.map { m ->
+                (listOf(m.name) + m.otherNames).firstOrNull { pricer.match(it).isNotEmpty() } ?: m.name
+            }
         if (names.isEmpty()) return null
         return pricer.price(names)
     }

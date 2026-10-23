@@ -20,4 +20,21 @@ class BundledTollsTest {
         assertEquals(listOf("Plaza Tol Gombak"), on.map { it.name })
         assertEquals("toll", on[0].kind)
     }
+
+    @Test
+    fun boothsCloseTogetherAreOnePlazaKeepingEveryName() {
+        val route = Route(line, 10_000.0, 600.0, emptyList())
+        val a = GeoUtils.offset(start, 90.0, 4000.0)
+        val b = GeoUtils.offset(start, 90.0, 4100.0)
+        val strip =
+            com.excellentmindblow.navos.navigation.TripStrip.build(
+                route,
+                listOf(RoadPoi("toll", a.latitude, a.longitude, "Tol Berlapis (Arah Timur)"), RoadPoi("toll", b.latitude, b.longitude, "Plaza Tol Gombak (Arah Timur)")),
+                emptyList(),
+                emptyList(),
+            )!!
+        val toll = strip.marks.single()
+        assertEquals("Tol Berlapis (Arah Timur)", toll.name)
+        assertEquals(listOf("Plaza Tol Gombak (Arah Timur)"), toll.otherNames)
+    }
 }
