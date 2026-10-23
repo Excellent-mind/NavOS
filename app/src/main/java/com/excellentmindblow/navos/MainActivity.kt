@@ -2218,7 +2218,7 @@ class MainActivity : AppCompatActivity() {
         ) {
             chip.isSelected = on
             val icon = ContextCompat.getDrawable(this, iconRes)?.mutate() ?: return
-            icon.setBounds(0, 0, dp(18), dp(18))
+            icon.setBounds(0, 0, dp(16), dp(16))
             icon.setTint(ContextCompat.getColor(this, if (on) R.color.sig_on_ink else colorRes))
             chip.setCompoundDrawablesRelative(icon, null, null, null)
         }

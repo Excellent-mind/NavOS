@@ -145,4 +145,12 @@
         <item name="android:paddingEnd">14dp</item>
         <item name="android:textSize">14sp</item>
     </style>
+
+    <!-- Drive sheet place chips: four in a row on a 360dp phone, still a 44dp tap target. -->
+    <style name="Widget.Signal.Chip.Drive">
+        <item name="android:paddingStart">11dp</item>
+        <item name="android:paddingEnd">13dp</item>
+        <item name="android:drawablePadding">6dp</item>
+        <item name="android:textSize">15sp</item>
+    </style>
 </resources>

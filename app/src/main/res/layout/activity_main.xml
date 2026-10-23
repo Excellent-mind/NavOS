@@ -835,11 +835,19 @@
 
             <!-- Open sheet: which places to show on the map (petrol / EV on
                  the way, parking at the destination). Selected = ink. -->
+            <!-- Edge to edge (past the sheet's 16dp padding), so on a narrow
+                 phone the last chip runs off the screen edge and reads as
+                 "scroll for more" rather than looking clipped. -->
             <HorizontalScrollView
                 android:id="@+id/navPoiChips"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="-16dp"
                 android:layout_marginTop="14dp"
+                android:layout_marginEnd="-16dp"
+                android:clipToPadding="false"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
                 android:scrollbars="none"
                 android:visibility="gone">
 
@@ -850,25 +858,25 @@
 
                 <TextView
                     android:id="@+id/navPetrolChip"
-                    style="@style/Widget.Signal.Chip"
+                    style="@style/Widget.Signal.Chip.Drive"
                     android:text="@string/chip_petrol" />
 
                 <TextView
                     android:id="@+id/navEvChip"
-                    style="@style/Widget.Signal.Chip"
-                    android:layout_marginStart="8dp"
+                    style="@style/Widget.Signal.Chip.Drive"
+                    android:layout_marginStart="6dp"
                     android:text="@string/chip_ev_short" />
 
                 <TextView
                     android:id="@+id/navParkingChip"
-                    style="@style/Widget.Signal.Chip"
-                    android:layout_marginStart="8dp"
+                    style="@style/Widget.Signal.Chip.Drive"
+                    android:layout_marginStart="6dp"
                     android:text="@string/chip_parking" />
 
                 <TextView
                     android:id="@+id/navTransitChip"
-                    style="@style/Widget.Signal.Chip"
-                    android:layout_marginStart="8dp"
+                    style="@style/Widget.Signal.Chip.Drive"
+                    android:layout_marginStart="6dp"
                     android:text="@string/chip_transit" />
 
             </LinearLayout>
