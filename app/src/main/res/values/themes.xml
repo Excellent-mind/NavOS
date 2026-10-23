@@ -24,7 +24,10 @@
 
     <!-- Rounded card dialog in the app's surface colour. -->
     <style name="ThemeOverlay.NavOS.MaterialAlertDialog" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
+        <item name="colorSurface">@color/sig_sheet</item>
+        <item name="colorPrimary">@color/sig_ink</item>
         <item name="alertDialogStyle">@style/MaterialAlertDialog.NavOS</item>
+        <item name="materialAlertDialogBodyTextStyle">@style/MaterialAlertDialog.NavOS.Body.Text</item>
         <item name="materialAlertDialogTitleTextStyle">@style/MaterialAlertDialog.NavOS.Title.Text</item>
         <item name="buttonBarPositiveButtonStyle">@style/Widget.NavOS.DialogButton</item>
         <item name="buttonBarNegativeButtonStyle">@style/Widget.NavOS.DialogButton</item>
@@ -41,13 +44,23 @@
     </style>
 
     <style name="MaterialAlertDialog.NavOS.Title.Text" parent="MaterialAlertDialog.MaterialComponents.Title.Text">
-        <item name="android:textColor">@color/navos_text</item>
+        <item name="android:textColor">@color/sig_text</item>
+        <item name="android:fontFamily">@font/signal_text</item>
         <item name="android:textSize">20sp</item>
         <item name="android:textStyle">bold</item>
     </style>
 
+    <style name="MaterialAlertDialog.NavOS.Body.Text" parent="MaterialAlertDialog.MaterialComponents.Body.Text">
+        <item name="android:textColor">@color/sig_text_quiet</item>
+        <item name="android:fontFamily">@font/signal_text</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:lineSpacingMultiplier">1.15</item>
+    </style>
+
     <style name="Widget.NavOS.DialogButton" parent="Widget.MaterialComponents.Button.TextButton.Dialog">
-        <item name="android:textColor">@color/navos_blue</item>
+        <item name="android:textColor">@color/sig_ink</item>
+        <item name="android:fontFamily">@font/signal_text</item>
+        <item name="android:letterSpacing">0</item>
         <item name="android:textAllCaps">false</item>
         <item name="android:textSize">16sp</item>
         <item name="android:textStyle">bold</item>
