@@ -93,3 +93,25 @@ The OsmAnd name and logo are OsmAnd's trademarks. That's why this build
 removes them rather than presenting itself as OsmAnd. The app still
 downloads maps from OsmAnd's servers, so heavy public use should be
 discussed with OsmAnd.
+
+## Restyle: the NavOS "Signal" look (`restyle.py`)
+
+Runs after `rebrand.py`. It changes OsmAnd's shared design tokens, so
+every screen follows without editing screens one by one. Values come from
+the NavOS app's Signal palette (`app/src/main/res/values*/colors.xml`).
+
+- **Surfaces and text:** white and black, with Signal greys in both themes.
+  The night theme is pure black.
+- **App bar and status bar:** Signal ink (near-black) instead of orange.
+- **Accent:** NavOS navy `#14284B` in the light theme, NavOS blue `#1CB0F6`
+  at night.
+- **Buttons:** primary buttons are ink (black on light, white at night).
+  Secondary buttons are the field grey.
+- **Map buttons:** solid instead of 50% see-through, and all round,
+  including the menu and route buttons. They're white in the light theme
+  and `#1C1C1C` at night, like the NavOS floating buttons.
+- **Type:** Atkinson Hyperlegible for all UI text. XML styles get it from
+  the base themes. Code-drawn text gets it through `FontCache`, which
+  loads it once at app start.
+- **Kept as they are:** data colours (charts, markers, profile colours,
+  speed tolerance), because they carry meaning.

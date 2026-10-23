@@ -65,6 +65,9 @@ apktool d -f -o "$WORK" "$SRC"
 echo "== Rebranding"
 python3 "$HERE/rebrand.py" "$WORK" "$APP_ID"
 
+echo "== Restyling (NavOS Signal design)"
+python3 "$HERE/restyle.py" "$WORK"
+
 echo "== Building"
 UNSIGNED="$OUT/unsigned-$ABI.apk"
 apktool b -o "$UNSIGNED" "$WORK"
