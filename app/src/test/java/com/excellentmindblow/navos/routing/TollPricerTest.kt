@@ -45,4 +45,11 @@ class TollPricerTest {
         assertEquals("RM 16.52", TollPricer.format(1652))
         assertEquals("RM 0.50", TollPricer.format(50))
     }
+
+    @Test
+    fun mapSpellingsMatchLlmNames() {
+        assertEquals(TollPricer.normalize("SUNGAI LONG"), TollPricer.normalize("Plaza Tol Sg Long (Arah Barat)"))
+        assertEquals(TollPricer.normalize("AYER KEROH"), TollPricer.normalize("Plaza Toll PLUS Air Keroh"))
+        assertEquals("GOMBAK", TollPricer.normalize("Plaza Tol Gombak (Arah Timur)"))
+    }
 }

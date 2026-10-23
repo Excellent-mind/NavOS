@@ -3395,15 +3395,37 @@ class MainActivity : AppCompatActivity() {
         token: Int,
     ) {
         extrasExecutor.execute {
+            // Bundled plazas first: the tolls (and their price) show at once,
+            // offline, even when the live lookup below times out.
+            val bundled =
+                if (com.excellentmindblow.navos.routing.BundledTolls.ensureLoaded(this)) {
+                    routes.indices.associateWith { com.excellentmindblow.navos.routing.BundledTolls.along(routes[it]) }
+                } else {
+                    emptyMap()
+                }
+            if (bundled.isNotEmpty()) {
+                mainHandler.post {
+                    if (token != previewToken || navMode != NavMode.PREVIEW) return@post
+                    for ((i, tolls) in bundled) if (routePoisByIndex[i] == null) routePoisByIndex[i] = tolls
+                    rebuildRouteStrips()
+                    renderRoutePois()
+                    updateRoutePreviewSummary()
+                }
+            }
             val found =
                 try {
                     RoadPoiService.fetchAlong(routes)
                 } catch (e: Exception) {
                     emptyMap()
                 }
+            // The live answer adds cameras; keep the bundled tolls where it found none.
+            val merged =
+                found.mapValues { (i, pois) ->
+                    if (pois.none { it.kind == "toll" }) pois + bundled[i].orEmpty() else pois
+                }
             mainHandler.post {
                 if (token != previewToken || navMode != NavMode.PREVIEW) return@post
-                routePoisByIndex.putAll(found)
+                routePoisByIndex.putAll(merged)
                 rebuildRouteStrips()
                 renderRoutePois()
                 updateRoutePreviewSummary()

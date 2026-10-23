@@ -34,7 +34,8 @@ for e in elements:
     lat = e.get("lat", e.get("center", {}).get("lat"))
     lon = e.get("lon", e.get("center", {}).get("lon"))
     name = t.get("name") or t.get("name:ms") or t.get("name:en") or ""
-    if lat is None or not name:
+    # Highway toll plazas only: resort / park entry booths aren't on LLM's list.
+    if lat is None or not name or not any(w in name.lower() for w in ("tol", "toll")):
         continue
     out.append([round(lat, 6), round(lon, 6), name, t.get("ref", "")])
 out.sort()
