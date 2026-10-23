@@ -1609,6 +1609,17 @@ class MainActivity : AppCompatActivity() {
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 val tracker = dragVelocityTracker
                 dragVelocityTracker = null
+                // A quick flick on a busy phone can lift off before any move
+                // past the touch slop was delivered: it is still a flick,
+                // not a tap. Take the sheet over now and judge it below.
+                val movedPx = dragStartRawY - event.rawY
+                if (!dragging && event.actionMasked == MotionEvent.ACTION_UP &&
+                    kotlin.math.abs(movedPx) > ViewConfiguration.get(this).scaledTouchSlop &&
+                    homeSheetState != HomeSheetState.SETTINGS
+                ) {
+                    tracker?.addMovement(event)
+                    startSheetDrag()
+                }
                 if (dragging) {
                     dragging = false
                     tracker?.computeCurrentVelocity(1000)
@@ -1620,12 +1631,15 @@ class MainActivity : AppCompatActivity() {
                     // quick gesture fall back to its average speed.
                     val elapsedMs = (event.eventTime - dragDownTime).coerceAtLeast(1L)
                     val averageVelocityY = (event.rawY - dragStartRawY) * 1000f / elapsedMs
-                    val velocityY =
-                        if (kotlin.math.abs(trackedVelocityY) < FLICK_FALLBACK_MIN_PX_S && elapsedMs < FLICK_FALLBACK_MAX_MS) {
-                            averageVelocityY
-                        } else {
-                            trackedVelocityY
-                        }
+                    // Too few samples can also leave it pointing the wrong way.
+                    val trackerUnreliable =
+                        kotlin.math.abs(trackedVelocityY) < FLICK_FALLBACK_MIN_PX_S ||
+                            (averageVelocityY != 0f && kotlin.math.sign(trackedVelocityY) != kotlin.math.sign(averageVelocityY))
+                    val velocityY = if (trackerUnreliable && elapsedMs < FLICK_FALLBACK_MAX_MS) averageVelocityY else trackedVelocityY
+                    Log.i(
+                        "NavOSSheet",
+                        "release tracked=${trackedVelocityY.toInt()} avg=${averageVelocityY.toInt()} used=${velocityY.toInt()} ms=$elapsedMs",
+                    )
                     val collapsed = sheetCollapsedHeight()
                     val full = sheetFullHeight()
                     // Snap to whichever end the gesture is heading for (its
