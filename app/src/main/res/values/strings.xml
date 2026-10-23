@@ -85,4 +85,8 @@
     <string name="side_left">Destination is on your left</string>
     <string name="side_ahead">Destination is straight ahead</string>
     <string name="settings_footer">NavOS %1$s · Powered by Excellent Mindblow</string>
+    <string name="traffic_share_title">Help show live traffic?</string>
+    <string name="traffic_share_body">While you navigate, NavOS can send how fast you drive on each road, so other drivers see jams in red. It is anonymous: no account, no phone ID, and never the first or last 300 m of your trip. You can change this in Settings.</string>
+    <string name="traffic_share_yes">Share speeds</string>
+    <string name="traffic_share_no">Not now</string>
 </resources>

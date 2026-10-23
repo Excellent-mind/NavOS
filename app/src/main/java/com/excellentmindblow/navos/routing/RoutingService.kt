@@ -61,6 +61,12 @@ data class Route(
     val steps: List<RouteStep>,
     /** Intermediate stops, in driving order. Empty for an ordinary A -> B route. */
     val stops: List<RouteStop> = emptyList(),
+    /** OpenStreetMap node id at each point of [geometry] (same length), for
+     * live traffic: the piece between points i and i+1 is "nodes[i]-nodes[i+1]".
+     * Null when the server didn't send them or they don't line up. */
+    val nodes: LongArray? = null,
+    /** Normal (free-flow) speed of each piece of [geometry], m/s (length - 1). */
+    val freeFlowMs: DoubleArray? = null,
 )
 
 /**
@@ -226,7 +232,7 @@ object RoutingService {
         val url =
             URL(
                 "$baseUrl$coords" +
-                    "?overview=full&geometries=polyline&steps=true&annotations=false&alternatives=$alternatives" +
+                    "?overview=full&geometries=polyline&steps=true&annotations=nodes,speed&alternatives=$alternatives" +
                     (if (exclude != null) "&exclude=$exclude" else "") +
                     (if (snapAny) "&snapping=any" else ""),
             )
@@ -524,13 +530,41 @@ object RoutingService {
                 stop.copy(stepIndex = stepIdx, geometryIndex = geometryIndices.getOrElse(i) { -1 })
             }
 
+        val (nodes, speeds) = parseAnnotations(legs, geometry.size)
         return Route(
             geometry = geometry,
             distanceMeters = route.optDouble("distance", 0.0),
             durationSeconds = route.optDouble("duration", 0.0),
             steps = steps,
             stops = placedStops,
+            nodes = nodes,
+            freeFlowMs = speeds,
         )
+    }
+
+    /**
+     * OSM node ids and per-piece speeds from each leg's annotation, joined
+     * into one run that lines up with the route line: a leg starts where the
+     * last one ended, so its first node is dropped. Null when they don't line
+     * up with the [points] of the decoded line (then live traffic is just off
+     * for this route).
+     */
+    internal fun parseAnnotations(
+        legs: org.json.JSONArray,
+        points: Int,
+    ): Pair<LongArray?, DoubleArray?> {
+        val nodes = ArrayList<Long>(points)
+        val speeds = ArrayList<Double>(points)
+        for (l in 0 until legs.length()) {
+            val ann = legs.getJSONObject(l).optJSONObject("annotation") ?: return null to null
+            val n = ann.optJSONArray("nodes") ?: return null to null
+            val sp = ann.optJSONArray("speed") ?: return null to null
+            if (sp.length() != n.length() - 1) return null to null
+            for (i in (if (l == 0) 0 else 1) until n.length()) nodes += n.getLong(i)
+            for (i in 0 until sp.length()) speeds += sp.optDouble(i, 0.0)
+        }
+        if (nodes.size != points || speeds.size != points - 1) return null to null
+        return nodes.toLongArray() to speeds.toDoubleArray()
     }
 
     private fun stopInstruction(

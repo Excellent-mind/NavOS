@@ -87,6 +87,7 @@ import com.excellentmindblow.navos.routing.RoadPoiService
 import com.excellentmindblow.navos.navigation.RouteCorners
 import com.excellentmindblow.navos.signs.SignOverlayView
 import com.excellentmindblow.navos.signs.SignPlanner
+import com.excellentmindblow.navos.traffic.TrafficPrefs
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.routing.RoutePrefs
@@ -549,6 +550,7 @@ class MainActivity : AppCompatActivity() {
                 cameraRouteIndex.clear()
                 renderRoutePois()
                 updateRouteSigns(route)
+                trafficLayer.start(route)
                 loadActiveRoutePois(route)
                 renderedCalloutStep = -1
                 renderTurnCallouts(1)
@@ -582,6 +584,9 @@ class MainActivity : AppCompatActivity() {
     // (a configuration change, or the app closing) the result is for a screen
     // that no longer exists and its executors are shut down - acting on it
     // crashed with RejectedExecutionException. Drop such late results.
+    /** Live traffic colours on the route while driving (see [TrafficLayer]). */
+    private val trafficLayer by lazy { TrafficLayer(mainHandler) { snapSegmentIndex } }
+
     private val mainHandler =
         object : Handler(Looper.getMainLooper()) {
             override fun dispatchMessage(msg: Message) {
@@ -1221,6 +1226,19 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Toast.makeText(this, "No email app found", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /** First drive only: ask whether to share anonymous speeds (Settings can change it later). */
+    private fun askTrafficSharingOnce() {
+        val prefs = getSharedPreferences(TrafficPrefs.PREFS_NAME, MODE_PRIVATE)
+        if (TrafficPrefs.asked(prefs)) return
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.traffic_share_title)
+            .setMessage(R.string.traffic_share_body)
+            .setPositiveButton(R.string.traffic_share_yes) { _, _ -> TrafficPrefs.set(prefs, true) }
+            .setNegativeButton(R.string.traffic_share_no) { _, _ -> TrafficPrefs.set(prefs, false) }
+            .setCancelable(false)
+            .show()
     }
 
     private fun showAbout() {
@@ -2502,6 +2520,7 @@ class MainActivity : AppCompatActivity() {
             stopsSource = sources.stops
             poiSource = sources.poi
             routeTimeSource = sources.routeTimes
+            trafficLayer.source = sources.traffic
             renderPoiPins()
             if (isRestyle) {
                 redrawRouteLines()
@@ -3711,6 +3730,8 @@ class MainActivity : AppCompatActivity() {
         renderTurnCallouts(1)
         signOverlay.setNight(appliedMapDark == true)
         updateRouteSigns(route)
+        trafficLayer.start(route)
+        askTrafficSharingOnce()
         bottomNavBar.visibility = View.VISIBLE
         speedBadge.visibility = if (MapDisplayPrefs.speedometer) View.VISIBLE else View.GONE
         poiToggleColumn.visibility = View.VISIBLE
@@ -3843,6 +3864,7 @@ class MainActivity : AppCompatActivity() {
                 // behind so it never gets ahead of the gliding arrow).
                 lastTrimSnap?.let { trimRoute(it, geometry) }
                 lastTrimSnap = snap
+                trafficLayer.onProgress()
             }
         }
 
@@ -4141,6 +4163,7 @@ class MainActivity : AppCompatActivity() {
         activeLights = emptyList()
         signOverlay.clear()
         routeArrows.clear()
+        trafficLayer.stop()
         renderRoutePois()
         setRecalculating(false)
         renderedCalloutStep = -1
@@ -4649,6 +4672,7 @@ class MainActivity : AppCompatActivity() {
         extrasExecutor.shutdownNow()
         lightsExecutor.shutdownNow()
         signExecutor.shutdownNow()
+        trafficLayer.shutdown()
         placeSearchExecutor.shutdownNow()
         poiExecutor.shutdownNow()
         speedExecutor.shutdownNow()

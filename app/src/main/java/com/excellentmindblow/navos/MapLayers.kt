@@ -19,6 +19,9 @@ import org.maplibre.android.style.sources.GeoJsonSource
 internal const val ROUTE_SOURCE_ID = "navos-route-source"
 internal const val ROUTE_CASING_LAYER_ID = "navos-route-casing-layer"
 internal const val ROUTE_LAYER_ID = "navos-route-layer"
+internal const val TRAFFIC_SOURCE_ID = "navos-traffic-source"
+internal const val TRAFFIC_LAYER_ID = "navos-traffic-layer"
+internal const val TRAFFIC_LEVEL_PROPERTY = "lvl"
 internal const val ROUTE_CHEVRON_LAYER_ID = "navos-route-chevron-layer"
 internal const val ROUTE_CHEVRON_ICON_ID = "navos-route-chevron-icon"
 internal const val ROUTE_PASSED_SOURCE_ID = "navos-route-passed-source"
@@ -72,6 +75,7 @@ class MapLayers(
         val stops: GeoJsonSource,
         val poi: GeoJsonSource,
         val routeTimes: GeoJsonSource,
+        val traffic: GeoJsonSource,
     )
 
     fun install(style: Style): Sources {
@@ -190,6 +194,26 @@ class MapLayers(
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
         addBelowLabels(layer)
+
+        // Live traffic on top of the route line: amber where it's slow, red
+        // where it's jammed (see TrafficFlow). Same width, so the line just
+        // changes colour there, like Google Maps.
+        val trafficSource = GeoJsonSource(TRAFFIC_SOURCE_ID)
+        style.addSource(trafficSource)
+        addBelowLabels(
+            LineLayer(TRAFFIC_LAYER_ID, TRAFFIC_SOURCE_ID).withProperties(
+                PropertyFactory.lineColor(
+                    Expression.match(
+                        Expression.get(TRAFFIC_LEVEL_PROPERTY),
+                        Expression.color(color(R.color.sig_caution)),
+                        Expression.stop("jam", Expression.color(color(R.color.sig_limit))),
+                    ),
+                ),
+                PropertyFactory.lineWidth(routeWidthByZoom(6f, 11f, 19f, 29f)),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            ),
+        )
 
         // White direction chevrons painted INSIDE the blue lane, like Google Maps
         // and Waze. They are placed along the line itself, so each one is turned
@@ -339,6 +363,7 @@ class MapLayers(
             stops = stopsSrc,
             poi = installPoiLayer(style),
             routeTimes = timeSrc,
+            traffic = trafficSource,
         )
     }
 

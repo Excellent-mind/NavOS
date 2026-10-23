@@ -27,6 +27,7 @@ import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.routing.RouteStop
 import com.excellentmindblow.navos.routing.RoutingService
 import com.excellentmindblow.navos.routing.TripPlanner
+import com.excellentmindblow.navos.traffic.TrafficReporter
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -214,6 +215,7 @@ class NavigationService : Service() {
         stopsPassed = 0
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        (trafficReporter ?: TrafficReporter(prefs).also { trafficReporter = it }).setRoute(route, sameDrive = false)
         Units.load(prefs)
 
         if (voiceNarrator == null) {
@@ -248,6 +250,7 @@ class NavigationService : Service() {
      * like MainActivity's old in-place reroute did. */
     fun rerouteTo(route: Route) {
         activeRoute = route
+        trafficReporter?.setRoute(route, sameDrive = true)
         // The last state belongs to the OLD route's step numbering; keeping it
         // would make remainingStops() mis-judge which stops are still ahead
         // until the next GPS fix arrives.
@@ -313,6 +316,8 @@ class NavigationService : Service() {
         locationTracker?.stop()
         locationTracker = null
         deadReckoning = null
+        trafficReporter?.stop()
+        trafficReporter = null
         rerouteExecutor?.shutdownNow()
         rerouteExecutor = null
         voiceNarrator?.shutdown()
@@ -347,6 +352,7 @@ class NavigationService : Service() {
                 // A real fix: any tunnel estimate gives way to it.
                 lastRealFixMs = SystemClock.elapsedRealtime()
                 deadReckoning?.stop()
+                trafficReporter?.onFix(location, lastRealFixMs)
                 onFix(location)
             }
         locationTracker = tracker
@@ -368,6 +374,9 @@ class NavigationService : Service() {
     // ---- Tunnels: keep moving along the route when GPS drops out -----------
 
     private var deadReckoning: DeadReckoning? = null
+
+    /** Anonymous road speeds for live traffic (only sent if the driver agreed). */
+    private var trafficReporter: TrafficReporter? = null
     private var lastRealFixMs = 0L
 
     private val estimateTick =

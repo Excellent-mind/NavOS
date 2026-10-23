@@ -16,6 +16,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import com.excellentmindblow.navos.poi.PoiKind
 import com.excellentmindblow.navos.routing.RoutePrefs
+import com.excellentmindblow.navos.traffic.TrafficPrefs
 import com.google.android.material.switchmaterial.SwitchMaterial
 
 /**
@@ -96,6 +97,9 @@ class SettingsScreen(
                 switchRow("Avoid tolls", null, RoutePrefs.avoidTolls) { RoutePrefs.save(prefs, it, RoutePrefs.avoidHighways) },
                 switchRow("Avoid highways", "Applies to the next route you search for", RoutePrefs.avoidHighways) {
                     RoutePrefs.save(prefs, RoutePrefs.avoidTolls, it)
+                },
+                switchRow("Share anonymous traffic speeds", "Helps show jams in red. No account, no start or end of your trip", TrafficPrefs.sharing(prefs)) {
+                    TrafficPrefs.set(prefs, it)
                 },
             ),
         )
