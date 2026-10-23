@@ -3259,7 +3259,8 @@ class MainActivity : AppCompatActivity() {
         routeOptions.forEachIndexed { i, route ->
             val pois = routePoisByIndex[i]
             val extras = routeExtrasByIndex[i]
-            if (pois == null && extras == null) return@forEachIndexed
+            // Built even before (or without) the toll / R&R lookups: the line
+            // with Now / Arrive and traffic still helps; markers join as they come.
             val track = RouteTrack(route.geometry)
             TripStrip
                 .build(
