@@ -24,6 +24,9 @@ class RouteTrack(
 
     val length: Double get() = if (source.isEmpty()) 0.0 else cum[source.size - 1]
 
+    /** Distance from the start to route point [index]. */
+    fun distanceAt(index: Int): Double = if (source.isEmpty()) 0.0 else cum[index.coerceIn(0, source.size - 1)]
+
     /** Distance from the start of the route to a snapped GPS fix. */
     fun progressOf(snap: GeoUtils.RouteSnap): Double {
         val i = snap.segmentIndex.coerceIn(0, source.size - 2)

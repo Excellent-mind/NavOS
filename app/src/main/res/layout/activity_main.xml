@@ -2,6 +2,7 @@
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -49,7 +50,7 @@
                     android:layout_marginEnd="8dp"
                     android:background="@drawable/search_bar_bg"
                     android:backgroundTint="@color/navos_button_fill"
-                    android:contentDescription="Back to navigation"
+                    android:contentDescription="@string/back_to_navigation"
                     android:elevation="4dp"
                     android:padding="12dp"
                     android:src="@drawable/ic_close"
@@ -71,7 +72,7 @@
                         android:layout_weight="1"
                         android:autofillHints=""
                         android:background="@android:color/transparent"
-                        android:hint="Search destination in Malaysia"
+                        android:hint="@string/search_hint_malaysia"
                         android:imeOptions="actionSearch"
                         android:inputType="text"
                         android:maxLines="1"
@@ -85,7 +86,7 @@
                         android:layout_width="44dp"
                         android:layout_height="44dp"
                         android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="Clear search"
+                        android:contentDescription="@string/clear_search"
                         android:padding="10dp"
                         android:src="@drawable/ic_clear_circle"
                         android:visibility="gone" />
@@ -108,22 +109,25 @@
 
         </LinearLayout>
 
-        <!-- Active-nav turn instruction banner, pinned to the top like
-             Waze/Google Maps' direction banner - stands in for topBar
-             (hidden) while a route is being previewed or driven. One
-             vertical card so the optional lane-guidance and "and then"
-             rows grow the card instead of needing separate floating
-             cards with fragile fixed offsets. -->
+        <!-- The turn sign (Signal): the one loud thing while driving. Black
+             card with a light rim: turn arrow, distance in big numbers, the
+             street, and the road number on an amber tag when there is one.
+             Below it the lanes (when mapped) and "Then ..." (the turn after).
+             Tap it for the full list of next turns. -->
         <LinearLayout
             android:id="@+id/topNavBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
             android:layout_marginTop="40dp"
-            android:layout_marginStart="12dp"
-            android:layout_marginEnd="12dp"
-            android:background="@drawable/bg_top_card"
-            android:elevation="4dp"
+            android:layout_marginEnd="10dp"
+            android:background="@drawable/bg_sig_turn"
+            android:clickable="true"
+            android:contentDescription="@string/next_turns"
+            android:elevation="8dp"
+            android:focusable="true"
             android:orientation="vertical"
+            android:padding="3dp"
             android:visibility="gone">
 
             <LinearLayout
@@ -131,90 +135,149 @@
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:padding="16dp">
+                android:paddingStart="15dp"
+                android:paddingTop="13dp"
+                android:paddingEnd="15dp"
+                android:paddingBottom="13dp">
+
+                <ImageView
+                    android:id="@+id/turnSignIcon"
+                    android:layout_width="58dp"
+                    android:layout_height="58dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_turn_straight"
+                    app:tint="@color/white" />
 
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
                     android:layout_weight="1"
                     android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/turnSignDistance"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:maxLines="1"
+                        android:textAppearance="@style/TextAppearance.Signal.Number"
+                        android:textColor="@color/white"
+                        android:textSize="46sp"
+                        tools:text="300 m" />
 
                     <TextView
                         android:id="@+id/turnStreetText"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:textColor="@color/navos_text_secondary"
-                        android:textSize="16sp"
-                        tools:text="Lorong Sabudin" />
+                        android:layout_marginTop="2dp"
+                        android:ellipsize="end"
+                        android:maxLines="2"
+                        android:textAppearance="@style/TextAppearance.Signal.Body"
+                        android:textColor="@color/white"
+                        android:textSize="21sp"
+                        tools:text="Jalan Sultan Ismail" />
 
                 </LinearLayout>
 
+                <TextView
+                    android:id="@+id/turnRefTag"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_sig_ref_tag"
+                    android:paddingStart="7dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="7dp"
+                    android:paddingBottom="2dp"
+                    android:textAppearance="@style/TextAppearance.Signal.Number"
+                    android:textColor="#0B0B0B"
+                    android:textSize="17sp"
+                    android:visibility="gone"
+                    tools:text="E33" />
+
             </LinearLayout>
 
-            <!-- Lane guidance for the upcoming turn - populated
-                 programmatically (one icon per lane) since the lane count
-                 varies per junction, and only shown when OSRM actually
-                 returned lane-tagged data for this turn. -->
+            <!-- Lane guidance for the upcoming turn, one arrow per lane (added
+                 from code); only when the road is lane-tagged in the map data. -->
             <LinearLayout
                 android:id="@+id/laneContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:background="@color/sig_lane_fill"
                 android:gravity="center"
                 android:orientation="horizontal"
                 android:paddingStart="16dp"
+                android:paddingTop="8dp"
                 android:paddingEnd="16dp"
-                android:paddingBottom="12dp"
+                android:paddingBottom="10dp"
                 android:visibility="gone" />
 
-            <!-- "and then" secondary preview strip, once the step after
-                 this one is known - same look-ahead Waze/Google Maps show
-                 so the driver isn't surprised by a turn right after this
-                 one. -->
+            <!-- "Then ..." - the turn right after this one, so it never surprises. -->
             <LinearLayout
                 android:id="@+id/nextTurnStrip"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@drawable/bg_strip_light"
+                android:background="@drawable/bg_sig_then"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:paddingStart="16dp"
+                android:paddingTop="10dp"
                 android:paddingEnd="16dp"
-                android:paddingTop="8dp"
-                android:paddingBottom="8dp"
+                android:paddingBottom="10dp"
                 android:visibility="gone">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginEnd="10dp"
-                    android:text="and then"
-                    android:textColor="@color/navos_text_secondary"
-                    android:textSize="13sp" />
+                    android:text="@string/then"
+                    android:textAppearance="@style/TextAppearance.Signal.Secondary"
+                    android:textSize="15sp" />
 
                 <ImageView
                     android:id="@+id/nextTurnIcon"
-                    android:layout_width="22dp"
-                    android:layout_height="22dp"
-                    android:contentDescription="Then"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_marginStart="10dp"
+                    android:contentDescription="@null"
                     android:src="@drawable/ic_turn_straight"
-                    android:tint="@color/navos_text" />
+                    app:tint="@color/sig_text" />
+
+                <TextView
+                    android:id="@+id/nextTurnStreet"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="@style/TextAppearance.Signal.Label"
+                    tools:text="Jalan Ampang" />
+
+                <TextView
+                    android:id="@+id/nextTurnDistance"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:textAppearance="@style/TextAppearance.Signal.Number.Row"
+                    tools:text="in 450 m" />
 
             </LinearLayout>
 
         </LinearLayout>
 
-        <!-- Route list, Waze-style: every route as a card (time, arrival,
-             distance, via road, toll) with a Go button. Cards are added from
-             code (MainActivity.renderRouteList). -->
+        <!-- All routes (from "All N routes" in the preview): every route as a
+             card, quickest first; tapping one picks it. Cards are added by
+             RoutePreviewSheet. -->
         <ScrollView
             android:id="@+id/routeListOverlay"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="@color/navos_surface_alt"
+            android:background="@color/sig_sheet"
             android:clipToPadding="false"
             android:elevation="6dp"
             android:fillViewport="true"
-            android:paddingTop="118dp"
+            android:paddingTop="108dp"
             android:visibility="gone">
 
             <LinearLayout
@@ -229,100 +292,131 @@
 
         </ScrollView>
 
-        <!-- Map | List switch shown while choosing between routes. -->
-        <LinearLayout
-            android:id="@+id/routeViewToggle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="56dp"
-            android:background="@drawable/bg_pill_surface"
+        <!-- Route preview: back to search (or, with all routes open, back to the preview). -->
+        <ImageButton
+            android:id="@+id/routeBackButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="top|start"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="48dp"
+            android:background="@drawable/bg_sig_icon_circle"
+            android:backgroundTint="@color/sig_sheet"
+            android:contentDescription="@string/back_to_search"
             android:elevation="10dp"
-            android:orientation="horizontal"
-            android:padding="5dp"
-            android:visibility="gone">
+            android:padding="13dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_arrow_back"
+            android:visibility="gone"
+            app:tint="@color/sig_text" />
 
-            <TextView
-                android:id="@+id/toggleMap"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:clickable="true"
-                android:focusable="true"
-                android:paddingStart="26dp"
-                android:paddingTop="11dp"
-                android:paddingEnd="26dp"
-                android:paddingBottom="11dp"
-                android:text="Map"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/toggleList"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:clickable="true"
-                android:focusable="true"
-                android:paddingStart="26dp"
-                android:paddingTop="11dp"
-                android:paddingEnd="26dp"
-                android:paddingBottom="11dp"
-                android:text="List"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-
-        </LinearLayout>
-
-        <!-- "Recalculating..." pill: animated NavOS logo + pulsing text, shown while the
-             driver is off the route and a new one is being worked out. -->
+        <!-- "Working on it" pill (BusyPill): recalculating, finding / updating a
+             route, adding / skipping a stop. Steady text over a thin bar with a
+             sliding segment (SignalLoaderView). -->
         <LinearLayout
             android:id="@+id/recalcPill"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="top|center_horizontal"
             android:layout_marginTop="60dp"
-            android:background="@drawable/bg_recalc_pill"
+            android:background="@drawable/bg_busy_pill"
             android:elevation="8dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="16dp"
+            android:minWidth="200dp"
+            android:orientation="vertical"
+            android:paddingStart="22dp"
             android:paddingTop="12dp"
             android:paddingEnd="22dp"
-            android:paddingBottom="12dp"
+            android:paddingBottom="14dp"
             android:visibility="gone">
-
-            <!-- NavOS logo: the ring and S stay put while the compass needle
-                 sweeps around (animated in setRecalculating). -->
-            <FrameLayout
-                android:id="@+id/recalcLogo"
-                android:layout_width="55dp"
-                android:layout_height="34dp">
-
-                <ImageView
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:importantForAccessibility="no"
-                    android:src="@drawable/ic_logo_rest"
-                    android:tint="@color/navos_text" />
-
-                <ImageView
-                    android:id="@+id/recalcNeedle"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:importantForAccessibility="no"
-                    android:src="@drawable/ic_logo_needle"
-                    android:tint="@color/navos_blue" />
-            </FrameLayout>
 
             <TextView
                 android:id="@+id/recalcText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:text="Recalculating..."
-                android:textColor="@color/navos_text"
-                android:textSize="17sp"
-                android:textStyle="bold" />
+                android:layout_gravity="center_horizontal"
+                android:accessibilityLiveRegion="polite"
+                android:text="@string/recalculating"
+                android:textAppearance="@style/TextAppearance.Signal.Body" />
 
+            <com.excellentmindblow.navos.SignalLoaderView
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginTop="10dp"
+                android:importantForAccessibility="no" />
+
+        </LinearLayout>
+
+        <!-- "Faster route · saves 6 min" offered mid-drive (Switch / Keep). -->
+        <LinearLayout
+            android:id="@+id/fasterCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="60dp"
+            android:layout_marginEnd="16dp"
+            android:background="@drawable/bg_busy_pill"
+            android:clickable="true"
+            android:elevation="10dp"
+            android:focusable="true"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingTop="16dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/fasterTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:accessibilityLiveRegion="polite"
+                android:textAppearance="@style/TextAppearance.Signal.Body"
+                android:textSize="18sp" />
+
+            <TextView
+                android:id="@+id/fasterDetail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAppearance="@style/TextAppearance.Signal.Secondary" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/fasterKeep"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_marginEnd="8dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_sig_field"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:textAppearance="@style/TextAppearance.Signal.Body"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/fasterSwitch"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_sig_card"
+                    android:backgroundTint="@color/sig_ink"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:textAppearance="@style/TextAppearance.Signal.Body"
+                    android:textColor="@color/sig_on_ink"
+                    android:textSize="16sp" />
+
+            </LinearLayout>
         </LinearLayout>
 
         <!-- Always-visible compass: the needle rotates with the map, tap to face north. -->
@@ -334,42 +428,39 @@
             android:layout_marginTop="92dp"
             android:layout_marginEnd="8dp"
             android:clickable="true"
-            android:contentDescription="Compass - tap to face north"
+            android:contentDescription="@string/compass_description"
             android:focusable="true" />
 
-        <!-- Live speed badge, shown only during active navigation - same
-             bottom-left circular readout Waze shows. -->
+        <!-- Your speed (big number, red when over the limit) - bottom left. -->
         <TextView
             android:id="@+id/speedBadge"
+            android:layout_width="76dp"
+            android:layout_height="76dp"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="14dp"
+            android:layout_marginBottom="136dp"
+            android:background="@drawable/bg_sig_float"
+            android:elevation="4dp"
+            android:gravity="center"
+            android:lineSpacingMultiplier="0.85"
+            android:textAppearance="@style/TextAppearance.Signal.Number"
+            android:visibility="gone"
+            tools:text="62\nkm/h" />
+
+        <!-- Posted speed limit (from map data), beside the speed, only when known. -->
+        <TextView
+            android:id="@+id/speedLimitSign"
             android:layout_width="56dp"
             android:layout_height="56dp"
             android:layout_gravity="bottom|start"
-            android:layout_marginStart="12dp"
-            android:layout_marginBottom="140dp"
-            android:background="@drawable/bg_circle_white"
-            android:elevation="4dp"
-            android:gravity="center"
-            android:textColor="@color/navos_text"
-            android:textSize="13sp"
-            android:textStyle="bold"
-            android:visibility="gone"
-            tools:text="0\nkm/h" />
-
-        <!-- Posted speed limit of the road being driven (from map data),
-             shown to the right of the speed badge only when it is known. -->
-        <TextView
-            android:id="@+id/speedLimitSign"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_gravity="bottom|start"
-            android:layout_marginStart="76dp"
-            android:layout_marginBottom="144dp"
+            android:layout_marginStart="98dp"
+            android:layout_marginBottom="136dp"
             android:background="@drawable/bg_speed_limit"
             android:elevation="4dp"
             android:gravity="center"
+            android:textAppearance="@style/TextAppearance.Signal.Number"
             android:textColor="#111111"
-            android:textSize="17sp"
-            android:textStyle="bold"
+            android:textSize="24sp"
             android:visibility="gone"
             tools:text="60" />
 
@@ -382,11 +473,11 @@
             android:layout_width="wrap_content"
             android:layout_height="48dp"
             android:layout_gravity="bottom|end"
-            android:layout_marginEnd="12dp"
-            android:layout_marginBottom="140dp"
-            android:background="@drawable/bg_pill_surface"
+            android:layout_marginEnd="14dp"
+            android:layout_marginBottom="136dp"
+            android:background="@drawable/bg_sig_float_pill"
             android:clickable="true"
-            android:contentDescription="Re-centre on my location"
+            android:contentDescription="@string/recenter"
             android:elevation="6dp"
             android:focusable="true"
             android:gravity="center_vertical"
@@ -400,67 +491,75 @@
                 android:layout_height="22dp"
                 android:importantForAccessibility="no"
                 android:src="@drawable/ic_recenter"
-                android:tint="@color/navos_blue" />
+                app:tint="@color/sig_text" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:text="Re-center"
-                android:textColor="@color/navos_text"
-                android:textSize="16sp"
-                android:textStyle="bold" />
+                android:text="@string/recenter"
+                android:textAppearance="@style/TextAppearance.Signal.Label"
+                android:textSize="16sp" />
 
         </LinearLayout>
 
-        <!-- Show/hide the petrol (pump) and EV charging (lightning) pins
-             during a drive - sitting above the re-center / speed badge area. Colours
-             (on = orange/green, off = white) are set in code. -->
+        <!-- Right-hand drive controls: report, mute voice. (Petrol / EV /
+             parking pins are chips in the drive sheet.) -->
         <LinearLayout
             android:id="@+id/poiToggleColumn"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|end"
-            android:layout_marginEnd="12dp"
-            android:layout_marginBottom="156dp"
+            android:layout_marginEnd="14dp"
+            android:layout_marginBottom="224dp"
             android:orientation="vertical"
             android:visibility="gone">
 
+            <!-- Report something on the road (accident, police, flood, hazard). -->
             <ImageButton
-                android:id="@+id/evToggleButton"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginBottom="8dp"
-                android:background="@drawable/bg_circle_white"
-                android:contentDescription="Show or hide EV charging"
+                android:id="@+id/reportButton"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:layout_marginBottom="10dp"
+                android:background="@drawable/bg_report_button"
+                android:contentDescription="@string/report_road"
                 android:elevation="4dp"
-                android:padding="12dp"
-                android:src="@drawable/ic_ev" />
+                android:padding="13dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_report"
+                app:tint="#0A0A0A" />
 
             <ImageButton
-                android:id="@+id/fuelToggleButton"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="@drawable/bg_circle_white"
-                android:contentDescription="Show or hide petrol stations"
+                android:id="@+id/muteButton"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_sig_float"
+                android:contentDescription="@string/mute_voice"
                 android:elevation="4dp"
-                android:padding="12dp"
-                android:src="@drawable/ic_fuel" />
+                android:padding="14dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_volume"
+                app:tint="@color/sig_text" />
+
+
 
         </LinearLayout>
 
-        <!-- Route preview, Waze-style: big arrival time with "duration •
-             distance" under it, a grey section holding a white card for the
-             route ("Via ...", alternatives hint), then a red Stop and a blue
-             Go now pill along the bottom. -->
+        <!-- Route preview (Signal): destination, up to three route cards
+             (more behind "All N routes"), a typical-time note, then Add stop
+             and Go now. Stops of a multi-stop trip are listed under the
+             destination (added from code, see setUpTripUi). -->
         <LinearLayout
             android:id="@+id/routePreviewCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
-            android:background="@drawable/bg_bottom_sheet"
+            android:background="@drawable/bg_sig_sheet"
             android:elevation="8dp"
             android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="24dp"
             android:visibility="gone">
 
             <FrameLayout
@@ -469,150 +568,194 @@
 
                 <View
                     android:layout_width="40dp"
-                    android:layout_height="4dp"
+                    android:layout_height="5dp"
                     android:layout_gravity="center"
-                    android:background="@drawable/bg_drag_handle" />
+                    android:background="@drawable/bg_sig_handle" />
 
             </FrameLayout>
 
             <LinearLayout
+                android:id="@+id/routePreviewHeader"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_horizontal"
                 android:orientation="vertical"
-                android:paddingStart="20dp"
-                android:paddingEnd="20dp"
-                android:paddingBottom="14dp">
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp">
 
                 <TextView
-                    android:id="@+id/routePreviewEta"
-                    android:layout_width="wrap_content"
+                    android:id="@+id/routePreviewDestination"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textColor="@color/navos_text"
-                    android:textSize="28sp"
-                    android:textStyle="bold"
-                    tools:text="3:38 PM" />
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="@style/TextAppearance.Signal.Body"
+                    android:textSize="21sp"
+                    tools:text="Mid Valley Megamall" />
 
                 <TextView
-                    android:id="@+id/routePreviewSummary"
-                    android:layout_width="wrap_content"
+                    android:id="@+id/routePreviewAddress"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textColor="@color/navos_text_secondary"
-                    android:textSize="18sp"
-                    tools:text="1:11 h • 61 km" />
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="@style/TextAppearance.Signal.Secondary"
+                    tools:text="Lingkaran Syed Putra, Kuala Lumpur" />
 
             </LinearLayout>
 
+            <!-- Route cards, added by RoutePreviewSheet. -->
             <LinearLayout
+                android:id="@+id/routeChoices"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@color/navos_surface_alt"
+                android:layout_marginTop="14dp"
+                android:orientation="vertical" />
+
+            <TextView
+                android:id="@+id/routeAllRoutes"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:paddingStart="4dp"
+                android:paddingEnd="12dp"
+                android:textAppearance="@style/TextAppearance.Signal.Label"
+                android:visibility="gone"
+                tools:text="All 5 routes" />
+
+            <!-- Park & ride suggestion (only when it clearly saves time). -->
+            <LinearLayout
+                android:id="@+id/routeParkRide"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:background="@drawable/bg_report_alert"
+                android:clickable="true"
+                android:focusable="true"
+                android:minHeight="72dp"
                 android:orientation="vertical"
-                android:padding="12dp">
+                android:paddingStart="16dp"
+                android:paddingTop="12dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="12dp"
+                android:visibility="gone">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/bg_card_white"
-                    android:elevation="1dp"
-                    android:gravity="center_horizontal"
-                    android:orientation="vertical"
-                    android:padding="16dp">
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/ic_train"
+                        app:tint="@color/sig_text" />
 
                     <TextView
-                        android:id="@+id/routePreviewDestination"
-                        android:layout_width="match_parent"
+                        android:id="@+id/routeParkRideTitle"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:ellipsize="end"
-                        android:gravity="center"
-                        android:maxLines="1"
-                        android:textColor="@color/navos_text_secondary"
-                        android:textSize="16sp"
-                        tools:text="Lorong Latif, Kajang, Selangor" />
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:textAppearance="@style/TextAppearance.Signal.Body"
+                        android:textSize="17sp"
+                        tools:text="Park &amp; ride · about 48 min" />
 
                     <TextView
-                        android:id="@+id/routePreviewVia"
-                        android:layout_width="match_parent"
+                        android:id="@+id/routeParkRideSaving"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:gravity="center"
-                        android:maxLines="2"
-                        android:textColor="@color/navos_text"
-                        android:textSize="20sp"
-                        android:textStyle="bold"
-                        tools:text="Via E26 Lebuhraya SKVE" />
-
-                    <TextView
-                        android:id="@+id/routePreviewHint"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:gravity="center"
-                        android:textColor="@color/navos_text_secondary"
-                        android:textSize="13sp"
-                        tools:text="2 routes found - tap a grey route to switch" />
+                        android:layout_marginStart="8dp"
+                        android:textAppearance="@style/TextAppearance.Signal.Label"
+                        android:textColor="@color/sig_success"
+                        tools:text="save 15 min" />
 
                 </LinearLayout>
 
+                <TextView
+                    android:id="@+id/routeParkRideSteps"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textAppearance="@style/TextAppearance.Signal.Caption"
+                    tools:text="Drive 12 min · park at Sungai Buloh · KG train ~28 min · walk 8 min" />
+
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/routePreviewHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:textAppearance="@style/TextAppearance.Signal.Caption"
+                tools:text="Arrive 2:49 PM · typical time, no live traffic" />
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@color/navos_surface"
-                android:orientation="horizontal"
-                android:paddingStart="16dp"
-                android:paddingTop="12dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="28dp">
+                android:layout_marginTop="14dp"
+                android:orientation="horizontal">
 
                 <TextView
-                    android:id="@+id/cancelRouteButton"
-                    android:layout_width="0dp"
-                    android:layout_height="52dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_pill_red"
+                    android:id="@+id/previewAddStopButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="60dp"
+                    android:background="@drawable/bg_sig_card"
                     android:clickable="true"
+                    android:drawablePadding="8dp"
                     android:focusable="true"
                     android:gravity="center"
-                    android:text="Stop"
-                    android:textColor="@color/white"
-                    android:textSize="18sp"
-                    android:textStyle="bold" />
+                    android:paddingStart="18dp"
+                    android:paddingEnd="18dp"
+                    android:text="@string/add_stop"
+                    android:textAppearance="@style/TextAppearance.Signal.Label"
+                    android:textSize="16sp"
+                    app:drawableStartCompat="@drawable/ic_add"
+                    app:drawableTint="@color/sig_text" />
 
                 <TextView
                     android:id="@+id/startNavigationButton"
                     android:layout_width="0dp"
-                    android:layout_height="52dp"
+                    android:layout_height="60dp"
                     android:layout_marginStart="10dp"
-                    android:layout_weight="1.7"
-                    android:background="@drawable/bg_pill_blue"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_sig_card"
+                    android:backgroundTint="@color/sig_ink"
                     android:clickable="true"
+                    android:drawablePadding="10dp"
+                    android:elevation="4dp"
                     android:focusable="true"
                     android:gravity="center"
-                    android:text="Go now"
-                    android:textColor="@color/white"
-                    android:textSize="18sp"
-                    android:textStyle="bold" />
+                    android:text="@string/go_now"
+                    android:textAppearance="@style/TextAppearance.Signal.Body"
+                    android:textColor="@color/sig_on_ink"
+                    android:textSize="20sp" />
 
             </LinearLayout>
 
         </LinearLayout>
 
-        <!-- Drive bar, Waze-style: round search button, big arrival time with
-             "duration • distance" under it, round switch-route button. Tap or
-             swipe up on the handle / time to reveal the red Stop pill. -->
+        <!-- Drive bar (Signal): search along the way, arrival time in big
+             numbers with "time left · distance left", and End (X). End opens
+             the bar to a big End trip button (so a stray tap never ends a
+             drive), Share ETA and, on a trip with stops, the stop controls. -->
         <LinearLayout
             android:id="@+id/bottomNavBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
-            android:background="@drawable/bg_bottom_sheet"
+            android:background="@drawable/bg_sig_sheet"
             android:elevation="8dp"
             android:orientation="vertical"
-            android:paddingStart="20dp"
-            android:paddingEnd="20dp"
-            android:paddingBottom="28dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="26dp"
             android:visibility="gone">
 
             <FrameLayout
@@ -622,9 +765,9 @@
 
                 <View
                     android:layout_width="40dp"
-                    android:layout_height="4dp"
+                    android:layout_height="5dp"
                     android:layout_gravity="center"
-                    android:background="@drawable/bg_drag_handle" />
+                    android:background="@drawable/bg_sig_handle" />
 
             </FrameLayout>
 
@@ -635,17 +778,16 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <!-- Search for a new destination without fully stopping the
-                     current drive. -->
                 <ImageButton
                     android:id="@+id/bottomSearchButton"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:background="@drawable/bg_circle_light"
-                    android:contentDescription="Search for a new destination"
-                    android:padding="14dp"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:background="@drawable/bg_sig_icon_circle"
+                    android:contentDescription="@string/search_along_the_way"
+                    android:padding="16dp"
+                    android:scaleType="fitCenter"
                     android:src="@drawable/ic_search"
-                    android:tint="@color/navos_text_secondary" />
+                    app:tint="@color/sig_text" />
 
                 <LinearLayout
                     android:id="@+id/navEtaCenter"
@@ -661,106 +803,138 @@
                         android:id="@+id/etaClockText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="@color/navos_text"
-                        android:textSize="28sp"
-                        android:textStyle="bold"
-                        tools:text="3:38 PM" />
+                        android:letterSpacing="-0.01"
+                        android:textAppearance="@style/TextAppearance.Signal.Number"
+                        android:textSize="38sp"
+                        tools:text="8:42 pm" />
 
                     <TextView
                         android:id="@+id/etaDetailText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="@color/navos_text_secondary"
-                        android:textSize="18sp"
-                        tools:text="1:11 h • 61 km" />
+                        android:layout_marginTop="2dp"
+                        android:textAppearance="@style/TextAppearance.Signal.Number.Row"
+                        android:textSize="19sp"
+                        tools:text="18 min · 12.4 km" />
 
                 </LinearLayout>
 
-                <!-- Opens the "Next turns" list (every upcoming turn with its
-                     arrow, distance and street). Switching route lives in
-                     that sheet's header. -->
-                <LinearLayout
+                <ImageButton
                     android:id="@+id/bottomAltRouteButton"
-                    android:layout_width="72dp"
-                    android:layout_height="72dp"
-                    android:background="@drawable/bg_circle_light"
-                    android:clickable="true"
-                    android:contentDescription="Next turns"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:orientation="vertical">
-
-                    <ImageView
-                        android:id="@+id/turnIcon"
-                        android:layout_width="34dp"
-                        android:layout_height="34dp"
-                        android:contentDescription="Next turn"
-                        android:src="@drawable/ic_turn_straight"
-                        android:tint="@color/navos_text" />
-
-                    <TextView
-                        android:id="@+id/turnDistanceText"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:maxLines="1"
-                        android:textColor="@color/navos_text"
-                        android:textSize="12sp"
-                        android:textStyle="bold"
-                        tools:text="550 m" />
-
-                </LinearLayout>
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:background="@drawable/bg_sig_icon_circle"
+                    android:backgroundTint="@color/sig_end_fill"
+                    android:contentDescription="@string/end_navigation"
+                    android:padding="18dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_close"
+                    app:tint="@color/sig_end_ink" />
 
             </LinearLayout>
+
+            <!-- Open sheet: which places to show on the map (petrol / EV on
+                 the way, parking at the destination). Selected = ink. -->
+            <!-- Edge to edge (past the sheet's 16dp padding), so on a narrow
+                 phone the last chip runs off the screen edge and reads as
+                 "scroll for more" rather than looking clipped. -->
+            <HorizontalScrollView
+                android:id="@+id/navPoiChips"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="-16dp"
+                android:layout_marginTop="14dp"
+                android:layout_marginEnd="-16dp"
+                android:clipToPadding="false"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:scrollbars="none"
+                android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/navPetrolChip"
+                    style="@style/Widget.Signal.Chip.Drive"
+                    android:text="@string/chip_petrol" />
+
+                <TextView
+                    android:id="@+id/navEvChip"
+                    style="@style/Widget.Signal.Chip.Drive"
+                    android:layout_marginStart="6dp"
+                    android:text="@string/chip_ev_short" />
+
+                <TextView
+                    android:id="@+id/navParkingChip"
+                    style="@style/Widget.Signal.Chip.Drive"
+                    android:layout_marginStart="6dp"
+                    android:text="@string/chip_parking" />
+
+                <TextView
+                    android:id="@+id/navTransitChip"
+                    style="@style/Widget.Signal.Chip.Drive"
+                    android:layout_marginStart="6dp"
+                    android:text="@string/chip_transit" />
+
+            </LinearLayout>
+            </HorizontalScrollView>
 
             <TextView
                 android:id="@+id/stopNavigationButton"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
+                android:layout_height="56dp"
                 android:layout_marginTop="14dp"
-                android:background="@drawable/bg_pill_red"
+                android:background="@drawable/bg_sig_card"
+                android:backgroundTint="@color/sig_limit"
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center"
-                android:text="Stop"
+                android:text="@string/end_trip"
+                android:textAppearance="@style/TextAppearance.Signal.Body"
                 android:textColor="@color/white"
                 android:textSize="18sp"
-                android:textStyle="bold"
                 android:visibility="gone" />
 
             <TextView
                 android:id="@+id/shareEtaButton"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
+                android:layout_height="56dp"
                 android:layout_marginTop="10dp"
-                android:background="@drawable/bg_pill_blue"
+                android:background="@drawable/bg_sig_card"
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center"
-                android:text="Share ETA"
-                android:textColor="@color/white"
+                android:text="@string/share_eta"
+                android:textAppearance="@style/TextAppearance.Signal.Body"
                 android:textSize="18sp"
-                android:textStyle="bold"
                 android:visibility="gone" />
 
         </LinearLayout>
 
-        <!-- Petrol station / EV charger details, shown when a pin is tapped
-             during a drive. Sits above the drive bar. clickable so taps on
-             the card don't fall through to the map (which would close it). -->
+        <!-- Petrol station / EV charger (and dropped pin) card. During a drive it
+             answers "fuel up here or carry on?": how far ahead, which side, the
+             next station on the route, what it has, and Stop here (keeps the
+             destination). clickable so taps don't fall through to the map. -->
         <LinearLayout
             android:id="@+id/poiCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
-            android:layout_marginStart="10dp"
-            android:layout_marginEnd="10dp"
-            android:layout_marginBottom="140dp"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
+            android:layout_marginBottom="132dp"
             android:background="@drawable/bg_poi_card"
             android:clickable="true"
             android:elevation="12dp"
             android:focusable="true"
             android:orientation="vertical"
-            android:padding="16dp"
+            android:paddingStart="20dp"
+            android:paddingTop="20dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="16dp"
             android:visibility="gone">
 
             <LinearLayout
@@ -771,14 +945,14 @@
 
                 <FrameLayout
                     android:id="@+id/poiLogo"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
                     android:background="@drawable/bg_poi_logo">
 
                     <ImageView
                         android:id="@+id/poiLogoIcon"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
+                        android:layout_width="26dp"
+                        android:layout_height="26dp"
                         android:layout_gravity="center"
                         android:contentDescription="@null"
                         android:src="@drawable/ic_fuel" />
@@ -798,17 +972,15 @@
                         android:layout_height="wrap_content"
                         android:ellipsize="end"
                         android:maxLines="2"
-                        android:textColor="@color/navos_text"
-                        android:textSize="17sp"
-                        android:textStyle="bold" />
+                        android:textAppearance="@style/TextAppearance.Signal.Body"
+                        android:textSize="19sp" />
 
                     <TextView
                         android:id="@+id/poiMeta"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:textColor="@color/navos_text_tertiary"
-                        android:textSize="13sp" />
+                        android:textAppearance="@style/TextAppearance.Signal.Secondary" />
 
                 </LinearLayout>
 
@@ -817,53 +989,205 @@
                     android:layout_width="44dp"
                     android:layout_height="44dp"
                     android:layout_marginStart="8dp"
-                    android:background="@drawable/bg_circle_navy"
-                    android:backgroundTint="@color/navos_line"
-                    android:contentDescription="Close"
-                    android:padding="8dp"
+                    android:background="@drawable/bg_sig_icon_circle"
+                    android:contentDescription="@string/close"
+                    android:padding="12dp"
+                    android:scaleType="fitCenter"
                     android:src="@drawable/ic_close"
-                    android:tint="@color/navos_text" />
+                    app:tint="@color/sig_text" />
 
+            </LinearLayout>
+
+            <!-- On the drive: "3.2 km  ahead / about 3 min" -->
+            <LinearLayout
+                android:id="@+id/poiAheadRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:gravity="bottom"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/poiAheadValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.Signal.Number"
+                    android:textSize="44sp" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_marginBottom="4dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/poiAheadLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Signal.Body"
+                        android:textSize="16sp" />
+
+                    <TextView
+                        android:id="@+id/poiAheadTime"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Signal.Secondary" />
+
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- "On your side · 150 m off route" -->
+            <TextView
+                android:id="@+id/poiSide"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:drawablePadding="8dp"
+                android:gravity="center_vertical"
+                android:textAppearance="@style/TextAppearance.Signal"
+                android:textSize="15sp"
+                android:visibility="gone" />
+
+            <!-- The next station on the route, or "last one" warning -->
+            <LinearLayout
+                android:id="@+id/poiNext"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:background="@drawable/bg_sig_field"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingTop="12dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="12dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/poiNextIcon"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_fuel"
+                    app:tint="@color/sig_text_quiet" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/poiNextLabel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Signal.Caption" />
+
+                    <TextView
+                        android:id="@+id/poiNextValue"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Signal.Body"
+                        android:textSize="16sp" />
+
+                </LinearLayout>
             </LinearLayout>
 
             <TextView
                 android:id="@+id/poiSpec"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="12dp"
                 android:lineSpacingExtra="2dp"
-                android:textColor="@color/navos_text"
-                android:textSize="13sp"
+                android:textAppearance="@style/TextAppearance.Signal"
+                android:textSize="14sp"
                 android:visibility="gone" />
 
             <com.google.android.material.chip.ChipGroup
                 android:id="@+id/poiChips"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp" />
+                android:layout_marginTop="12dp"
+                app:chipSpacingHorizontal="8dp"
+                app:chipSpacingVertical="8dp" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:id="@+id/poiFootnote"
-                android:text="Facilities from OpenStreetMap - may be incomplete"
-                android:textColor="@color/navos_text_tertiary"
-                android:textSize="11sp" />
-
-            <TextView
+            <!-- Primary: "Stop here / then on to X" while driving, else "Go here" -->
+            <LinearLayout
                 android:id="@+id/poiGoButton"
                 android:layout_width="match_parent"
-                android:layout_height="50dp"
-                android:layout_marginTop="12dp"
-                android:background="@drawable/bg_pill_blue"
+                android:layout_height="64dp"
+                android:layout_marginTop="16dp"
+                android:background="@drawable/bg_sig_card"
+                android:backgroundTint="@color/sig_ink"
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center"
-                android:text="Go here"
-                android:textColor="@color/white"
-                android:textSize="17sp"
-                android:textStyle="bold" />
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp">
+
+                <ImageView
+                    android:id="@+id/poiGoIcon"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_add"
+                    android:visibility="gone"
+                    app:tint="@color/sig_on_ink" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/poiGoTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/go_here"
+                        android:textAppearance="@style/TextAppearance.Signal.Body"
+                        android:textColor="@color/sig_on_ink"
+                        android:textSize="18sp" />
+
+                    <TextView
+                        android:id="@+id/poiGoSub"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textAppearance="@style/TextAppearance.Signal.Caption"
+                        android:textColor="@color/sig_on_ink_quiet"
+                        android:visibility="gone" />
+
+                </LinearLayout>
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/poiGoInsteadButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="4dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:textAppearance="@style/TextAppearance.Signal.Body"
+                android:textSize="15sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/poiFootnote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:text="@string/facilities_note"
+                android:textAppearance="@style/TextAppearance.Signal.Caption"
+                android:textSize="12sp" />
 
         </LinearLayout>
 
@@ -881,12 +1205,12 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
-            android:background="@drawable/bg_bottom_sheet"
+            android:background="@drawable/bg_sig_sheet"
             android:elevation="8dp"
             android:orientation="vertical"
             android:paddingStart="16dp"
             android:paddingEnd="16dp"
-            android:paddingBottom="20dp">
+            android:paddingBottom="24dp">
 
             <!-- Drag target for opening/closing the sheet by hand, separate
                  from the decorative handle View inside it so the touchable
@@ -898,53 +1222,129 @@
 
                 <View
                     android:layout_width="40dp"
-                    android:layout_height="4dp"
+                    android:layout_height="5dp"
                     android:layout_gravity="center"
-                    android:background="@drawable/bg_drag_handle" />
+                    android:background="@drawable/bg_sig_handle" />
 
             </FrameLayout>
 
-            <!-- Collapsed row: search pill + settings icon. -->
+            <!-- Home (collapsed sheet), Signal design: search + settings,
+                 Home / Work shortcuts with drive time, petrol / EV pin
+                 toggles, and the latest recent places. The whole block is
+                 swapped for the search header when the sheet opens. -->
             <LinearLayout
                 android:id="@+id/homeSheetCollapsedRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:orientation="vertical">
 
-                <TextView
-                    android:id="@+id/homeSearchPill"
-                    android:layout_width="0dp"
-                    android:layout_height="52dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_search_pill"
-                    android:clickable="true"
-                    android:drawablePadding="12dp"
-                    android:drawableStart="@drawable/ic_search"
-                    android:drawableTint="@color/navos_text_secondary"
-                    android:focusable="true"
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
                     android:gravity="center_vertical"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="Where to?"
-                    android:textColor="@color/navos_text_secondary"
-                    android:textSize="17sp" />
+                    android:orientation="horizontal">
 
-                <ImageButton
-                    android:id="@+id/homeSettingsButton"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:layout_marginStart="10dp"
-                    android:background="@drawable/bg_circle_light"
-                    android:contentDescription="Settings"
-                    android:padding="14dp"
-                    android:src="@drawable/ic_settings"
-                    android:tint="@color/navos_text" />
+                    <TextView
+                        android:id="@+id/homeSearchPill"
+                        android:layout_width="0dp"
+                        android:layout_height="56dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/bg_sig_field"
+                        android:clickable="true"
+                        android:contentDescription="@string/home_search_description"
+                        android:drawablePadding="12dp"
+                        app:drawableStartCompat="@drawable/ic_search"
+                        app:drawableTint="@color/sig_text"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:text="@string/home_search_hint"
+                        android:textAppearance="@style/TextAppearance.Signal.Input"
+                        android:textColor="@color/sig_text_quiet" />
+
+                    <ImageButton
+                        android:id="@+id/homeSettingsButton"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:layout_marginStart="10dp"
+                        android:background="@drawable/bg_sig_field"
+                        android:contentDescription="@string/settings"
+                        android:padding="17dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_settings"
+                        app:tint="@color/sig_text" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <include
+                        android:id="@+id/homeShortcutHome"
+                        layout="@layout/item_home_shortcut"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="5dp"
+                        android:layout_weight="1" />
+
+                    <include
+                        android:id="@+id/homeShortcutWork"
+                        layout="@layout/item_home_shortcut"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="5dp"
+                        android:layout_weight="1" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/homePetrolChip"
+                        style="@style/Widget.Signal.Chip"
+                        android:text="@string/chip_petrol" />
+
+                    <TextView
+                        android:id="@+id/homeEvChip"
+                        style="@style/Widget.Signal.Chip"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/chip_ev" />
+
+                </LinearLayout>
+
+                <!-- Rows are added from code (HomeScreen.renderRecents). -->
+                <LinearLayout
+                    android:id="@+id/homePeekRecents"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="4dp"
+                        android:paddingEnd="4dp"
+                        android:paddingBottom="6dp"
+                        android:text="@string/recent"
+                        android:textAppearance="@style/TextAppearance.Signal.Overline" />
+
+                </LinearLayout>
 
             </LinearLayout>
 
-            <!-- Expanded row: back arrow + either the live search input
-                 (search state) or a plain title (settings state). -->
+            <!-- Expanded header: back button + either the search field
+                 (search) or a plain title (settings). -->
             <LinearLayout
                 android:id="@+id/homeSheetExpandedRow"
                 android:layout_width="match_parent"
@@ -955,25 +1355,27 @@
 
                 <ImageButton
                     android:id="@+id/homeSheetBackButton"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:layout_marginEnd="8dp"
-                    android:background="@drawable/bg_circle_light"
-                    android:contentDescription="Back"
-                    android:padding="14dp"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginEnd="10dp"
+                    android:background="@drawable/bg_sig_icon_circle"
+                    android:contentDescription="@string/back"
+                    android:padding="13dp"
+                    android:scaleType="fitCenter"
                     android:src="@drawable/ic_arrow_back"
-                    android:tint="@color/navos_text" />
+                    app:tint="@color/sig_text" />
 
-                <!-- Search pill: the input plus the circled-X clear button
+                <!-- Search field: the input plus the round clear button
                      inside it (shown only once something is typed). -->
                 <LinearLayout
                     android:id="@+id/homeSearchInputContainer"
                     android:layout_width="0dp"
                     android:layout_height="52dp"
                     android:layout_weight="1"
-                    android:background="@drawable/bg_search_pill"
+                    android:background="@drawable/bg_sig_input"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
+                    android:paddingEnd="8dp"
                     android:visibility="gone">
 
                     <EditText
@@ -983,25 +1385,27 @@
                         android:layout_weight="1"
                         android:autofillHints=""
                         android:background="@android:color/transparent"
-                        android:hint="Where to?"
+                        android:hint="@string/home_search_hint"
                         android:imeOptions="actionSearch"
                         android:inputType="text"
                         android:maxLines="1"
-                        android:paddingStart="16dp"
+                        android:paddingStart="14dp"
                         android:paddingEnd="4dp"
-                        android:textColor="@color/navos_text"
-                        android:textColorHint="@color/navos_text_secondary"
-                        android:textSize="17sp" />
+                        android:textAppearance="@style/TextAppearance.Signal.Input"
+                        android:textColorHint="@color/sig_text_quiet" />
 
                     <ImageButton
                         android:id="@+id/homeSearchClearButton"
-                        android:layout_width="44dp"
-                        android:layout_height="44dp"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="Clear search"
-                        android:padding="10dp"
-                        android:src="@drawable/ic_clear_circle"
-                        android:visibility="gone" />
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:background="@drawable/bg_sig_icon_circle"
+                        android:backgroundTint="@color/sig_clear_fill"
+                        android:contentDescription="@string/clear_search"
+                        android:padding="9dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_close"
+                        android:visibility="gone"
+                        app:tint="@color/sig_text" />
 
                 </LinearLayout>
 
@@ -1010,258 +1414,201 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Settings"
-                    android:textColor="@color/navos_text"
-                    android:textSize="18sp"
-                    android:textStyle="bold"
+                    android:text="@string/settings"
+                    android:textAppearance="@style/TextAppearance.Signal.Body"
+                    android:textSize="21sp"
                     android:visibility="gone" />
 
             </LinearLayout>
 
-            <!-- Search body: Home/Work quick picks + live results. Shown
-                 only while the sheet is expanded in search mode - folds
-                 what used to be the separate Saved-places card into
-                 search's default suggestions, same as Google Maps/Waze
-                 show Home/Work above their own search results. -->
+            <!-- Search body: filters, then either Saved + Recent (empty box)
+                 or the results, and "Choose on map" at the bottom. Fills the
+                 full-height sheet while searching. -->
             <LinearLayout
                 android:id="@+id/homeSearchBody"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_height="0dp"
+                android:layout_weight="1"
                 android:orientation="vertical"
                 android:visibility="gone">
 
-                <LinearLayout
-                    android:id="@+id/homeButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="56dp"
-                    android:layout_marginBottom="8dp"
-                    android:background="@drawable/bg_chip_light"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:paddingStart="14dp"
-                    android:paddingEnd="14dp">
-
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:layout_marginEnd="12dp"
-                        android:contentDescription="Home"
-                        android:tint="@color/navos_text"
-                        android:src="@drawable/ic_home" />
-
-                    <TextView
-                        android:id="@+id/homeButtonLabel"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        android:textColor="@color/navos_text"
-                        android:textSize="15sp"
-                        tools:text="Home" />
-
-                </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/workButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="56dp"
-                    android:layout_marginBottom="4dp"
-                    android:background="@drawable/bg_chip_light"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:paddingStart="14dp"
-                    android:paddingEnd="14dp">
-
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:layout_marginEnd="12dp"
-                        android:contentDescription="Work"
-                        android:tint="@color/navos_text"
-                        android:src="@drawable/ic_work" />
-
-                    <TextView
-                        android:id="@+id/workButtonLabel"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        android:textColor="@color/navos_text"
-                        android:textSize="15sp"
-                        tools:text="Work" />
-
-                </LinearLayout>
-
-                <!-- Recent searches: shown under Home/Work while the box is empty.
-                     Rows are added from code (MainActivity.renderRecents). -->
-                <LinearLayout
-                    android:id="@+id/homeRecentsContainer"
+                <HorizontalScrollView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:visibility="gone">
+                    android:layout_marginTop="14dp"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/searchFilterRow"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/filterAll"
+                            style="@style/Widget.Signal.Chip.Filter"
+                            android:text="@string/filter_all" />
+
+                        <TextView
+                            android:id="@+id/filterPlaces"
+                            style="@style/Widget.Signal.Chip.Filter"
+                            android:layout_marginStart="8dp"
+                            android:text="@string/filter_places" />
+
+                        <TextView
+                            android:id="@+id/filterAddresses"
+                            style="@style/Widget.Signal.Chip.Filter"
+                            android:layout_marginStart="8dp"
+                            android:text="@string/filter_addresses" />
+
+                        <TextView
+                            android:id="@+id/filterPetrol"
+                            style="@style/Widget.Signal.Chip.Filter"
+                            android:layout_marginStart="8dp"
+                            android:text="@string/chip_petrol" />
+
+                    </LinearLayout>
+
+                </HorizontalScrollView>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="12dp"
+                    android:background="@color/sig_divider" />
+
+                <ScrollView
+                    android:id="@+id/homeSearchEmpty"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1">
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="8dp"
-                        android:paddingTop="8dp"
-                        android:paddingEnd="8dp"
-                        android:paddingBottom="4dp">
+                        android:orientation="vertical">
 
                         <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Recent"
-                            android:textColor="@color/navos_text_secondary"
-                            android:textSize="14sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:id="@+id/homeRecentsClear"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:padding="6dp"
-                            android:text="Clear"
-                            android:textColor="@color/navos_blue"
-                            android:textSize="14sp"
-                            android:textStyle="bold" />
+                            android:paddingStart="4dp"
+                            android:paddingTop="16dp"
+                            android:paddingEnd="4dp"
+                            android:paddingBottom="2dp"
+                            android:text="@string/saved"
+                            android:textAppearance="@style/TextAppearance.Signal.Overline" />
+
+                        <include
+                            android:id="@+id/homeButton"
+                            layout="@layout/item_search_result" />
+
+                        <include
+                            android:id="@+id/workButton"
+                            layout="@layout/item_search_result" />
+
+                        <!-- Recent places; rows are added from code (renderRecents). -->
+                        <LinearLayout
+                            android:id="@+id/homeRecentsContainer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:visibility="gone">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal"
+                                android:paddingStart="4dp"
+                                android:paddingTop="8dp">
+
+                                <TextView
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="@string/recent"
+                                    android:textAppearance="@style/TextAppearance.Signal.Overline" />
+
+                                <TextView
+                                    android:id="@+id/homeRecentsClear"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:clickable="true"
+                                    android:focusable="true"
+                                    android:gravity="center"
+                                    android:minHeight="48dp"
+                                    android:paddingStart="12dp"
+                                    android:paddingEnd="4dp"
+                                    android:text="@string/clear"
+                                    android:textAppearance="@style/TextAppearance.Signal.Label" />
+
+                            </LinearLayout>
+
+                        </LinearLayout>
 
                     </LinearLayout>
 
-                </LinearLayout>
+                </ScrollView>
 
-                <!-- No fixed max height: while searching the sheet goes full
-                     height, so this list fills whatever room is left above
-                     the keyboard and scrolls. -->
                 <ListView
                     android:id="@+id/homeSearchResultsList"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:divider="@color/navos_line"
+                    android:layout_height="0dp"
+                    android:layout_marginTop="6dp"
+                    android:layout_weight="1"
+                    android:divider="@color/sig_divider"
                     android:dividerHeight="1dp"
                     android:visibility="gone" />
+
+                <FrameLayout
+                    android:id="@+id/chooseOnMapButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_sig_dashed"
+                    android:clickable="true"
+                    android:contentDescription="@string/choose_on_map"
+                    android:focusable="true">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:drawablePadding="10dp"
+                        android:gravity="center_vertical"
+                        android:importantForAccessibility="no"
+                        android:text="@string/choose_on_map"
+                        android:textAppearance="@style/TextAppearance.Signal.Label"
+                        android:textSize="16sp"
+                        app:drawableStartCompat="@drawable/ic_place_pin"
+                        app:drawableTint="@color/sig_text" />
+
+                </FrameLayout>
 
             </LinearLayout>
 
             <!-- Settings body - replaces the old side drawer entirely.
                  Shown only while the sheet is expanded in settings mode. -->
-            <LinearLayout
+            <ScrollView
                 android:id="@+id/homeSettingsBody"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:orientation="vertical"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:layout_marginTop="4dp"
+                android:clipToPadding="false"
+                android:fillViewport="false"
+                android:overScrollMode="never"
+                android:paddingBottom="12dp"
+                android:scrollbars="none"
                 android:visibility="gone">
 
+                <!-- Filled by SettingsScreen (grouped cards, Signal style). -->
                 <LinearLayout
+                    android:id="@+id/homeSettingsList"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Voice guidance"
-                        android:textColor="@color/navos_text"
-                        android:textSize="16sp" />
-
-                    <Switch
-                        android:id="@+id/voiceGuidanceSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:checked="true" />
-
-                </LinearLayout>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="16dp"
-                    android:layout_marginBottom="16dp"
-                    android:background="@color/navos_rule" />
-
-                <TextView
-                    android:id="@+id/navMapDisplayRow"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingTop="10dp"
-                    android:paddingBottom="10dp"
-                    android:text="Map display"
-                    android:textColor="@color/navos_text"
-                    android:textSize="15sp" />
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="16dp"
-                    android:layout_marginBottom="8dp"
-                    android:background="@color/navos_rule" />
-
-                <TextView
-                    android:id="@+id/navPrefsRow"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingTop="10dp"
-                    android:paddingBottom="10dp"
-                    android:text="Navigation preferences"
-                    android:textColor="@color/navos_text"
-                    android:textSize="15sp" />
-
-                <TextView
-                    android:id="@+id/helpFeedbackRow"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingTop="10dp"
-                    android:paddingBottom="10dp"
-                    android:text="Help &amp; feedback"
-                    android:textColor="@color/navos_text"
-                    android:textSize="15sp" />
-
-                <TextView
-                    android:id="@+id/aboutRow"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingTop="10dp"
-                    android:paddingBottom="10dp"
-                    android:text="About"
-                    android:textColor="@color/navos_text"
-                    android:textSize="15sp" />
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="6dp"
-                    android:layout_marginBottom="16dp"
-                    android:background="@color/navos_rule" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="NavOS"
-                    android:textColor="@color/navos_text"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="Powered by Excellent Mindblow"
-                    android:textColor="@color/navos_hint"
-                    android:textSize="12sp" />
-
-            </LinearLayout>
+                    android:orientation="vertical" />
+            </ScrollView>
 
         </LinearLayout>
 
@@ -1283,7 +1630,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
-                android:text="Location permission needed"
+                android:text="@string/location_permission_title"
                 android:textColor="@color/white"
                 android:textSize="20sp"
                 android:textStyle="bold" />
@@ -1294,7 +1641,7 @@
                 android:layout_marginTop="8dp"
                 android:layout_marginBottom="24dp"
                 android:gravity="center"
-                android:text="NavOS can't show your position or navigate without it."
+                android:text="@string/location_permission_body"
                 android:textColor="#B8C4D9"
                 android:textSize="14sp" />
 
@@ -1309,19 +1656,22 @@
                 android:gravity="center"
                 android:paddingStart="28dp"
                 android:paddingEnd="28dp"
-                android:text="Try again"
+                android:text="@string/try_again"
                 android:textColor="@color/white"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/permissionSettingsButton"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="48dp"
                 android:layout_gravity="center_horizontal"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
                 android:clickable="true"
                 android:focusable="true"
-                android:text="Open app settings"
+                android:text="@string/open_app_settings"
                 android:textColor="@color/navos_blue"
                 android:textSize="14sp" />
 
@@ -1344,7 +1694,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
-                android:text="Location services are off"
+                android:text="@string/location_off_title"
                 android:textColor="@color/white"
                 android:textSize="20sp"
                 android:textStyle="bold" />
@@ -1355,7 +1705,7 @@
                 android:layout_marginTop="8dp"
                 android:layout_marginBottom="24dp"
                 android:gravity="center"
-                android:text="Turn on GPS in your phone's settings to see your position and navigate."
+                android:text="@string/location_off_body"
                 android:textColor="#B8C4D9"
                 android:textSize="14sp" />
 
@@ -1370,61 +1720,179 @@
                 android:gravity="center"
                 android:paddingStart="28dp"
                 android:paddingEnd="28dp"
-                android:text="Open location settings"
+                android:text="@string/open_location_settings"
                 android:textColor="@color/white"
                 android:textStyle="bold" />
 
         </LinearLayout>
 
 
-        <!-- Speed-camera zone pop-up: appears the moment you enter a
-             camera's 200 m zone and counts the distance down. -->
+        <!-- Speed-camera alert (Signal caution amber): appears on entering a
+             camera's 200 m zone, under the turn sign, counting the distance down. -->
         <LinearLayout
             android:id="@+id/cameraAlert"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="56dp"
+            android:layout_gravity="top"
+            android:layout_marginStart="10dp"
+            android:layout_marginTop="180dp"
+            android:layout_marginEnd="10dp"
             android:background="@drawable/bg_alert_red"
             android:elevation="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:paddingStart="14dp"
-            android:paddingTop="10dp"
-            android:paddingEnd="22dp"
-            android:paddingBottom="10dp"
+            android:paddingTop="12dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="12dp"
             android:visibility="gone">
 
             <ImageView
-                android:layout_width="38dp"
-                android:layout_height="38dp"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
                 android:importantForAccessibility="no"
-                android:src="@drawable/ic_alert_camera" />
+                android:src="@drawable/ic_alert_camera"
+                app:tint="@color/sig_caution" />
 
             <LinearLayout
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
                 android:orientation="vertical">
 
                 <TextView
                     android:id="@+id/cameraAlertTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Speed camera ahead"
-                    android:textColor="@color/white"
-                    android:textSize="18sp"
-                    android:textStyle="bold" />
+                    android:text="@string/camera_ahead"
+                    android:textAppearance="@style/TextAppearance.Signal.Body"
+                    android:textColor="@color/sig_caution_ink" />
 
                 <TextView
                     android:id="@+id/cameraAlertSub"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="@color/white"
-                    android:textSize="15sp" />
+                    android:layout_marginTop="1dp"
+                    android:textAppearance="@style/TextAppearance.Signal.Secondary"
+                    android:textColor="@color/sig_caution_sub" />
 
             </LinearLayout>
 
+            <TextView
+                android:id="@+id/cameraAlertDistance"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textAppearance="@style/TextAppearance.Signal.Number"
+                android:textColor="@color/sig_caution_ink"
+                android:textSize="26sp"
+                tools:text="400 m" />
+
+        </LinearLayout>
+
+        <!-- Road report ahead (accident / police / flood / hazard): badge,
+             what and how fresh, distance. After passing it the vote row asks
+             "Still there?" for a few seconds. -->
+        <LinearLayout
+            android:id="@+id/reportAlert"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:layout_marginStart="10dp"
+            android:layout_marginTop="262dp"
+            android:layout_marginEnd="10dp"
+            android:background="@drawable/bg_report_alert"
+            android:elevation="10dp"
+            android:orientation="vertical"
+            android:paddingStart="14dp"
+            android:paddingTop="12dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="12dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:id="@+id/reportAlertIcon"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:importantForAccessibility="no" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="14dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/reportAlertTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Signal.Body"
+                        tools:text="Accident reported" />
+
+                    <TextView
+                        android:id="@+id/reportAlertSub"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Signal.Caption"
+                        tools:text="12 min ago · 3 said still there" />
+
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/reportAlertDistance"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:textAppearance="@style/TextAppearance.Signal.Number"
+                    android:textSize="26sp"
+                    tools:text="600 m" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/reportAlertVote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/reportStillThere"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_marginEnd="8dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_sig_card"
+                    android:backgroundTint="@color/sig_ink"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:text="@string/report_still_there"
+                    android:textAppearance="@style/TextAppearance.Signal.Body"
+                    android:textColor="@color/sig_on_ink" />
+
+                <TextView
+                    android:id="@+id/reportNotThere"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_report_tile"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:text="@string/report_not_there"
+                    android:textAppearance="@style/TextAppearance.Signal.Body" />
+
+            </LinearLayout>
         </LinearLayout>
 
         <!-- "Next turns" sheet (Waze-style): every upcoming maneuver with
@@ -1463,9 +1931,10 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Next turns"
+                    android:text="@string/next_turns"
                     android:textColor="@color/navos_text"
                     android:textSize="22sp"
+                    android:letterSpacing="-0.01"
                     android:textStyle="bold" />
 
                 <TextView
@@ -1478,7 +1947,7 @@
                     android:gravity="center"
                     android:paddingStart="14dp"
                     android:paddingEnd="14dp"
-                    android:text="Switch route"
+                    android:text="@string/switch_route"
                     android:textColor="@color/navos_text"
                     android:textSize="14sp"
                     android:textStyle="bold" />
@@ -1489,10 +1958,10 @@
                     android:layout_height="44dp"
                     android:layout_marginStart="8dp"
                     android:background="@drawable/bg_circle_light"
-                    android:contentDescription="Close"
+                    android:contentDescription="@string/close"
                     android:padding="12dp"
                     android:src="@drawable/ic_close"
-                    android:tint="@color/navos_text" />
+                    app:tint="@color/navos_text" />
 
             </LinearLayout>
 
@@ -1522,100 +1991,158 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="@drawable/bg_bottom_sheet"
+        android:background="@drawable/bg_sig_sheet"
         android:clickable="true"
         android:elevation="20dp"
         android:focusable="true"
         android:gravity="center_horizontal"
         android:orientation="vertical"
-        android:paddingStart="24dp"
-        android:paddingTop="12dp"
-        android:paddingEnd="24dp"
-        android:paddingBottom="24dp"
+        android:paddingStart="20dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="26dp"
         android:visibility="gone">
 
         <View
             android:layout_width="40dp"
-            android:layout_height="4dp"
-            android:background="@drawable/bg_drag_handle" />
+            android:layout_height="5dp"
+            android:background="@drawable/bg_sig_handle" />
 
         <FrameLayout
-            android:layout_width="72dp"
-            android:layout_height="72dp"
-            android:layout_marginTop="20dp"
-            android:background="@drawable/bg_arrival_icon">
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_marginTop="18dp"
+            android:background="@drawable/bg_sig_icon_circle"
+            android:backgroundTint="@color/sig_success_fill">
 
             <ImageView
-                android:layout_width="44dp"
-                android:layout_height="44dp"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
                 android:layout_gravity="center"
-                android:contentDescription="Destination"
-                android:src="@drawable/ic_destination_pin" />
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_check"
+                app:tint="@color/sig_success" />
         </FrameLayout>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="You've arrived"
-            android:textColor="@color/navos_text"
-            android:textSize="24sp"
-            android:textStyle="bold" />
+            android:layout_marginTop="14dp"
+            android:accessibilityHeading="true"
+            android:letterSpacing="-0.01"
+            android:text="@string/arrived"
+            android:textAppearance="@style/TextAppearance.Signal.Body"
+            android:textSize="28sp" />
 
         <TextView
             android:id="@+id/arrivalDestinationName"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="4dp"
             android:ellipsize="end"
             android:gravity="center"
             android:maxLines="2"
-            android:textColor="@color/navos_text_secondary"
-            android:textSize="16sp" />
+            android:textAppearance="@style/TextAppearance.Signal"
+            android:textSize="17sp"
+            tools:text="Mid Valley Megamall" />
 
-        <!-- Trip summary chip, e.g. "61 km  •  1:11 h" -->
         <TextView
-            android:id="@+id/arrivalTripSummary"
+            android:id="@+id/arrivalSide"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/bg_chip_light"
-            android:paddingStart="14dp"
-            android:paddingTop="6dp"
-            android:paddingEnd="14dp"
-            android:paddingBottom="6dp"
-            android:textColor="@color/navos_text_secondary"
-            android:textSize="13sp"
-            android:visibility="gone" />
+            android:layout_marginTop="2dp"
+            android:textAppearance="@style/TextAppearance.Signal.Secondary"
+            android:visibility="gone"
+            tools:text="Destination is on your right" />
+
+        <!-- Trip stats: drive time, distance, toll plazas (only when there were any). -->
+        <LinearLayout
+            android:id="@+id/arrivalStats"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:baselineAligned="false"
+            android:orientation="horizontal">
+
+            <include
+                android:id="@+id/arrivalStatTime"
+                layout="@layout/item_trip_stat"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+
+            <include
+                android:id="@+id/arrivalStatDistance"
+                layout="@layout/item_trip_stat"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1" />
+
+            <include
+                android:id="@+id/arrivalStatTolls"
+                layout="@layout/item_trip_stat"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1" />
+
+        </LinearLayout>
 
         <TextView
             android:id="@+id/arrivalConfirmButton"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:layout_marginTop="24dp"
-            android:background="@drawable/bg_pill_blue"
+            android:layout_height="60dp"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/bg_sig_card"
+            android:backgroundTint="@color/sig_ink"
             android:clickable="true"
             android:focusable="true"
             android:gravity="center"
-            android:text="Yes, I've arrived"
-            android:textColor="@color/white"
-            android:textSize="18sp"
-            android:textStyle="bold" />
+            android:text="@string/done"
+            android:textAppearance="@style/TextAppearance.Signal.Body"
+            android:textColor="@color/sig_on_ink"
+            android:textSize="19sp" />
 
-        <TextView
-            android:id="@+id/arrivalNotYetButton"
-            android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:layout_marginTop="4dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:paddingStart="24dp"
-            android:paddingEnd="24dp"
-            android:text="Not yet"
-            android:textColor="@color/navos_text_secondary"
-            android:textSize="15sp"
-            android:textStyle="bold" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/arrivalNotYetButton"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_sig_outline_button"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:text="@string/not_yet"
+                android:textAppearance="@style/TextAppearance.Signal.Label"
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/arrivalSaveButton"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_sig_outline_button"
+                android:clickable="true"
+                android:drawablePadding="8dp"
+                android:focusable="true"
+                android:gravity="center"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:text="@string/save_place"
+                android:textAppearance="@style/TextAppearance.Signal.Label"
+                android:textSize="16sp"
+                app:drawableStartCompat="@drawable/ic_place_pin"
+                app:drawableTint="@color/sig_text" />
+
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Exit confirmation: shown when Back is pressed on the idle map screen. -->
@@ -1645,7 +2172,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Exit NavOS?"
+                android:text="@string/exit_title"
                 android:textColor="@color/navos_text"
                 android:textSize="20sp"
                 android:textStyle="bold" />
@@ -1654,7 +2181,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Do you want to close the app?"
+                android:text="@string/exit_question"
                 android:textColor="@color/navos_text_secondary"
                 android:textSize="15sp" />
 
@@ -1673,7 +2200,7 @@
                     android:clickable="true"
                     android:focusable="true"
                     android:gravity="center"
-                    android:text="Cancel"
+                    android:text="@string/cancel"
                     android:textColor="@color/navos_text"
                     android:textSize="16sp"
                     android:textStyle="bold" />
@@ -1688,7 +2215,7 @@
                     android:clickable="true"
                     android:focusable="true"
                     android:gravity="center"
-                    android:text="Exit"
+                    android:text="@string/exit"
                     android:textColor="@color/white"
                     android:textSize="16sp"
                     android:textStyle="bold" />

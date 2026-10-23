@@ -8,6 +8,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationManager
+import android.os.SystemClock
+import com.excellentmindblow.navos.location.DeadReckoning
 import android.os.Binder
 import android.os.Handler
 import android.os.IBinder
@@ -16,6 +18,7 @@ import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
+import com.excellentmindblow.navos.Lang
 import com.excellentmindblow.navos.MainActivity
 import com.excellentmindblow.navos.R
 import com.excellentmindblow.navos.Units
@@ -25,8 +28,12 @@ import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.routing.RouteStop
 import com.excellentmindblow.navos.routing.RoutingService
 import com.excellentmindblow.navos.routing.TripPlanner
+import com.excellentmindblow.navos.traffic.TrafficClient
+import com.excellentmindblow.navos.traffic.TrafficFlow
+import com.excellentmindblow.navos.traffic.TrafficReporter
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import com.excellentmindblow.navos.tr
 
 /**
  * Keeps an active drive alive when the screen locks or the driver switches
@@ -81,6 +88,14 @@ class NavigationService : Service() {
         /** Adding or skipping a stop mid-drive could not be applied (no
          * signal, no GPS fix yet). The drive carries on as before. */
         fun onStopChangeFailed() {}
+
+        /** A faster way to the destination was found mid-drive ([savedSeconds]
+         * quicker, live traffic included). The UI offers it; [acceptFasterRoute]
+         * switches. */
+        fun onFasterRoute(
+            route: Route,
+            savedSeconds: Double,
+        ) {}
     }
 
     inner class LocalBinder : Binder() {
@@ -88,6 +103,24 @@ class NavigationService : Service() {
     }
 
     companion object {
+        /** How often to check for a GPS dropout, and the "provider" name of estimated fixes. */
+        private const val ESTIMATE_TICK_MS = 1_000L
+        const val ESTIMATE_PROVIDER = "navos-estimate"
+
+        /** First faster-route check this long into a drive, then every [FASTER_CHECK_MS]. */
+        private const val FASTER_FIRST_CHECK_MS = 120_000L
+        private const val FASTER_CHECK_MS = 240_000L
+
+        /** No faster-route checks once less than this is left (seconds). */
+        private const val FASTER_MIN_TRIP_S = 600.0
+
+        /** Below this speed (m/s) off the route, the car is parked / pulling in: no re-plan yet. */
+        private const val REROUTE_MIN_SPEED_MS = 3.0
+
+        /** ...unless it is this far from the route already (m). */
+        private const val REROUTE_ANYWAY_M = 300.0
+        private const val ESTIMATE_MAX_OFF_ROUTE_M = 60.0
+
         const val ACTION_STOP = "com.excellentmindblow.navos.action.STOP_NAVIGATION"
         private const val CHANNEL_ID = "navigation"
         private const val NOTIFICATION_ID = 7001
@@ -205,13 +238,19 @@ class NavigationService : Service() {
         hasStoppedSelf = false
         activeRoute = route
         stopsPassed = 0
+        smartEta.reset()
+        mainHandler.removeCallbacks(fasterCheck)
+        mainHandler.postDelayed(fasterCheck, FASTER_FIRST_CHECK_MS)
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        (trafficReporter ?: TrafficReporter(prefs).also { trafficReporter = it }).setRoute(route, sameDrive = false)
         Units.load(prefs)
+        Lang.load(prefs)
 
         if (voiceNarrator == null) {
             voiceNarrator = VoiceNarrator(this).also { it.enabled = prefs.getBoolean(KEY_VOICE_ENABLED, true) }
         }
+        voiceNarrator?.applyLanguage()
         if (engine == null) {
             engine =
                 NavigationEngine(
@@ -227,7 +266,7 @@ class NavigationService : Service() {
         voiceNarrator?.resetGuard()
         lastNotifiedKey = null
 
-        startForegroundNotification("Starting navigation...", "")
+        startForegroundNotification(tr("Starting navigation...", "Mula navigasi..."), "")
         // startForegroundNotification() tears everything back down via
         // stopNavigationInternal() if the OS refuses to let this become a
         // foreground service - don't then go start a GPS subscription for
@@ -241,6 +280,8 @@ class NavigationService : Service() {
      * like MainActivity's old in-place reroute did. */
     fun rerouteTo(route: Route) {
         activeRoute = route
+        smartEta.rebase()
+        trafficReporter?.setRoute(route, sameDrive = true)
         // The last state belongs to the OLD route's step numbering; keeping it
         // would make remainingStops() mis-judge which stops are still ahead
         // until the next GPS fix arrives.
@@ -305,8 +346,13 @@ class NavigationService : Service() {
 
         locationTracker?.stop()
         locationTracker = null
+        deadReckoning = null
+        trafficReporter?.stop()
+        trafficReporter = null
         rerouteExecutor?.shutdownNow()
         rerouteExecutor = null
+        fasterExecutor?.shutdownNow()
+        fasterExecutor = null
         voiceNarrator?.shutdown()
         voiceNarrator = null
         engine = null
@@ -335,25 +381,98 @@ class NavigationService : Service() {
         if (locationTracker != null) return
         val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
         val tracker =
-            LiveLocationTracker(locationManager, minDistanceM = 0f) { location ->
-                lastLocation = location
-                listener.onNavLocation(location)
-                engine?.onLocation(
-                    RoutePoint(location.latitude, location.longitude),
-                    if (location.hasSpeed()) location.speed.toDouble() else null,
-                    if (location.hasBearing()) location.bearing.toDouble() else null,
-                )
+            LiveLocationTracker(locationManager, minDistanceM = 0f, navigating = true) { location ->
+                // A real fix: any tunnel estimate gives way to it.
+                lastRealFixMs = SystemClock.elapsedRealtime()
+                deadReckoning?.stop()
+                trafficReporter?.onFix(location, lastRealFixMs)
+                onFix(location)
             }
         locationTracker = tracker
         tracker.start()
+        mainHandler.removeCallbacks(estimateTick)
+        mainHandler.postDelayed(estimateTick, ESTIMATE_TICK_MS)
     }
 
-    private fun handleState(state: NavigationState) {
+    private fun onFix(location: Location) {
+        lastLocation = location
+        listener.onNavLocation(location)
+        engine?.onLocation(
+            RoutePoint(location.latitude, location.longitude),
+            if (location.hasSpeed()) location.speed.toDouble() else null,
+            if (location.hasBearing()) location.bearing.toDouble() else null,
+        )
+    }
+
+    // ---- Tunnels: keep moving along the route when GPS drops out -----------
+
+    private var deadReckoning: DeadReckoning? = null
+
+    /** Anonymous road speeds for live traffic (only sent if the driver agreed). */
+    private var trafficReporter: TrafficReporter? = null
+    private var lastRealFixMs = 0L
+
+    private val estimateTick =
+        object : Runnable {
+            override fun run() {
+                if (activeRoute == null) return
+                estimateIfSilent()
+                mainHandler.postDelayed(this, ESTIMATE_TICK_MS)
+            }
+        }
+
+    /** No fix for a few seconds while driving: carry on along the route at the last speed. */
+    private fun estimateIfSilent() {
+        val route = activeRoute ?: return
+        val last = lastLocation ?: return
+        val now = SystemClock.elapsedRealtime()
+        val dr = deadReckoning
+        if (dr == null || !dr.active) {
+            if (now - lastRealFixMs < DeadReckoning.SILENCE_MS) return
+            val speed = if (last.hasSpeed()) last.speed.toDouble() else 0.0
+            if (speed < DeadReckoning.MIN_SPEED_MS || route.geometry.size < 2) return
+            val track = RouteTrack(route.geometry)
+            val snap = GeoUtils.snapToPolyline(RoutePoint(last.latitude, last.longitude), route.geometry) ?: return
+            if (snap.distanceMeters > ESTIMATE_MAX_OFF_ROUTE_M) return
+            deadReckoning = DeadReckoning(track).also { it.start(track.progressOf(snap), speed, lastRealFixMs) }
+        }
+        val e = deadReckoning?.estimate(now) ?: return
+        onFix(
+            Location(ESTIMATE_PROVIDER).apply {
+                latitude = e.point.latitude
+                longitude = e.point.longitude
+                speed = e.speedMs.toFloat()
+                bearing = e.bearingDeg.toFloat()
+                // Grows the longer we go without a real fix.
+                accuracy = (15.0 + 2.0 * e.secondsSinceFix).toFloat()
+                time = System.currentTimeMillis()
+                elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+            },
+        )
+    }
+
+    /** Learns this drive's pace so the ETA isn't just the server's free-road time. */
+    private val smartEta = SmartEta()
+
+    /** The routing server's own remaining time (before [smartEta]), to compare routes like for like. */
+    private var lastRawRemainingS = 0.0
+
+    private fun handleState(raw: NavigationState) {
+        lastRawRemainingS = raw.durationRemainingSeconds
+        smartEta.observe(raw.durationRemainingSeconds, SystemClock.elapsedRealtime())
+        val f = if (raw.durationRemainingSeconds > 0) smartEta.adjust(raw.durationRemainingSeconds) / raw.durationRemainingSeconds else 1.0
+        val state =
+            raw.copy(
+                durationRemainingSeconds = raw.durationRemainingSeconds * f,
+                durationToNextStopSeconds = raw.durationToNextStopSeconds * f,
+            )
         lastState = state
         listener.onNavState(state)
         updateNotification(state)
 
-        if (state.isArrival && state.distanceToNextTurnMeters <= MIN_ARRIVAL_METERS) {
+        // Only a real fix ends the drive, never a tunnel estimate.
+        val realFix = lastLocation?.provider != ESTIMATE_PROVIDER
+        if (realFix && state.isArrival && state.distanceToNextTurnMeters <= MIN_ARRIVAL_METERS) {
             stopNavigationInternal(announceToListener = true)
             return
         }
@@ -365,6 +484,11 @@ class NavigationService : Service() {
         }
         offRouteStreak += 1
         val now = android.os.SystemClock.elapsedRealtime()
+        // Pulled into petrol / an R&R / a car park: don't re-plan while parked or
+        // crawling - wait until the car is driving again (like Waze).
+        val speed = lastLocation?.takeIf { it.hasSpeed() }?.speed?.toDouble() ?: 0.0
+        val farOff = state.distanceToRouteMeters > REROUTE_ANYWAY_M
+        if (speed < REROUTE_MIN_SPEED_MS && !farOff) return
         if (!isRerouting &&
             // One fix is enough when the heading proves it's a wrong turn.
             offRouteStreak >= (if (state.offRouteConfirmed) 1 else OFF_ROUTE_FIXES_BEFORE_REROUTE) &&
@@ -388,19 +512,20 @@ class NavigationService : Service() {
         val stopsAhead = remainingStops()
         isRerouting = true
 
-        // Say "Recalculating" once per wrong turn, not on every retry.
+        // Say tr("Recalculating", "Cari laluan baru") once per wrong turn, not on every retry.
         if (!recalcAnnounced) {
             recalcAnnounced = true
             rerouteCount += 1
-            voiceNarrator?.speak("reroute-$rerouteCount", "Recalculating")
+            voiceNarrator?.speak("reroute-$rerouteCount", tr("Recalculating", "Cari laluan baru"))
         }
 
         val executor = rerouteExecutor ?: Executors.newSingleThreadExecutor().also { rerouteExecutor = it }
         val originPoint = RoutePoint(origin.latitude, origin.longitude)
+        val heading = origin.takeIf { it.hasBearing() && it.hasSpeed() && it.speed > 2f }?.bearing?.toDouble()
         executor.execute {
             var routes: List<Route> = emptyList()
             try {
-                routes = RoutingService.calculateRoutes(originPoint, stopsAhead, destination)
+                routes = RoutingService.calculateRoutesFacing(originPoint, heading, stopsAhead, destination)
             } catch (e: Exception) {
                 // Empty list just means "stay off-route, try again after the
                 // cooldown" rather than crash the service.
@@ -425,6 +550,77 @@ class NavigationService : Service() {
         }
     }
 
+    // ---- Faster route: like Google Maps / Waze, look for a quicker way mid-drive ----
+
+    private var fasterExecutor: ExecutorService? = null
+
+    private val fasterCheck =
+        object : Runnable {
+            override fun run() {
+                if (activeRoute == null || hasStoppedSelf) return
+                checkForFasterRoute()
+                mainHandler.postDelayed(this, FASTER_CHECK_MS)
+            }
+        }
+
+    /** Asks for routes from here (with live traffic) and offers one that saves real time. */
+    private fun checkForFasterRoute() {
+        val route = activeRoute ?: return
+        val origin = lastLocation ?: return
+        val state = lastState ?: return
+        if (isRerouting || state.offRoute || lastRawRemainingS < FASTER_MIN_TRIP_S) return
+        val destination = route.geometry.lastOrNull() ?: return
+        val stopsAhead = remainingStops()
+        val rawRemaining = lastRawRemainingS
+        val here = RoutePoint(origin.latitude, origin.longitude)
+        val heading = origin.takeIf { it.hasBearing() && it.hasSpeed() && it.speed > 2f }?.bearing?.toDouble()
+        val executor = fasterExecutor ?: Executors.newSingleThreadExecutor().also { fasterExecutor = it }
+        executor.execute {
+            val found =
+                try {
+                    RoutingService.calculateRoutesFacing(here, heading, stopsAhead, destination)
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            if (found.isEmpty()) return@execute
+            val seg = GeoUtils.snapToPolyline(here, route.geometry)?.segmentIndex ?: 0
+            val ahead = route.geometry.subList(seg.coerceAtMost(route.geometry.size - 2), route.geometry.size)
+            val currentTotal = rawRemaining + liveDelay(route, seg)
+            val candidates =
+                found.mapIndexed { i, r ->
+                    FasterRoute.Candidate(i, r.durationSeconds + liveDelay(r, 0), FasterRoute.sharedShare(r.geometry, ahead))
+                }
+            val pick = FasterRoute.pick(currentTotal, candidates) ?: return@execute
+            val better = found[pick.first.index]
+            mainHandler.post {
+                if (activeRoute !== route || hasStoppedSelf || isRerouting) return@post
+                val minutes = Math.round(pick.second / 60.0).toInt()
+                voiceNarrator?.speak("faster-${SystemClock.elapsedRealtime()}", Phrases.fasterRoute(minutes))
+                listener.onFasterRoute(better, pick.second)
+            }
+        }
+    }
+
+    /** Live-traffic delay on [route] from point [fromIndex] (seconds); 0 without data. Blocking. */
+    private fun liveDelay(
+        route: Route,
+        fromIndex: Int,
+    ): Double {
+        val nodes = route.nodes ?: return 0.0
+        val free = route.freeFlowMs ?: return 0.0
+        val live = runCatching { TrafficClient.flow(TrafficFlow.piecesAhead(nodes, fromIndex)) }.getOrNull() ?: return 0.0
+        if (live.isEmpty()) return 0.0
+        val cum = DoubleArray(route.geometry.size)
+        for (i in 1 until cum.size) cum[i] = cum[i - 1] + GeoUtils.distanceMeters(route.geometry[i - 1], route.geometry[i])
+        return TrafficFlow.delaySeconds(nodes, free, cum, live, fromIndex)
+    }
+
+    /** The driver took the offered faster route. */
+    fun acceptFasterRoute(route: Route) {
+        if (activeRoute == null || hasStoppedSelf) return
+        rerouteTo(route)
+    }
+
     // ---- Multi-stop: change the stops of a drive that is already under way ----
 
     /** Intermediate stops not yet reached, in driving order. */
@@ -439,7 +635,7 @@ class NavigationService : Service() {
      * the driver is now. Reports through [Listener.onStopChangeFailed] if it
      * cannot. */
     fun addStop(stop: RouteStop) =
-        changeStops("Stop added") { remaining, origin, destination ->
+        changeStops(tr("Stop added", "Hentian ditambah")) { remaining, origin, destination ->
             if (remaining.size >= TripPlanner.MAX_STOPS) {
                 null
             } else {
@@ -452,7 +648,7 @@ class NavigationService : Service() {
     /** Drops the next intermediate stop (closed, no longer needed) and re-plans
      * from where the driver is now. */
     fun skipNextStop() =
-        changeStops("Stop skipped") { remaining, _, _ ->
+        changeStops(tr("Stop skipped", "Hentian dilangkau")) { remaining, _, _ ->
             if (remaining.isEmpty()) null else remaining.drop(1)
         }
 
@@ -504,8 +700,8 @@ class NavigationService : Service() {
         val channel =
             NotificationChannelCompat
                 .Builder(CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_LOW)
-                .setName("Navigation")
-                .setDescription("Ongoing turn-by-turn navigation")
+                .setName(tr("Navigation", "Navigasi"))
+                .setDescription(tr("Ongoing turn-by-turn navigation", "Navigasi sedang berjalan"))
                 .setShowBadge(false)
                 .build()
         NotificationManagerCompat.from(this).createNotificationChannel(channel)
@@ -544,7 +740,7 @@ class NavigationService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(openPending)
-            .addAction(0, "End navigation", stopPending)
+            .addAction(0, tr("End navigation", "Tamat navigasi"), stopPending)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }

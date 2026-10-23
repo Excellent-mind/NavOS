@@ -1,6 +1,7 @@
 package com.excellentmindblow.navos.search
 
-import android.location.Location
+import com.excellentmindblow.navos.navigation.GeoUtils
+import com.excellentmindblow.navos.routing.RoutePoint
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -12,6 +13,8 @@ import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
+import com.excellentmindblow.navos.tr
 
 /** One place search hit. label is the full one-line description (name plus
  * locality/district/state), used for saved places. name/address are the
@@ -31,6 +34,10 @@ data class GeocodeResult(
     val address: String = label.substringAfter(",", "").trim(),
     val houseNumber: String? = null,
     val approximate: Boolean = false,
+    /** Short kind of place ("Shopping mall", "Road"), when the source says. See [PlaceCategory]. */
+    val category: String? = null,
+    /** A house or a road rather than a named place. */
+    val isAddress: Boolean = false,
 )
 
 /**
@@ -67,7 +74,10 @@ object GeocodingService {
     private const val WIDE_RADIUS_DEGREES = 2.0 // roughly state-sized (~220km)
     private const val MIN_LOCAL_RESULTS = 3
 
-    private const val PHOTON_URL = "https://photon.komoot.io/api/"
+    // Photon servers, tried in order. The second is OpenRoad's self-hosted
+    // Photon (Asia extract, same OpenStreetMap data) - github.com/Rekabytes-Enterprise/openroad -
+    // used only when the public komoot server times out or fails.
+    private val PHOTON_BASES = listOf("https://photon.komoot.io", "https://po-openroad.techapi.my")
     private const val MALAYSIA_BBOX = "99.6,0.85,119.4,7.45" // minLon,minLat,maxLon,maxLat
     private const val LIVE_LOCAL_RADIUS_DEGREES = 0.3 // roughly city-sized (~30km)
     private const val MIN_LIVE_LOCAL_RESULTS = 5
@@ -76,7 +86,11 @@ object GeocodingService {
     const val MIN_LIVE_QUERY_LENGTH = 1
 
     private const val LIVE_TIMEOUT_MS = 4_000
+    private const val RETRY_TIMEOUT_MS = 8_000
     private const val CACHE_TTL_MS = 5 * 60_000L
+    private const val TILE_RESULT_LIMIT = 8
+    private const val TILE_WAIT_MS = 1_500L
+    private const val SAME_PLACE_M = 150.0
     private const val CACHE_MAX = 80
 
     // ---- shared plumbing ---------------------------------------------------
@@ -90,7 +104,11 @@ object GeocodingService {
     private val liveConnections: MutableSet<HttpURLConnection> =
         Collections.synchronizedSet(HashSet())
 
+    /** Bumped whenever a newer keystroke cancels the live search. */
+    @Volatile private var liveGeneration = 0
+
     private fun cancelLiveInFlight() {
+        liveGeneration++
         val snapshot = synchronized(liveConnections) { liveConnections.toList() }
         snapshot.forEach { runCatching { it.disconnect() } }
         liveConnections.clear()
@@ -137,7 +155,7 @@ object GeocodingService {
 
     // ---- query normalisation -----------------------------------------------
 
-    private class ParsedQuery(
+    internal class ParsedQuery(
         val raw: String,
         /** Cleaned text sent to Photon: "12 Jalan Ampang Kuala Lumpur". */
         val cleaned: String,
@@ -170,7 +188,7 @@ object GeocodingService {
     private fun looksLikeStreetAddress(q: ParsedQuery): Boolean =
         q.houseNumber != null && STREET_HINT.containsMatchIn(q.withoutNumber)
 
-    private fun parseQuery(raw: String): ParsedQuery {
+    internal fun parseQuery(raw: String): ParsedQuery {
         var s = raw.trim()
         s = UNIT_PREFIX.replace(s, "")
         // Delivery apps (Grab, Lalamove...) put a phone / order number in front:
@@ -212,8 +230,34 @@ object GeocodingService {
     private fun sameHouse(a: String?, b: String?): Boolean =
         a != null && b != null && a.replace(" ", "").equals(b.replace(" ", ""), ignoreCase = true)
 
+    /** The street part of a result's name: "3 Jalan Telawi 2" -> "jalan telawi 2". */
+    private fun streetOf(r: GeocodeResult): String {
+        val name = r.name.lowercase().substringBefore(',').trim()
+        val number = r.houseNumber?.lowercase()
+        return if (number != null && name.startsWith(number)) name.removePrefix(number).trim() else name
+    }
+
+    /** The exact house: same number AND on the street the query names (so
+     * "3 Jalan Telawi 3" is not satisfied by "3 Jalan Telawi 2"). */
+    internal fun isExactHouse(
+        q: ParsedQuery,
+        r: GeocodeResult,
+    ): Boolean {
+        if (!sameHouse(q.houseNumber, r.houseNumber)) return false
+        val street = streetOf(r)
+        val wanted = q.withoutNumber.lowercase()
+        if (street.isEmpty() || !wanted.startsWith(street)) return false
+        // Whole words only: "jalan telawi 3" must not match "jalan telawi 33".
+        return wanted.length == street.length || wanted[street.length] == ' '
+    }
+
+    /** Stops and car parks carry a building's name ("Menara Maybank" bus
+     * stop); unless the driver asked for one, the place itself should win. */
+    private val TRANSIT_CATEGORIES = setOf("Bus stop", "Parking", "Train station")
+    private val TRANSIT_WORDS = Regex("\\b(bus|stop|hentian|parking|park|letak|station|stesen|lrt|mrt|ktm|monorail)\\b", RegexOption.IGNORE_CASE)
+
     /** Lower = better. Relevance dominates; distance only breaks ties. */
-    private fun rank(
+    internal fun rank(
         q: ParsedQuery,
         results: List<GeocodeResult>,
         biasLat: Double?,
@@ -221,16 +265,21 @@ object GeocodingService {
     ): List<GeocodeResult> {
         if (results.isEmpty()) return results
         val nameWords = q.withoutNumber.lowercase()
+        val wantsTransit = TRANSIT_WORDS.containsMatchIn(q.raw)
         fun score(r: GeocodeResult): Double {
             val hay = r.label.lowercase()
             val matched = q.tokens.count { hay.contains(it) }
             val coverage = if (q.tokens.isEmpty()) 0.0 else matched.toDouble() / q.tokens.size
             var s = -coverage * 500.0
-            if (q.houseNumber != null && sameHouse(q.houseNumber, r.houseNumber)) s -= 1_000.0
-            if (nameWords.isNotEmpty() && r.name.lowercase().startsWith(nameWords)) s -= 250.0
+            if (q.houseNumber != null && isExactHouse(q, r)) s -= 1_000.0
+            val name = r.name.lowercase()
+            if (nameWords.isNotEmpty() && name == nameWords) s -= 300.0
+            if (nameWords.isNotEmpty() && name.startsWith(nameWords)) s -= 250.0
+            if (!wantsTransit && r.category in TRANSIT_CATEGORIES) s += 200.0
             if (r.approximate) s += 400.0 // exact hits always beat the street fallback
             if (biasLat != null && biasLon != null) {
-                s += (distanceMeters(biasLat, biasLon, r.latitude, r.longitude) / 1000.0).coerceAtMost(300.0)
+                // 1 point per km, up to across the country (Sabah / Sarawak).
+                s += (distanceMeters(biasLat, biasLon, r.latitude, r.longitude) / 1000.0).coerceAtMost(2_000.0)
             }
             return s
         }
@@ -242,13 +291,20 @@ object GeocodingService {
 
     /** If the query had a house number that no result carries, add the same
      * number on the best street hit, flagged approximate. */
-    private fun withApproximate(q: ParsedQuery, results: List<GeocodeResult>): List<GeocodeResult> {
+    internal fun withApproximate(q: ParsedQuery, results: List<GeocodeResult>): List<GeocodeResult> {
         val num = q.houseNumber ?: return results
         if (!looksLikeStreetAddress(q)) return results
-        if (results.any { sameHouse(num, it.houseNumber) }) return results
+        if (results.any { isExactHouse(q, it) }) return results
         val firstWord = q.withoutNumber.lowercase().substringBefore(' ')
+        val wanted = q.withoutNumber.lowercase()
+        val exactStreet =
+            results.firstOrNull {
+                val s = streetOf(it)
+                it.houseNumber == null && s.isNotEmpty() && wanted.startsWith(s) && (wanted.length == s.length || wanted[s.length] == ' ')
+            }
         val street =
-            results.firstOrNull { it.houseNumber == null && it.label.lowercase().contains(firstWord) }
+            exactStreet
+                ?: results.firstOrNull { it.houseNumber == null && it.label.lowercase().contains(firstWord) }
                 ?: results.firstOrNull { it.houseNumber == null }
                 ?: return results
         val streetName = street.name
@@ -260,12 +316,13 @@ object GeocodingService {
                 latitude = street.latitude,
                 longitude = street.longitude,
                 name = "$num $streetName",
-                address = if (area.isBlank()) "Approximate location on street" else "Approximate location on street, $area",
+                address = if (area.isBlank()) tr("Approximate location on street", "Lokasi anggaran di jalan") else tr("Approximate location on street, $area", "Lokasi anggaran di jalan, $area"),
                 houseNumber = num,
                 approximate = true,
             )
-        // Right after the exact-looking hits, never first.
-        return results + fake
+        // On the very street asked for, the approximate house is the best
+        // answer (like Google Maps); on a guessed street it goes last.
+        return if (street === exactStreet) listOf(fake) + results else results + fake
     }
 
     // ---- Photon (search-as-you-type) ----------------------------------------
@@ -307,19 +364,25 @@ object GeocodingService {
                 pool.submit(Callable { photonSearch(q.cleaned, biasLat, biasLon, localBox, cancellable) })
             val wideF: Future<List<GeocodeResult>> =
                 pool.submit(Callable { photonSearch(q.cleaned, biasLat, biasLon, MALAYSIA_BBOX, cancellable) })
+            // Overture places on the phone: the shops OpenStreetMap doesn't have yet.
+            val tilesF: Future<List<GeocodeResult>> = pool.submit(Callable { tileMatches(q.cleaned, biasLat, biasLon) })
 
             val local = futureResult(localF)
             val wide = if (local.size >= MIN_LIVE_LOCAL_RESULTS && q.houseNumber == null) emptyList() else futureResult(wideF)
-            if (local.isEmpty() && wide.isEmpty()) {
-                // Both failed or are empty: surface a real failure to the caller.
+            // The first search in a new area may still be downloading its tiles:
+            // don't hold Photon's answer for them.
+            val tiles = if (q.houseNumber == null) runCatching { tilesF.get(TILE_WAIT_MS, TimeUnit.MILLISECONDS) }.getOrDefault(emptyList()) else emptyList()
+            if (local.isEmpty() && wide.isEmpty() && tiles.isEmpty()) {
+                // All failed or are empty: surface a real failure to the caller.
                 localF.get()
                 wideF.get()
             }
-            merged = dedupe(local + wide)
+            val photon = local + wide
+            merged = dedupe(photon + tiles.filterNot { t -> alreadyFound(t, photon) })
         }
 
         var ranked = rank(q, merged, biasLat, biasLon)
-        if (looksLikeStreetAddress(q) && ranked.none { sameHouse(q.houseNumber, it.houseNumber) }) {
+        if (looksLikeStreetAddress(q) && ranked.none { isExactHouse(q, it) }) {
             // No exact house number: grab the street itself so we can still offer it.
             val street =
                 runCatching {
@@ -333,6 +396,39 @@ object GeocodingService {
         return out
     }
 
+    /** Set by the app at start-up: where the Overture place tiles come from. */
+    @Volatile
+    var placeTiles: PlaceTileStore? = null
+
+    /** Starts loading the place tiles around a spot (e.g. the first GPS fix) so the first search has them. */
+    fun prefetchTiles(
+        lat: Double,
+        lon: Double,
+    ) {
+        val store = placeTiles ?: return
+        pool.submit { runCatching { store.near(lat, lon) } }
+    }
+
+    private fun tileMatches(
+        query: String,
+        lat: Double,
+        lon: Double,
+    ): List<GeocodeResult> {
+        val store = placeTiles ?: return emptyList()
+        return PlaceTiles.search(store.near(lat, lon), query, lat, lon, TILE_RESULT_LIMIT)
+    }
+
+    /** The same place from Photon: same name, within [SAME_PLACE_M]. */
+    private fun alreadyFound(
+        t: GeocodeResult,
+        photon: List<GeocodeResult>,
+    ): Boolean {
+        val n = PlaceTiles.normalize(t.name)
+        return photon.any {
+            PlaceTiles.normalize(it.name) == n && distanceMeters(it.latitude, it.longitude, t.latitude, t.longitude) < SAME_PLACE_M
+        }
+    }
+
     /** Result of a parallel request; a failed one counts as empty so the other can still answer. */
     private fun futureResult(f: Future<List<GeocodeResult>>): List<GeocodeResult> =
         try {
@@ -341,12 +437,35 @@ object GeocodingService {
             emptyList()
         }
 
+    /** The public Photon server often times out on a query's first request
+     * and then answers the same one quickly, so a timeout gets one retry with
+     * more time - unless a newer keystroke has replaced this search. */
     private fun photonSearch(
         query: String,
         biasLat: Double?,
         biasLon: Double?,
         bbox: String,
         cancellable: Boolean,
+    ): List<GeocodeResult> {
+        val generation = liveGeneration
+        return try {
+            photonRequest(PHOTON_BASES[0], query, biasLat, biasLon, bbox, cancellable, LIVE_TIMEOUT_MS)
+        } catch (e: IOException) {
+            // Cancelled by a newer keystroke: give up. Otherwise the public
+            // server is slow or down - ask the backup server instead.
+            if (cancellable && generation != liveGeneration) throw e
+            photonRequest(PHOTON_BASES[1], query, biasLat, biasLon, bbox, cancellable, RETRY_TIMEOUT_MS)
+        }
+    }
+
+    private fun photonRequest(
+        base: String,
+        query: String,
+        biasLat: Double?,
+        biasLon: Double?,
+        bbox: String,
+        cancellable: Boolean,
+        timeoutMs: Int,
     ): List<GeocodeResult> {
         val params =
             StringBuilder()
@@ -358,11 +477,11 @@ object GeocodingService {
             params.append("&location_bias_scale=0.3")
         }
 
-        val connection = URL("$PHOTON_URL?$params").openConnection() as HttpURLConnection
+        val connection = URL("$base/api/?$params").openConnection() as HttpURLConnection
         connection.setRequestProperty("User-Agent", USER_AGENT)
         connection.setRequestProperty("Accept", "application/json")
-        connection.connectTimeout = LIVE_TIMEOUT_MS
-        connection.readTimeout = LIVE_TIMEOUT_MS
+        connection.connectTimeout = timeoutMs
+        connection.readTimeout = timeoutMs
         if (cancellable) liveConnections.add(connection)
 
         try {
@@ -424,12 +543,25 @@ object GeocodingService {
     }
 
     private fun reversePhoton(lat: Double, lon: Double): GeocodeResult? {
-        val connection = URL("https://photon.komoot.io/reverse?lat=$lat&lon=$lon&limit=1").openConnection() as HttpURLConnection
+        for (base in PHOTON_BASES) {
+            val found = runCatching { reversePhotonAt(base, lat, lon) }
+            if (found.isSuccess) return found.getOrNull()
+        }
+        return null
+    }
+
+    /** Null = nothing nameable there; throws when the server didn't answer. */
+    private fun reversePhotonAt(
+        base: String,
+        lat: Double,
+        lon: Double,
+    ): GeocodeResult? {
+        val connection = URL("$base/reverse?lat=$lat&lon=$lon&limit=1").openConnection() as HttpURLConnection
         connection.setRequestProperty("User-Agent", USER_AGENT)
         connection.connectTimeout = 6_000
         connection.readTimeout = 6_000
         try {
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) return null
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) throw IOException("Photon reverse failed (${connection.responseCode})")
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             val feature = JSONObject(body).optJSONArray("features")?.optJSONObject(0) ?: return null
             return parsePhotonFeature(feature)?.copy(latitude = lat, longitude = lon)
@@ -454,7 +586,7 @@ object GeocodingService {
             val road = part("road") ?: part("pedestrian") ?: part("residential")
             val name = part("amenity") ?: part("building") ?: listOfNotNull(number, road).joinToString(" ").takeIf { it.isNotBlank() }
                 ?: label.substringBefore(',').trim()
-            return GeocodeResult(label, lat, lon, name, label.removePrefix(name).trim().trimStart(','), houseNumber = number)
+            return GeocodeResult(label, lat, lon, name, label.removePrefix(name).trim().trimStart(',').trim(), houseNumber = number)
         } finally { connection.disconnect() }
     }
 
@@ -503,7 +635,18 @@ object GeocodingService {
                 .joinToString(", ")
 
         val label = if (address.isEmpty()) name else "$name, $address"
-        return GeocodeResult(label, lat, lon, name, address, houseNumber = houseNumber)
+        val osmKey = props.str("osm_key")
+        val osmValue = props.str("osm_value")
+        return GeocodeResult(
+            label,
+            lat,
+            lon,
+            name,
+            address,
+            houseNumber = houseNumber,
+            category = PlaceCategory.label(osmKey, osmValue),
+            isAddress = PlaceCategory.isAddress(osmKey, osmValue, houseNumber != null, placeName != null),
+        )
     }
 
     /** optString() returns "" for a missing key and "null" for an explicit
@@ -518,11 +661,7 @@ object GeocodingService {
         fromLon: Double,
         toLat: Double,
         toLon: Double,
-    ): Float {
-        val out = FloatArray(1)
-        Location.distanceBetween(fromLat, fromLon, toLat, toLon, out)
-        return out[0]
-    }
+    ): Float = GeoUtils.distanceMeters(RoutePoint(fromLat, fromLon), RoutePoint(toLat, toLon)).toFloat()
 
     // ---- Address / explicit search --------------------------------------------
 
@@ -597,7 +736,7 @@ object GeocodingService {
 
         // Free-text search often misses a house number that the structured
         // form ("street=12 Jalan Ampang") finds.
-        if (q.houseNumber != null && found.none { sameHouse(q.houseNumber, it.houseNumber) }) {
+        if (q.houseNumber != null && found.none { isExactHouse(q, it) }) {
             val structured =
                 runCatching {
                     performSearch(
@@ -671,13 +810,18 @@ object GeocodingService {
                 val name = obj.optString("name", "").takeIf { it.isNotBlank() && it != "null" }
                     ?: listOfNotNull(number, road).joinToString(" ").takeIf { it.isNotBlank() }
                     ?: displayName.substringBefore(",").trim()
+                // jsonv2 names the tag key "category" (plain json: "class").
+                val osmKey = (obj.optString("category", "").ifBlank { obj.optString("class", "") }).takeIf { it.isNotBlank() && it != "null" }
+                val osmValue = obj.optString("type", "").takeIf { it.isNotBlank() && it != "null" }
                 GeocodeResult(
                     label = displayName,
                     latitude = lat,
                     longitude = lon,
                     name = name,
-                    address = displayName.removePrefix(name).trim().trimStart(','),
+                    address = displayName.removePrefix(name).trim().trimStart(',').trim().replace(';', '/'),
                     houseNumber = number,
+                    category = PlaceCategory.label(osmKey, osmValue),
+                    isAddress = PlaceCategory.isAddress(osmKey, osmValue, number != null, obj.has("name") && obj.optString("name").isNotBlank()),
                 )
             }
         } finally {

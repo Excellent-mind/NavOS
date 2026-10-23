@@ -1,42 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Next turns list. Waze-style: thick rounded stroke + solid arrowhead. Drawn white;
-     tinted by the ImageView so it follows the light/dark theme. -->
+<!-- Lucide "list" (ISC). 24 grid, 2px round stroke. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="48dp"
     android:height="48dp"
-    android:viewportWidth="48"
-    android:viewportHeight="48">
+    android:viewportWidth="24"
+    android:viewportHeight="24">
     <path
-        android:fillColor="#00000000"
+        android:pathData="M3 12h.01"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="4.6"
+        android:strokeWidth="2"
         android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M22,12 L40,12" />
+        android:strokeLineJoin="round" />
     <path
-        android:fillColor="#00000000"
+        android:pathData="M3 18h.01"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="4.6"
+        android:strokeWidth="2"
         android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M22,24 L40,24" />
+        android:strokeLineJoin="round" />
     <path
-        android:fillColor="#00000000"
+        android:pathData="M3 6h.01"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="4.6"
+        android:strokeWidth="2"
         android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M22,36 L40,36" />
+        android:strokeLineJoin="round" />
     <path
-        android:fillColor="#FFFFFF"
+        android:pathData="M8 12h13"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="2.4"
-        android:strokeLineJoin="round"
-        android:pathData="M5,9 L11,15 L5,21 Z" />
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
     <path
-        android:fillColor="#FFFFFF"
+        android:pathData="M8 18h13"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="2.4"
-        android:strokeLineJoin="round"
-        android:pathData="M5,29 L11,35 L5,41 Z" />
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M8 6h13"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
 </vector>

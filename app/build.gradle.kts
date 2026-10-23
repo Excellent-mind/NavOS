@@ -76,6 +76,7 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.activity:activity-ktx:1.9.3") // registerForActivityResult (permission request)
     implementation("androidx.drawerlayout:drawerlayout:1.2.0") // settings drawer
+    implementation("androidx.dynamicanimation:dynamicanimation:1.0.0") // spring-driven home sheet
 
     // MapLibre's native Android SDK - the exact same engine
     // @maplibre/maplibre-react-native wrapped (confirmed from its own
@@ -89,4 +90,6 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.mockito:mockito-core:5.14.2")
+    // Real org.json for JVM unit tests (the Android stub throws "not mocked").
+    testImplementation("org.json:json:20240303")
 }

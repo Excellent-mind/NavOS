@@ -1,6 +1,5 @@
 package com.excellentmindblow.navos.navigation
 
-import com.excellentmindblow.navos.Units
 import com.excellentmindblow.navos.routing.LaneInfo
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
@@ -30,6 +29,8 @@ data class NavigationState(
     // longer matches the route while drifting off it), not just a noisy GPS
     // fix. The service reroutes on the very first such fix.
     val offRouteConfirmed: Boolean = false,
+    /** How far the car is from the route line (m). */
+    val distanceToRouteMeters: Double = 0.0,
     // Multi-stop trips: how many intermediate stops are still ahead, which
     // one is next (null when only the final destination is left) and how far
     // / how long to it. All zero/null on an ordinary A -> B drive.
@@ -37,6 +38,12 @@ data class NavigationState(
     val nextStop: RouteStop? = null,
     val distanceToNextStopMeters: Double = 0.0,
     val durationToNextStopSeconds: Double = 0.0,
+    /** Road number at the upcoming turn ("E33") for the turn sign's tag, when mapped. */
+    val roadRef: String? = null,
+    /** Street of the turn after the upcoming one ("Then ... Jalan Ampang"). */
+    val nextRoadName: String? = null,
+    /** From the upcoming turn to the one after it ("Then ... in 450 m"). */
+    val distanceBetweenTurnsMeters: Double = 0.0,
 )
 
 /**
@@ -66,6 +73,18 @@ class NavigationEngine(
         // Segments of slack either side of the current leg when matching the
         // GPS fix to the route line on a multi-stop trip.
         private const val LEG_MATCH_MARGIN_SEGMENTS = 4
+
+        // Passing a maneuver without a fix inside ADVANCE_STEP_METERS of it (a
+        // GPS gap: tunnel, lost fix, a fast car on a slow GPS) still counts once
+        // the driver is on the line and this far past it along the route.
+        // Without this the engine stayed on the old turn for the rest of the
+        // drive, with its countdown growing.
+        private const val PASSED_STEP_MARGIN_METERS = 15.0
+
+        // How far ahead of the last maneuver the fix is matched to the line,
+        // so a later stretch that reuses the same road (out and back to a
+        // stop) can't be mistaken for where the driver is now.
+        private const val PROGRESS_SEARCH_SEGMENTS = 150
         private const val OFF_ROUTE_METERS = 28.0 // was 40: notice a wrong turn sooner
 
         // Faster check for taking another road: slightly off the line AND
@@ -77,6 +96,9 @@ class NavigationEngine(
         // Fixed-distance fallback for when speed isn't known (first fix,
         // or a GPS provider that doesn't report it).
         private const val ANNOUNCE_FAR_METERS = 300.0
+
+        /** The next turn is this close after the upcoming one: say both together. */
+        const val CHAIN_METERS = 150.0
         private const val ANNOUNCE_NEAR_METERS = 80.0
 
         // Speed-aware timing: announce by how many seconds out the turn is,
@@ -102,10 +124,62 @@ class NavigationEngine(
     private var stepIndex = 1
     private var stopsByStep: Map<Int, RouteStop> = emptyMap()
 
+    // Where each maneuver sits on the route line: its segment and its
+    // distance from the start. Null when the line is too short to match.
+    private var track: RouteTrack? = null
+    private var stepSegments = IntArray(0)
+    private var stepProgress = DoubleArray(0)
+
     fun setRoute(newRoute: Route?) {
         route = newRoute
         stepIndex = 1
         stopsByStep = newRoute?.stops?.filter { it.stepIndex >= 0 }?.associateBy { it.stepIndex } ?: emptyMap()
+        placeStepsOnLine(newRoute)
+    }
+
+    /** Matches every maneuver to the route line in driving order (each search
+     * starts where the previous maneuver matched, so a route that passes the
+     * same spot twice keeps its maneuvers in sequence). */
+    private fun placeStepsOnLine(newRoute: Route?) {
+        val line = newRoute?.geometry
+        if (newRoute == null || line == null || line.size < 2) {
+            track = null
+            stepSegments = IntArray(0)
+            stepProgress = DoubleArray(0)
+            return
+        }
+        val routeTrack = RouteTrack(line)
+        val segments = IntArray(newRoute.steps.size)
+        val progress = DoubleArray(newRoute.steps.size)
+        var from = 0
+        for ((i, step) in newRoute.steps.withIndex()) {
+            val snap = GeoUtils.snapToPolyline(step.point, line, from)
+            if (snap == null) {
+                segments[i] = from
+                progress[i] = if (i == 0) 0.0 else progress[i - 1]
+            } else {
+                segments[i] = snap.segmentIndex
+                progress[i] = routeTrack.progressOf(snap)
+                from = snap.segmentIndex
+            }
+        }
+        track = routeTrack
+        stepSegments = segments
+        stepProgress = progress
+    }
+
+    /** Distance along the route of [location], matched on the stretch from the
+     * last maneuver passed onward. Null when off the line or no track. */
+    private fun progressAlongRoute(
+        location: RoutePoint,
+        line: List<RoutePoint>,
+        idx: Int,
+    ): Double? {
+        val routeTrack = track ?: return null
+        val from = stepSegments.getOrNull(idx - 1) ?: 0
+        val snap = GeoUtils.snapToPolyline(location, line, from, PROGRESS_SEARCH_SEGMENTS) ?: return null
+        if (snap.distanceMeters > OFF_ROUTE_METERS) return null
+        return routeTrack.progressOf(snap)
     }
 
     /** Distance (m) and time (s) left of the road leading to the step at
@@ -181,6 +255,16 @@ class NavigationEngine(
             idx += 1
             distToTurn = GeoUtils.distanceMeters(location, steps[idx].point)
         }
+        // Then anything the driver is already past along the line, even if no
+        // fix came close to it.
+        val progress = progressAlongRoute(location, currentRoute.geometry, idx)
+        if (progress != null) {
+            while (idx < steps.size - 1 && idx < stepProgress.size && stepProgress[idx] < progress - PASSED_STEP_MARGIN_METERS) {
+                stopsByStep[idx]?.let { reachedStops.add(it) }
+                idx += 1
+                distToTurn = GeoUtils.distanceMeters(location, steps[idx].point)
+            }
+        }
         stepIndex = idx
 
         // Distance/time left = the way to the upcoming maneuver plus every step
@@ -225,25 +309,49 @@ class NavigationEngine(
                 nextModifier = nextStep?.modifier,
                 lanes = steps[idx].lanes,
                 offRouteConfirmed = headingMismatch,
+                distanceToRouteMeters = offLineDistance,
                 stopsRemaining = upcomingStops.size,
                 nextStop = nextStop,
                 distanceToNextStopMeters = toNextStop?.first ?: 0.0,
                 durationToNextStopSeconds = toNextStop?.second ?: 0.0,
+                roadRef = steps[idx].ref,
+                nextRoadName = nextStep?.roadName?.takeIf { it.isNotBlank() },
+                // A step's distance is the stretch after its maneuver, up to the next one.
+                distanceBetweenTurnsMeters = steps[idx].distanceMeters,
             ),
         )
 
         for (stop in reachedStops) {
             val more = currentRoute.stops.count { it.stepIndex > stop.stepIndex }
-            val label = stop.name.ifBlank { "stop ${stop.number}" }
-            onAnnounce(
-                "stop-reached-${stop.number}",
-                "You have arrived at $label. " + if (more > 0) "Continuing to your next stop." else "Continuing to your destination.",
-            )
+            val label = stop.name.ifBlank { Phrases.stopName(stop.number) }
+            onAnnounce("stop-reached-${stop.number}", Phrases.stopReached(label, more > 0))
             onStopReached(stop)
         }
 
         if (!offRoute) {
-            announceIfNeeded(idx, distToTurn, steps[idx].instruction, isArrival, speedMetersPerSecond)
+            announceIfNeeded(idx, distToTurn, chained(steps, idx, isArrival), isArrival, speedMetersPerSecond)
+        }
+    }
+
+    /** The upcoming instruction, with the one after it when that comes right
+     * after ("Turn left, then keep right") - two turns close together are
+     * easy to miss one at a time. */
+    private fun chained(
+        steps: List<RouteStep>,
+        idx: Int,
+        isArrival: Boolean,
+    ): String {
+        val here = steps[idx].instruction
+        if (isArrival) return here
+        val next = steps.getOrNull(idx + 1) ?: return here
+        // A step's distance is the stretch after its maneuver, up to the next one.
+        if (steps[idx].distanceMeters > CHAIN_METERS) return here
+        return when {
+            next.maneuverType == "arrive" -> Phrases.thenArrive(here)
+            next.maneuverType == "depart" -> here
+            (next.maneuverType == "new name" || next.maneuverType == "continue") &&
+                (next.modifier == null || next.modifier == "straight") -> here
+            else -> Phrases.then(here, Phrases.instruction(next.maneuverType, next.modifier, "", next.roundaboutExit))
         }
     }
 
@@ -260,13 +368,10 @@ class NavigationEngine(
         if (distanceToTurn <= nearThreshold) {
             onAnnounce("$stepIndex-near", instruction)
         } else if (distanceToTurn <= farThreshold) {
-            onAnnounce(
-                "$stepIndex-far",
-                "In ${Units.spoken(distanceToTurn)}, ${instruction.replaceFirstChar { it.lowercase() }}",
-            )
+            onAnnounce("$stepIndex-far", Phrases.inDistance(distanceToTurn, instruction))
         }
         if (isArrival && distanceToTurn <= nearThreshold) {
-            onAnnounce("$stepIndex-arrive", "You have arrived at your destination")
+            onAnnounce("$stepIndex-arrive", Phrases.arrived())
         }
     }
 

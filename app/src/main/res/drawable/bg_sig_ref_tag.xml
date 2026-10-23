@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Road number tag on the turn sign (E33, FT2): caution amber, like Malaysian expressway signs. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/sig_caution" />
+    <corners android:radius="6dp" />
+</shape>

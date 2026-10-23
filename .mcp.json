@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "emulator": {
+      "type": "http",
+      "url": "${EMULATOR_BROKER_URL}"
+    }
+  }
+}

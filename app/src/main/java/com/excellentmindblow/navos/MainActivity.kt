@@ -1,9 +1,7 @@
 package com.excellentmindblow.navos
 
 import android.Manifest
-import android.animation.Animator
 import android.animation.ObjectAnimator
-import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.ComponentName
@@ -15,17 +13,16 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import android.net.Uri
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.PointF
-import android.graphics.Paint
 import android.graphics.RectF
 import android.location.Location
 import android.location.LocationManager
 import android.os.Bundle
+import android.util.Log
 import android.os.Handler
 import android.os.Looper
+import android.os.Message
 import android.os.SystemClock
 import android.provider.Settings
 import android.text.Editable
@@ -33,13 +30,14 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
-import android.transition.AutoTransition
+import android.transition.ChangeBounds
+import android.transition.Fade
 import android.transition.TransitionManager
+import android.transition.TransitionSet
 import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
-import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.content.res.ColorStateList
@@ -50,54 +48,68 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
-import android.widget.RadioButton
-import android.widget.RadioGroup
-import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import com.google.android.material.checkbox.MaterialCheckBox
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.radiobutton.MaterialRadioButton
-import com.google.android.material.switchmaterial.SwitchMaterial
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.graphics.ColorUtils
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.dynamicanimation.animation.FloatValueHolder
+import androidx.dynamicanimation.animation.SpringAnimation
+import androidx.dynamicanimation.animation.SpringForce
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.excellentmindblow.navos.location.DriveFollower
+import com.excellentmindblow.navos.location.HeadingSensor
 import com.excellentmindblow.navos.location.LiveLocationTracker
 import com.excellentmindblow.navos.location.PuckIcon
+import com.excellentmindblow.navos.navigation.CameraZone
 import com.excellentmindblow.navos.navigation.GeoUtils
 import com.excellentmindblow.navos.navigation.RouteTrack
 import com.excellentmindblow.navos.navigation.NavigationService
 import com.excellentmindblow.navos.navigation.NavigationState
+import com.excellentmindblow.navos.navigation.SpeedLimitTracker
+import com.excellentmindblow.navos.poi.FuelBrand
 import com.excellentmindblow.navos.poi.Poi
 import com.excellentmindblow.navos.poi.PoiCache
+import com.excellentmindblow.navos.poi.PoiAlongRoute
 import com.excellentmindblow.navos.poi.PoiKind
 import com.excellentmindblow.navos.poi.PoiService
 import com.excellentmindblow.navos.routing.LaneInfo
-import com.excellentmindblow.navos.routing.RoadLimit
 import com.excellentmindblow.navos.routing.RoadPoi
 import com.excellentmindblow.navos.routing.RoadPoiService
+import com.excellentmindblow.navos.navigation.RouteCorners
+import com.excellentmindblow.navos.signs.SignOverlayView
+import com.excellentmindblow.navos.signs.SignPlanner
+import com.excellentmindblow.navos.traffic.TrafficPrefs
+import com.excellentmindblow.navos.traffic.TrafficFlow
+import com.excellentmindblow.navos.traffic.DepartureAdvisor
+import com.excellentmindblow.navos.traffic.TrafficClient
+import com.excellentmindblow.navos.navigation.TripStrip
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.routing.RoutePrefs
 import com.excellentmindblow.navos.routing.RouteStep
 import com.excellentmindblow.navos.routing.RouteStop
 import com.excellentmindblow.navos.routing.RoutingService
-import com.excellentmindblow.navos.routing.SpeedLimitService
 import com.excellentmindblow.navos.routing.TripPlanner
 import com.excellentmindblow.navos.search.GeocodeResult
 import com.excellentmindblow.navos.search.GeocodingService
+import com.excellentmindblow.navos.search.PlaceTileStore
 import com.excellentmindblow.navos.search.IncomingLocation
+import com.excellentmindblow.navos.search.RecentPlaces
+import com.excellentmindblow.navos.search.SavedPlaces
+import com.excellentmindblow.navos.poi.ParkAndRidePlanner
+import com.excellentmindblow.navos.search.SearchPicks
+import com.excellentmindblow.navos.traffic.RoadReports
+import com.excellentmindblow.navos.search.TripHabits
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -106,14 +118,8 @@ import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
-import org.maplibre.android.style.expressions.Expression
-import org.maplibre.android.style.layers.FillExtrusionLayer
-import org.maplibre.android.style.layers.FillLayer
-import org.maplibre.android.style.layers.Layer
-import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
-import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -138,55 +144,30 @@ private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
 // user picked (confirmed against openfreemap.org's own style list).
 private const val MAP_STYLE_URL_DARK = "https://tiles.openfreemap.org/styles/fiord"
 
-private const val ROUTE_SOURCE_ID = "navos-route-source"
-private const val ROUTE_CASING_LAYER_ID = "navos-route-casing-layer"
-private const val ROUTE_LAYER_ID = "navos-route-layer"
-private const val ROUTE_CHEVRON_LAYER_ID = "navos-route-chevron-layer"
-private const val ROUTE_CHEVRON_ICON_ID = "navos-route-chevron-icon"
-private const val ROUTE_PASSED_SOURCE_ID = "navos-route-passed-source"
-private const val ROUTE_PASSED_LAYER_ID = "navos-route-passed-layer"
 private const val PASSED_TAIL_POINTS = 150 // how much of the driven route stays visible (faded) behind the arrow
-private const val ALT_ROUTE_SOURCE_ID = "navos-alt-route-source"
-private const val ALT_ROUTE_LAYER_ID = "navos-alt-route-layer"
 private const val ROUTE_INDEX_PROPERTY = "routeIndex"
 
-private const val DESTINATION_SOURCE_ID = "navos-destination-source"
-private const val DESTINATION_LAYER_ID = "navos-destination-layer"
-private const val DESTINATION_ICON_ID = "navos-destination-icon"
-
-// Numbered pins for the intermediate stops of a multi-stop trip.
-private const val STOPS_SOURCE_ID = "navos-stops-source"
-private const val STOPS_LAYER_ID = "navos-stops-layer"
-private const val STOP_ICON_PREFIX = "navos-stop-"
-private const val STOP_ICON_COUNT = 9
 
 // Drive camera: 3D tilted view, heading-up, the arrow sitting in the lower
 // part of the screen so more road ahead is visible.
 private const val NAV_TILT_DEGREES = 55.0
+
+/** Where the Overture place packs are served from ({pack}.json.gz): NavOS's Cloudflare Pages site. */
+private const val PLACE_TILES_URL = "https://navos-places.pages.dev/v1"
+private const val TILE_PREFETCH_MOVE_M = 5_000f
 // Waze-like camera height, the same for the 3D and the 2D driving view:
 // about 200 m of road visible ahead at city speed (it used to be ~100 m,
 // and ~50 m when stopped, which felt like hugging the road).
 private const val NAV_ZOOM = 17.9 // cruising zoom (higher number = camera closer to the ground)
 private const val NAV_TOP_PADDING_FRACTION = 0.46 // puts the arrow ~73% down the screen
-private const val SHOW_3D_BUILDINGS = true
+private const val NAV_ARROW_MIN_FRACTION = 0.35 // an open drive sheet lifts the arrow no higher than this
 
 // Turn callouts on the route line (arrow + road name at every corner).
-private const val TURN_SOURCE_ID = "navos-turn-source"
-private const val TURN_ARROW_LAYER_ID = "navos-turn-arrow-layer"
-private const val TURN_LABEL_LAYER_ID = "navos-turn-label-layer"
 private const val MAX_TURN_CALLOUTS = 12
 
-// Toll plazas / speed cameras drawn on the route, and how many route
+// Toll plazas / speed cameras near the idle map, and how many route
 // choices to offer (Waze gives 4-5).
-private const val ROUTE_POI_SOURCE_ID = "navos-route-poi-source"
-private const val ROUTE_POI_LAYER_ID = "navos-route-poi-layer"
-private const val CAMERA_ZONE_SOURCE_ID = "navos-camera-zone-source"
-private const val CAMERA_ZONE_FILL_ID = "navos-camera-zone-fill"
-private const val CAMERA_ZONE_LINE_ID = "navos-camera-zone-line"
-private const val ZONE_RADIUS_M = 200.0 // speed-camera alert zone
 private const val AREA_FETCH_MIN_MOVE_M = 2500.0 // idle map: refetch after the view moves this far
-private const val POI_ICON_TOLL = "navos-poi-toll"
-private const val POI_ICON_CAMERA = "navos-poi-camera"
 private const val MAX_ROUTE_OPTIONS = 5
 
 // Smart zoom: pull in as a turn / U-turn / roundabout gets close, ease back
@@ -200,6 +181,16 @@ private const val NAV_ZOOM_FAST_PENALTY = 1.0 // 110 km/h and up: open the view
 // second) and a longer one only for the deliberate "snap into place"
 // moment - the Position button tap or entering active navigation.
 private const val NAV_FOLLOW_EASE_MS = 350
+
+// Home sheet spring: response in seconds (Apple's sheet value), and how hard
+// a release has to fling before the settle is allowed a small overshoot.
+private const val SHEET_SPRING_RESPONSE_S = 0.3f
+private const val SHEET_BOUNCE_FLING_PX_S = 1500f
+
+// Below this tracked speed, a gesture shorter than FLICK_FALLBACK_MAX_MS is
+// judged by its average speed instead (see onHomeSheetDragTouch).
+private const val FLICK_FALLBACK_MIN_PX_S = 300f
+private const val FLICK_FALLBACK_MAX_MS = 500L
 private const val SNAP_MAX_METERS = 35.0 // beyond this the fix isn't "on" the route
 private const val SNAP_LOOKAHEAD_SEGMENTS = 150
 private const val SNAP_LOOKBACK_SEGMENTS = 5
@@ -211,46 +202,38 @@ private const val PREFS_NAME = "navos_prefs"
 private const val KEY_VOICE_ENABLED = "voice_enabled"
 private const val KEY_DARK_MODE_ENABLED = "dark_mode_enabled" // legacy (pre "Follow system")
 private const val KEY_MAP_STYLE_MODE = "map_style_mode"
-private const val MAP_STYLE_SYSTEM = "system"
-private const val MAP_STYLE_LIGHT = "light"
-private const val MAP_STYLE_DARK = "dark"
+internal const val MAP_STYLE_SYSTEM = "system"
+internal const val MAP_STYLE_LIGHT = "light"
+internal const val MAP_STYLE_DARK = "dark"
 
 /** Pause after the last keystroke before a live search fires - long
  * enough not to query on every letter, short enough to feel instant. */
 private const val LIVE_SEARCH_DEBOUNCE_MS = 120L
-private const val KEY_RECENT_PLACES = "recent_places"
-private const val MAX_RECENTS_STORED = 10
-private const val MAX_RECENTS_SHOWN = 5
+private const val MAX_PETROL_RESULTS = 10
 
 // Petrol station / EV charger pins during a drive.
-private const val POI_SOURCE_ID = "navos-poi-source"
-private const val POI_LAYER_ID = "navos-poi-layer"
-private const val POI_ICON_PROPERTY = "poiIcon"
 private const val POI_ID_PROPERTY = "poiId"
-private const val FUEL_PIN_ICON_ID = "navos-icon-fuel-pin"
-private const val EV_PIN_ICON_ID = "navos-icon-ev-pin"
 private const val KEY_SHOW_FUEL = "show_fuel_pins"
 private const val KEY_SHOW_EV = "show_ev_pins"
+private const val KEY_SHOW_PARKING = "show_parking_pins"
+private const val KEY_SHOW_TRANSIT = "show_transit_pins"
+
+/** Park & ride is only worth looking at for trips at least this long. */
+private const val PARK_RIDE_MIN_TRIP_M = 8_000.0
 private const val FUEL_COLOR = "#E8710A"
 private const val EV_COLOR = "#12A150"
 
 /** Look stations up again once the driver has moved this far from the
  * last lookup (keeps the 5 km ring roughly centred on them)... */
 private const val POI_REFETCH_DISTANCE_M = 2000f
+private const val POI_LOOK_AHEAD_M = 4000.0
+private const val FASTER_OFFER_MS = 15_000L
+private val EXPRESSWAY_NAME = Regex("(?i)lebuhraya|expressway|highway")
+private const val POI_PIN_REFRESH_M = 200.0
 
 /** ...but never more often than this - Overpass is a free shared server,
  * and a failed lookup also waits this long before retrying. */
 private const val POI_MIN_REFETCH_MS = 60_000L
-
-/** Posted speed limits: download the roads around the driver again once they
- * have moved this far from the last download (the download covers 1.5 km)... */
-private const val SPEED_REFETCH_DISTANCE_M = 700f
-
-/** ...but never more often than this, and a failed download waits this long too. */
-private const val SPEED_MIN_REFETCH_MS = 20_000L
-
-/** Speeding alert tolerance, so GPS noise doesn't flash the badge red. */
-private const val SPEEDING_MARGIN_KMH = 3.0
 
 /** Where the app currently is in the search -> preview -> drive flow. */
 private enum class NavMode { IDLE, PREVIEW, ACTIVE }
@@ -276,7 +259,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var searchInput: EditText
     private lateinit var searchResultsList: ListView
     private lateinit var routePreviewCard: View
-    private lateinit var routePreviewSummary: TextView
     private lateinit var routePreviewHint: TextView
     private lateinit var topNavBar: View
     private lateinit var bottomNavBar: View
@@ -285,24 +267,23 @@ class MainActivity : AppCompatActivity() {
     private lateinit var turnDistanceText: TextView
     private lateinit var turnStreetText: TextView
     private lateinit var recalcPill: View
-    private lateinit var routeViewToggle: View
-    private lateinit var toggleMap: TextView
-    private lateinit var toggleList: TextView
+    private lateinit var routeBackButton: View
+    private lateinit var routePreviewSheet: RoutePreviewSheet
     private lateinit var routeListOverlay: View
     private lateinit var routeListItems: LinearLayout
     private lateinit var recalcText: TextView
-    private var recalcShown = false
-    private var recalcPulse: ObjectAnimator? = null
-    private lateinit var recalcLogo: View
-    private lateinit var recalcNeedle: View
-    private var recalcNeedleSpin: ObjectAnimator? = null
-    private var recalcLogoPulse: ObjectAnimator? = null
+
+    /** The one "working on it" pill (recalculating, routes, stops). */
+    private lateinit var busy: BusyPill
     private lateinit var etaClockText: TextView
     private lateinit var etaDetailText: TextView
     private lateinit var navStopButton: View
-    private lateinit var routePreviewEta: TextView
-    private lateinit var routePreviewVia: TextView
+    private var destinationAddress: String? = null
+
+    /** When the current drive started (elapsedRealtime), for the arrival card's drive time. */
+    private var driveStartedAtMs = 0L
     private lateinit var routePreviewDestination: TextView
+    private lateinit var routePreviewAddress: TextView
     private var navSheetExpanded = false
     private lateinit var navBarRow: View
     private var destinationName: String? = null
@@ -327,6 +308,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var addStopDriveButton: TextView
     private lateinit var skipStopDriveButton: TextView
     private lateinit var turnIcon: ImageView
+    private lateinit var turnRefTag: TextView
+    private lateinit var nextTurnStreet: TextView
+    private lateinit var nextTurnDistance: TextView
+    private lateinit var cameraAlertDistance: TextView
+    private lateinit var muteButton: ImageButton
     private lateinit var speedBadge: TextView
     private lateinit var recenterButton: View
     private lateinit var nextTurnsSheet: View
@@ -337,10 +323,49 @@ class MainActivity : AppCompatActivity() {
     private var nextTurnsRenderedIndex = -1
     private var nextTurnsFirstDistance: TextView? = null
     private lateinit var homeButton: View
-    private lateinit var homeButtonLabel: TextView
     private lateinit var workButton: View
-    private lateinit var workButtonLabel: TextView
+    private lateinit var homeSearchEmpty: View
+    private lateinit var chooseOnMapButton: View
+    private lateinit var searchScreen: SearchScreen
     private lateinit var prefs: SharedPreferences
+    private lateinit var savedPlaces: SavedPlaces
+    private lateinit var settingsScreen: SettingsScreen
+    private lateinit var recentPlaces: RecentPlaces
+
+    private val routeOfflineCache by lazy { RouteOfflineCache(this) }
+
+    /** Road reports from drivers: Report button, pins, alerts, "Still there?". */
+    private lateinit var roadReportsUi: RoadReportsUi
+
+    private val roadReportsHost =
+        object : RoadReportsUi.Host {
+            override fun track(): RouteTrack? {
+                if (navMode != NavMode.ACTIVE) return null
+                val geometry = activeRoute?.geometry?.takeIf { it.size >= 2 } ?: return null
+                return routeTrack?.takeIf { it.source === geometry } ?: RouteTrack(geometry).also { routeTrack = it }
+            }
+
+            override fun progressM(): Double = driveFollower.progressMeters
+
+            override fun here(): RoutePoint? = lastKnownLocation?.let { RoutePoint(it.latitude, it.longitude) }
+
+            override fun heading(): Double? = lastKnownLocation?.takeIf { it.hasBearing() }?.bearing?.toDouble() ?: smoothedBearing
+
+            override fun announce(
+                key: String,
+                text: String,
+            ) {
+                navigationService?.announce(key, text)
+            }
+
+            override fun redrawPins() = renderRoutePois()
+        }
+
+    /** Learns regular trips (time of day) to suggest the likely one on Home. */
+    private lateinit var tripHabits: TripHabits
+
+    /** Places picked from search, so search puts them first next time. */
+    private lateinit var searchPicks: SearchPicks
     private lateinit var nextTurnStrip: View
     private lateinit var laneContainer: LinearLayout
     private lateinit var permissionDeniedOverlay: View
@@ -368,6 +393,7 @@ class MainActivity : AppCompatActivity() {
     private var homeSheetState = HomeSheetState.COLLAPSED
 
     private var dragStartRawY = 0f
+    private var dragDownTime = 0L
     private var dragging = false
 
     /** True while a drag or the snap animation after it owns the sheet's
@@ -380,7 +406,7 @@ class MainActivity : AppCompatActivity() {
      * velocity tracker + running snap animation for the drag handle. */
     private var dragStartSheetHeight = 0
     private var dragVelocityTracker: VelocityTracker? = null
-    private var sheetSettleAnimator: ValueAnimator? = null
+    private var sheetSettleAnimator: SpringAnimation? = null
 
     /** Whichever search box (the idle sheet's or the mid-drive topBar's)
      * most recently opened - showSearchResults()/runSearch() target this
@@ -404,8 +430,10 @@ class MainActivity : AppCompatActivity() {
 
     // ---- Petrol / EV pins (active drive only) ----
     private lateinit var poiToggleColumn: View
-    private lateinit var fuelToggleButton: ImageButton
-    private lateinit var evToggleButton: ImageButton
+    private lateinit var navPetrolChip: TextView
+    private lateinit var navEvChip: TextView
+    private lateinit var navParkingChip: TextView
+    private lateinit var navTransitChip: TextView
     private lateinit var poiCard: View
     private lateinit var poiLogo: View
     private lateinit var poiLogoIcon: ImageView
@@ -424,11 +452,34 @@ class MainActivity : AppCompatActivity() {
     private var droppedPinResult: GeocodeResult? = null
     private var pinSeq = 0
     private lateinit var poiFootnote: View
+    private lateinit var poiAheadRow: View
+    private lateinit var poiAheadValue: TextView
+    private lateinit var poiAheadLabel: TextView
+    private lateinit var poiAheadTime: TextView
+    private lateinit var poiSide: TextView
+    private lateinit var poiNext: View
+    private lateinit var poiNextIcon: ImageView
+    private lateinit var poiNextLabel: TextView
+    private lateinit var poiNextValue: TextView
+    private lateinit var poiGoIcon: View
+    private lateinit var poiGoTitle: TextView
+    private lateinit var poiGoSub: TextView
+    private lateinit var poiGoInsteadButton: TextView
     private var lastPoiFetchLocation: Location? = null
     private var lastPoiFetchAtMs = 0L
     private var poiFetchInFlight = false
     private var showFuelPins = true
     private var showEvPins = true
+    private var showParkingPins = true
+
+    /** Car parks near the destination of this drive (see [loadParking]). */
+    private var parkingPois: List<Poi> = emptyList()
+    private var parkingFor: RoutePoint? = null
+
+    /** Train stations near the destination (see [loadTransit]); off by default. */
+    private var showTransitPins = false
+    private var transitPois: List<Poi> = emptyList()
+    private var transitFor: RoutePoint? = null
 
     /** Set while waiting for the user to pick a destination to save under
      * "home" or "work" - cleared once that pick is saved. */
@@ -476,7 +527,11 @@ class MainActivity : AppCompatActivity() {
             },
         ).also {
             it.driveTilt = NAV_TILT_DEGREES
-            it.onFrame = { updateArrowOverlay() }
+            it.onFrame = {
+                updateArrowOverlay()
+                if (::signOverlay.isInitialized) signOverlay.invalidate()
+                if (::routeArrows.isInitialized) routeArrows.invalidate()
+            }
         }
     private var smoothedNavZoom: Double? = null
     private var lastNavState: NavigationState? = null
@@ -523,9 +578,11 @@ class MainActivity : AppCompatActivity() {
                 // Arrow + camera are animated together by driveFollower.
                 updateNavCamera(location)
                 maybeFetchPois(location)
+                refreshPoiPinsAlongRoute()
                 checkCameraZone(location)
+                if (::roadReportsUi.isInitialized) roadReportsUi.onProgress()
                 val currentKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
-                speedBadge.text = "${Units.speed(currentKmh)}\n${Units.speedUnit}"
+                lastSpeedKmh = currentKmh
                 updateSpeedLimit(location, currentKmh)
             }
 
@@ -541,25 +598,34 @@ class MainActivity : AppCompatActivity() {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastRerouteFailToastMs < 10_000L) return
                 lastRerouteFailToastMs = now
-                Toast.makeText(this@MainActivity, "Can't find a new route - check your connection", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, tr("Can't find a new route - check your connection", "Tak jumpa laluan baru - cek internet anda"), Toast.LENGTH_SHORT).show()
             }
 
             override fun onStopReached(stop: RouteStop) {
                 passedStopNumbers.add(stop.number)
                 activeRoute?.let { renderStopMarkers(it.stops) }
-                val label = stop.name.ifBlank { "stop ${stop.number}" }
-                Toast.makeText(this@MainActivity, "Arrived at $label", Toast.LENGTH_SHORT).show()
+                val label = stop.name.ifBlank { tr("stop ${stop.number}", "hentian ${stop.number}") }
+                Toast.makeText(this@MainActivity, tr("Arrived at $label", "Dah sampai $label"), Toast.LENGTH_SHORT).show()
+            }
+
+            override fun onFasterRoute(
+                route: Route,
+                savedSeconds: Double,
+            ) {
+                if (navMode == NavMode.ACTIVE) showFasterRoute(route, savedSeconds)
             }
 
             override fun onStopChangeFailed() {
+                busy.set(BusyPill.Job.STOP, null)
                 Toast.makeText(
                     this@MainActivity,
-                    "Couldn't change the stops right now - check your GPS and connection",
+                    tr("Couldn't change the stops right now - check your GPS and connection", "Tak dapat tukar hentian sekarang - cek GPS dan internet anda"),
                     Toast.LENGTH_SHORT,
                 ).show()
             }
 
             override fun onRerouted(route: Route) {
+                busy.set(BusyPill.Job.STOP, null)
                 activeRoute = route
                 snapSegmentIndex = 0
                 routeOptions = listOf(route)
@@ -567,9 +633,19 @@ class MainActivity : AppCompatActivity() {
                 redrawRouteLines()
                 setRecalculating(false)
                 activeRoutePois = emptyList()
+                activeExtras = emptyList()
                 cameraRouteIndex.clear()
                 renderRoutePois()
+                updateRouteSigns(route)
+                trafficLayer.start(route)
+                renderPoiPins() // stations on the new route only
                 loadActiveRoutePois(route)
+                runCatching { routeOfflineCache.save(route, mapStyleUrl(), newDrive = false) }
+                if (::roadReportsUi.isInitialized) roadReportsUi.start()
+                loadParking(route)
+                loadTransit(route)
+        loadTransit(route)
+        loadParking(route)
                 renderedCalloutStep = -1
                 renderTurnCallouts(1)
                 nextTurnsRenderedIndex = -1
@@ -597,7 +673,20 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-    private val mainHandler = Handler(Looper.getMainLooper())
+    // Background work (routing, search, POI and speed-limit lookups) reports
+    // back through this handler. If the screen was destroyed in the meantime
+    // (a configuration change, or the app closing) the result is for a screen
+    // that no longer exists and its executors are shut down - acting on it
+    // crashed with RejectedExecutionException. Drop such late results.
+    /** Live traffic colours on the route while driving (see [TrafficLayer]). */
+    private val trafficLayer by lazy { TrafficLayer(mainHandler) { snapSegmentIndex } }
+
+    private val mainHandler =
+        object : Handler(Looper.getMainLooper()) {
+            override fun dispatchMessage(msg: Message) {
+                if (!isDestroyed) super.dispatchMessage(msg)
+            }
+        }
     private val searchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     // Place search gets its own thread so a burst of as-you-type lookups
@@ -611,10 +700,13 @@ class MainActivity : AppCompatActivity() {
     // Posted speed limit (OpenStreetMap maxspeed) for the road being driven.
     private val speedExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private lateinit var speedLimitSign: TextView
-    private var speedRoads: List<RoadLimit> = emptyList()
-    private var speedRoadsCenter: Location? = null
-    private var speedFetchInFlight = false
-    private var lastSpeedFetchAtMs = 0L
+    private val speedLimits =
+        SpeedLimitTracker(
+            runInBackground = { speedExecutor.execute(it) },
+            postToMain = { mainHandler.post(it) },
+            clock = SystemClock::elapsedRealtime,
+            stillWanted = { !isDestroyed && navMode == NavMode.ACTIVE },
+        )
     private var lastRerouteFailToastMs = 0L
     private var currentResults: List<GeocodeResult> = emptyList()
 
@@ -637,12 +729,52 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must happen before any MapView touches its native state.
         MapLibre.getInstance(applicationContext)
+        // Overture places for search (the shops OpenStreetMap doesn't have yet).
+        if (GeocodingService.placeTiles == null) GeocodingService.placeTiles = PlaceTileStore(this, PLACE_TILES_URL)
 
         // The Map style setting (Follow system / Light / Dark) drives the
         // WHOLE app's day/night theme, not just the map tiles. Must run
         // before super.onCreate so the first inflate already uses it.
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        savedPlaces = SavedPlaces(prefs)
+        settingsScreen =
+            SettingsScreen(
+                this,
+                prefs,
+                object : SettingsScreen.Host {
+                    override fun currentMapStyleMode() = mapStyleMode()
+
+                    override fun onMapStyleModeChosen(mode: String) = this@MainActivity.onMapStyleModeChosen(mode)
+
+                    override fun onDriveViewChanged() {
+                        driveFollower.driveTilt = if (MapDisplayPrefs.view3d) NAV_TILT_DEGREES else 0.0
+                    }
+
+                    override fun applyMapDisplayLayers() = this@MainActivity.applyMapDisplayLayers()
+
+                    override fun isPoiKindShown(kind: PoiKind) = this@MainActivity.isPoiKindShown(kind)
+
+                    override fun setPoiKindShown(
+                        kind: PoiKind,
+                        shown: Boolean,
+                    ) = this@MainActivity.setPoiKindShown(kind, shown)
+
+                    override fun isVoiceOn() = prefs.getBoolean(KEY_VOICE_ENABLED, true)
+
+                    override fun setVoiceOn(on: Boolean) = setVoiceGuidance(on)
+
+                    override fun onHelp() = openHelp()
+
+                    override fun onAbout() = showAbout()
+                },
+            )
+        recentPlaces = RecentPlaces(prefs)
+        tripHabits = TripHabits(prefs)
+        searchPicks = SearchPicks(prefs)
         MapDisplayPrefs.load(prefs)
+        // Language (English / Malay) before any text is made.
+        Lang.load(prefs)
+        Lang.applyToApp(prefs)
         driveFollower.driveTilt = if (MapDisplayPrefs.view3d) NAV_TILT_DEGREES else 0.0
         applyAppNightMode()
 
@@ -680,9 +812,13 @@ class MainActivity : AppCompatActivity() {
             loadedMap.uiSettings.isLogoEnabled = false
             loadedMap.uiSettings.isAttributionEnabled = false
             val compass = findViewById<CompassView>(R.id.compassButton)
+            signOverlay.map = loadedMap
+            routeArrows.map = loadedMap
             loadedMap.addOnCameraMoveListener {
                 compass.northAngle = (-loadedMap.cameraPosition.bearing).toFloat()
                 updateArrowOverlay()
+                signOverlay.invalidate()
+                routeArrows.invalidate()
             }
             // Two views, like other navigation apps: tap to switch between
             // "north up" and "heading up" (map turns to the way you're going).
@@ -820,8 +956,29 @@ class MainActivity : AppCompatActivity() {
         setUpRouteControls()
         setUpSettings()
         setUpSavedPlaces()
-        setUpSettingsExtras()
         setUpImeInsetHandling()
+        setUpPressFeedback()
+        // Just switched language from Settings (that re-creates the screen): stay there.
+        if (Lang.takeReopenSettings(prefs)) setHomeSheetState(HomeSheetState.SETTINGS)
+    }
+
+    /** Every button-like control shrinks slightly while pressed (see
+     * [Motion.addPressFeedback]). Rows in the search / route lists keep
+     * their ripple only - a whole list row scaling looks wobbly. */
+    private fun setUpPressFeedback() {
+        listOf(
+            R.id.searchBackButton, R.id.searchClearButton, R.id.compassButton, R.id.recenterButton,
+            R.id.navPetrolChip, R.id.navEvChip, R.id.navParkingChip, R.id.navTransitChip, R.id.routeBackButton, R.id.startNavigationButton,
+            R.id.previewAddStopButton, R.id.routeAllRoutes,
+            R.id.bottomSearchButton, R.id.bottomAltRouteButton, R.id.stopNavigationButton, R.id.shareEtaButton,
+            R.id.poiCloseButton, R.id.poiGoButton, R.id.homeSettingsButton, R.id.homeSheetBackButton,
+            R.id.homeSearchClearButton, R.id.homeButton, R.id.workButton, R.id.permissionRetryButton,
+            R.id.permissionSettingsButton, R.id.gpsSettingsButton, R.id.arrivalConfirmButton,
+            R.id.arrivalNotYetButton, R.id.arrivalSaveButton, R.id.exitCancelButton, R.id.exitConfirmButton,
+            R.id.homeSearchPill, R.id.homeRecentsClear, R.id.chooseOnMapButton, R.id.filterAll, R.id.filterPlaces,
+            R.id.filterAddresses, R.id.filterPetrol, R.id.homePetrolChip, R.id.homeEvChip, R.id.homeShortcutHome,
+            R.id.homeShortcutWork, R.id.nextTurnsSwitchRoute, R.id.nextTurnsClose,
+        ).forEach { id -> findViewById<View>(id)?.let(Motion::addPressFeedback) }
     }
 
     /** True while a pinch started during follow mode: that pinch zooms
@@ -898,6 +1055,58 @@ class MainActivity : AppCompatActivity() {
         val parent = mapView.parent as ViewGroup
         // Right above the map, below every other control and sheet.
         parent.addView(arrowView, parent.indexOfChild(mapView) + 1, ViewGroup.LayoutParams(arrowSizePx, arrowSizePx))
+        // The 3D road signs stand between the map and the arrow.
+        signOverlay = SignOverlayView(this).apply { progress = { driveFollower.progressMeters } }
+        parent.addView(signOverlay, parent.indexOfChild(mapView) + 1, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // Guide chevrons lie on the line itself, under the signs.
+        routeArrows = RouteArrowsView(this).apply { progress = { driveFollower.progressMeters } }
+        parent.addView(routeArrows, parent.indexOfChild(mapView) + 1, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
+    /** Animated guide chevrons through every bend of the route ahead. */
+    private lateinit var routeArrows: RouteArrowsView
+
+    /** Road signs and traffic lights standing along the route while driving. */
+    private lateinit var signOverlay: SignOverlayView
+
+    /** Traffic lights / R&Rs beside each previewed route, and the active route's. */
+    private val routeExtrasByIndex = HashMap<Int, List<RoadPoi>>()
+    private var activeExtras: List<RoadPoi> = emptyList()
+
+    /** Where the active route's traffic lights are (metres from its start). */
+    private var activeLights: List<Double> = emptyList()
+
+    /** Re-plans the signs for [route] from what is known about it so far. */
+    private fun updateRouteSigns(route: Route) {
+        val pois = activeRoutePois
+        val extras = activeExtras
+        signExecutor.execute {
+            val signs = SignPlanner.plan(route, pois, extras)
+            val lights = SignPlanner.trafficLights(route, extras)
+            val corners = if (route.geometry.size >= 2) RouteCorners.find(RouteTrack(route.geometry)) else emptyList()
+            Log.i(
+                "NavOSSigns",
+                "planned ${signs.size} signs (${signs.groupingBy { it.content.javaClass.simpleName }.eachCount()}), " +
+                    "${lights.size} traffic lights from ${extras.size} extras / ${pois.size} pois",
+            )
+            mainHandler.post {
+                if (isDestroyed || navMode != NavMode.ACTIVE || activeRoute !== route) return@post
+                activeLights = lights
+                val track = routeTrack?.takeIf { it.source === route.geometry } ?: RouteTrack(route.geometry).also { routeTrack = it }
+                signOverlay.setRoute(track, signs)
+                routeArrows.setRoute(track, corners)
+                lastNavState?.let { showTripSummary(it.durationRemainingSeconds + trafficLayer.delayAheadSeconds, it.distanceRemainingMeters, etaClockText, etaDetailText) }
+            }
+        }
+    }
+
+    /** " • 8 lights" for the drive bar: traffic lights still ahead, or "" if none / unknown. */
+    private fun lightsAheadSuffix(): String {
+        if (navMode != NavMode.ACTIVE || activeLights.isEmpty()) return ""
+        val here = driveFollower.progressMeters
+        if (here.isNaN()) return ""
+        val n = SignPlanner.lightsAhead(activeLights, here)
+        return if (n <= 0) "" else " • " + resources.getQuantityString(R.plurals.n_lights_short, n, n)
     }
 
     private fun updateArrowOverlay() {
@@ -947,7 +1156,8 @@ class MainActivity : AppCompatActivity() {
      * Also pads the mid-drive search bar (topBar) the same way. */
     private fun applySheetInsets() {
         val ownedByDrag = dragging || settlingDrag
-        val fullHeight = homeSheetState == HomeSheetState.SEARCH && !ownedByDrag
+        // Search and Settings open to full height, stopping below the status bar.
+        val fullHeight = (homeSheetState == HomeSheetState.SEARCH || homeSheetState == HomeSheetState.SETTINGS) && !ownedByDrag
         val params = homeSheet.layoutParams as? ViewGroup.MarginLayoutParams
         // While a drag/snap owns the sheet it sets the height itself, every
         // frame - leave height and margin alone so nothing pops.
@@ -965,6 +1175,9 @@ class MainActivity : AppCompatActivity() {
         homeSheet.translationY = if (fullHeight || ownedByDrag) 0f else -lastImeBottom.toFloat()
 
         topBar.setPadding(topBar.paddingLeft, topBar.paddingTop, topBar.paddingRight, lastImeBottom + dp(12))
+        // While typing, the keyboard needs the room for results; "Choose on
+        // map" comes back once it closes.
+        if (::chooseOnMapButton.isInitialized) chooseOnMapButton.visibility = if (lastImeBottom > 0) View.GONE else View.VISIBLE
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -980,24 +1193,34 @@ class MainActivity : AppCompatActivity() {
         return (parentHeight - sheetTopGap()).coerceAtLeast(sheetCollapsedHeight() + 1)
     }
 
+    /** Laid-out height of the Home content (search row, shortcuts, chips,
+     * recents), remembered while it is shown - it is hidden mid-drag. */
+    private var homeCollapsedContentHeight = 0
+
     /** The sheet's height when collapsed: padding + drag handle (24dp) + the
-     * 52dp search-pill row, with the body hidden. */
+     * Home content, with the search body hidden. */
     private fun sheetCollapsedHeight(): Int =
-        homeSheet.paddingTop + dp(24) + dp(52) + homeSheetBasePaddingBottom
+        homeSheet.paddingTop + dp(24) + homeCollapsedContentHeight.coerceAtLeast(dp(56)) + homeSheetBasePaddingBottom
 
     private fun setUpSettings() {
         Units.load(prefs)
+        Lang.load(prefs)
         RoutePrefs.load(prefs)
-        findViewById<View>(R.id.navPrefsRow).setOnClickListener { showNavPreferencesDialog() }
-        findViewById<Switch>(R.id.voiceGuidanceSwitch).apply {
-            isChecked = prefs.getBoolean(KEY_VOICE_ENABLED, true)
-            setOnCheckedChangeListener { _, isChecked ->
-                prefs.edit().putBoolean(KEY_VOICE_ENABLED, isChecked).apply()
-                navigationService?.setVoiceEnabled(isChecked)
-            }
-        }
+        settingsScreen.build(findViewById(R.id.homeSettingsList))
+    }
 
-        findViewById<View>(R.id.navMapDisplayRow).setOnClickListener { showMapDisplayDialog() }
+    /** Voice guidance on/off - from the Settings switch or the drive screen's mute button. */
+    private fun setVoiceGuidance(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_VOICE_ENABLED, enabled).apply()
+        navigationService?.setVoiceEnabled(enabled)
+        if (::settingsScreen.isInitialized) settingsScreen.syncVoice(enabled)
+        if (::muteButton.isInitialized) styleMuteButton()
+    }
+
+    private fun styleMuteButton() {
+        val on = prefs.getBoolean(KEY_VOICE_ENABLED, true)
+        muteButton.setImageResource(if (on) R.drawable.ic_volume else R.drawable.ic_volume_off)
+        muteButton.contentDescription = getString(if (on) R.string.mute_voice else R.string.unmute_voice)
     }
 
     // ---- Settings > Map display (like Waze's Display & map) ------------------
@@ -1021,165 +1244,6 @@ class MainActivity : AppCompatActivity() {
             ?.setProperties(PropertyFactory.visibility(if (MapDisplayPrefs.buildings3d) Property.VISIBLE else Property.NONE))
         style.getLayer(ROUTE_CHEVRON_LAYER_ID)
             ?.setProperties(PropertyFactory.visibility(if (MapDisplayPrefs.routeArrows) Property.VISIBLE else Property.NONE))
-    }
-
-    private fun showMapDisplayDialog() {
-        val textColor = getColor(R.color.navos_text)
-        val hintColor = getColor(R.color.navos_hint)
-        val column =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(22), dp(8), dp(22), dp(8))
-            }
-
-        fun heading(label: String) =
-            TextView(this).apply {
-                text = label
-                textSize = 15f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(textColor)
-                setPadding(0, dp(14), 0, dp(4))
-            }
-
-        fun note(label: String) =
-            TextView(this).apply {
-                text = label
-                textSize = 12f
-                setTextColor(hintColor)
-                setPadding(0, dp(2), 0, dp(4))
-            }
-
-        fun radio(
-            group: RadioGroup,
-            label: String,
-        ): RadioButton {
-            val button = MaterialRadioButton(this).apply { id = View.generateViewId(); text = label; setTextColor(textColor) }
-            group.addView(button)
-            return button
-        }
-
-        fun switchRow(
-            label: String,
-            checked: Boolean,
-            onChange: (Boolean) -> Unit,
-        ): View =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-                setPadding(0, dp(6), 0, dp(6))
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = label
-                        textSize = 15f
-                        setTextColor(textColor)
-                    },
-                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-                )
-                addView(
-                    SwitchMaterial(this@MainActivity).apply {
-                        isChecked = checked
-                        setOnCheckedChangeListener { _, on -> onChange(on) }
-                    },
-                )
-            }
-
-        // Map colors
-        column.addView(heading("Map colors"))
-        val colors = RadioGroup(this)
-        val rSystem = radio(colors, "Follow system")
-        val rLight = radio(colors, "Light (day)")
-        val rDark = radio(colors, "Dark (night)")
-        colors.check(
-            when (mapStyleMode()) {
-                MAP_STYLE_DARK -> rDark.id
-                MAP_STYLE_LIGHT -> rLight.id
-                else -> rSystem.id
-            },
-        )
-        colors.setOnCheckedChangeListener { _, id ->
-            onMapStyleModeChosen(
-                when (id) {
-                    rDark.id -> MAP_STYLE_DARK
-                    rLight.id -> MAP_STYLE_LIGHT
-                    else -> MAP_STYLE_SYSTEM
-                },
-            )
-        }
-        column.addView(colors)
-
-        // Map view
-        column.addView(heading("Driving view"))
-        val view = RadioGroup(this)
-        val r3d = radio(view, "3D - tilted, looking ahead")
-        val r2d = radio(view, "2D - flat, top-down")
-        view.check(if (MapDisplayPrefs.view3d) r3d.id else r2d.id)
-        view.setOnCheckedChangeListener { _, id ->
-            MapDisplayPrefs.view3d = id == r3d.id
-            MapDisplayPrefs.save(prefs)
-            driveFollower.driveTilt = if (MapDisplayPrefs.view3d) NAV_TILT_DEGREES else 0.0
-        }
-        column.addView(view)
-        column.addView(note("Applies the next time you start driving."))
-
-        // Show on map
-        column.addView(heading("Show on map"))
-        column.addView(
-            switchRow("3D buildings", MapDisplayPrefs.buildings3d) {
-                MapDisplayPrefs.buildings3d = it
-                MapDisplayPrefs.save(prefs)
-                applyMapDisplayLayers()
-            },
-        )
-        column.addView(
-            switchRow("Route direction arrows", MapDisplayPrefs.routeArrows) {
-                MapDisplayPrefs.routeArrows = it
-                MapDisplayPrefs.save(prefs)
-                applyMapDisplayLayers()
-            },
-        )
-        column.addView(
-            switchRow("Petrol stations", showFuelPins) {
-                showFuelPins = it
-                prefs.edit().putBoolean(KEY_SHOW_FUEL, it).apply()
-                onPoiTogglesChanged(if (it) "Petrol stations shown" else "Petrol stations hidden")
-            },
-        )
-        column.addView(
-            switchRow("EV charging", showEvPins) {
-                showEvPins = it
-                prefs.edit().putBoolean(KEY_SHOW_EV, it).apply()
-                onPoiTogglesChanged(if (it) "EV charging shown" else "EV charging hidden")
-            },
-        )
-
-        // While driving
-        column.addView(heading("While driving"))
-        column.addView(
-            switchRow("Speedometer", MapDisplayPrefs.speedometer) {
-                MapDisplayPrefs.speedometer = it
-                MapDisplayPrefs.save(prefs)
-            },
-        )
-        column.addView(
-            switchRow("Speed limit sign", MapDisplayPrefs.speedLimit) {
-                MapDisplayPrefs.speedLimit = it
-                MapDisplayPrefs.save(prefs)
-            },
-        )
-        column.addView(
-            switchRow("Speed camera alerts", MapDisplayPrefs.cameraAlerts) {
-                MapDisplayPrefs.cameraAlerts = it
-                MapDisplayPrefs.save(prefs)
-            },
-        )
-        column.addView(note("Driving options apply the next time you start driving."))
-
-        val scroll = android.widget.ScrollView(this).apply { addView(column) }
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Map display")
-            .setView(scroll)
-            .setPositiveButton("Done", null)
-            .show()
     }
 
     /** The saved map style choice: Follow system (the default), Light or
@@ -1253,32 +1317,81 @@ class MainActivity : AppCompatActivity() {
         applyMapStyle(loadedMap, mapStyleUrl(), isRestyle = true)
     }
 
-    /** Placeholder settings-body rows (help/about) - there's no account/
-     * backend system yet, so these are simple, honest actions rather than
-     * fake screens. */
-    private fun setUpSettingsExtras() {
-        findViewById<TextView>(R.id.helpFeedbackRow).setOnClickListener {
-            val intent =
-                Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:excellentmindblow@gmail.com")).apply {
-                    putExtra(Intent.EXTRA_SUBJECT, "NavOS feedback")
-                }
-            try {
-                startActivity(intent)
-            } catch (e: Exception) {
-                Toast.makeText(this, "No email app found", Toast.LENGTH_SHORT).show()
+    /** Help & feedback: an email to the team (there's no account / backend yet). */
+    private fun openHelp() {
+        val intent =
+            Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:excellentmindblow@gmail.com")).apply {
+                putExtra(Intent.EXTRA_SUBJECT, "NavOS feedback")
+            }
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, tr("No email app found", "Tiada app emel"), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // ---- Faster route offer ----------------------------------------------------
+
+    private var fasterOffer: Route? = null
+    private val fasterTimeout = Runnable { hideFasterRoute() }
+
+    /** "Faster route · saves 6 min · via ..." with Switch / Keep; keeps the current route after 15 s. */
+    private fun showFasterRoute(
+        route: Route,
+        savedSeconds: Double,
+    ) {
+        fasterOffer = route
+        val card = findViewById<View>(R.id.fasterCard)
+        val minutes = Math.round(savedSeconds / 60.0).toInt()
+        findViewById<TextView>(R.id.fasterTitle).text = tr("Faster route · saves $minutes min", "Laluan lebih cepat · jimat $minutes min")
+        val via = NavFormat.viaRoadName(route)
+        findViewById<TextView>(R.id.fasterDetail).apply {
+            text = via?.let { tr("via $it", "ikut $it") }.orEmpty()
+            visibility = if (via == null) View.GONE else View.VISIBLE
+        }
+        findViewById<TextView>(R.id.fasterKeep).apply {
+            text = tr("Keep", "Kekal")
+            setOnClickListener { hideFasterRoute() }
+        }
+        findViewById<TextView>(R.id.fasterSwitch).apply {
+            text = tr("Switch", "Tukar")
+            setOnClickListener {
+                val offer = fasterOffer
+                hideFasterRoute()
+                if (offer != null) navigationService?.acceptFasterRoute(offer)
             }
         }
+        Motion.reveal(card, pivotFraction = 0f)
+        mainHandler.removeCallbacks(fasterTimeout)
+        mainHandler.postDelayed(fasterTimeout, FASTER_OFFER_MS)
+    }
 
-        findViewById<TextView>(R.id.aboutRow).setOnClickListener {
-            MaterialAlertDialogBuilder(this)
-                .setTitle("NavOS")
-                .setMessage(
-                    "Version ${BuildConfig.VERSION_NAME}\nPowered by Excellent Mindblow\n\n" +
-                        "Map data \u00A9 OpenStreetMap contributors\nMap tiles by OpenFreeMap \u00A9 OpenMapTiles",
-                )
-                .setPositiveButton("OK", null)
-                .show()
-        }
+    private fun hideFasterRoute() {
+        fasterOffer = null
+        mainHandler.removeCallbacks(fasterTimeout)
+        val card = findViewById<View>(R.id.fasterCard)
+        if (card.visibility == View.VISIBLE) Motion.dismiss(card)
+    }
+
+    /** First drive only: a short note that live traffic is on (no question, nothing to tap). */
+    private fun showTrafficNoticeOnce() {
+        val prefs = getSharedPreferences(TrafficPrefs.PREFS_NAME, MODE_PRIVATE)
+        if (!TrafficPrefs.sharing(prefs) || !TrafficPrefs.takeFirstNotice(prefs)) return
+        Toast.makeText(this, R.string.traffic_notice, Toast.LENGTH_LONG).show()
+    }
+
+    private fun showAbout() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("NavOS")
+            .setMessage(
+                tr("Version", "Versi") + " ${BuildConfig.VERSION_NAME}\nPowered by Excellent Mindblow\n\n" +
+                    tr("Map data", "Data peta") + " \u00A9 OpenStreetMap contributors\n" +
+                    tr("Map tiles", "Jubin peta") + ": OpenFreeMap \u00A9 OpenMapTiles\n" +
+                    tr("Places", "Tempat") + ": Overture Maps Foundation (Meta, Foursquare, Microsoft, AllThePlaces)\n" +
+                    tr("Search", "Carian") + ": Photon by komoot; " + tr("backup", "sandaran") + " Photon by OpenRoad\n" +
+                    tr("Icons", "Ikon") + ": Lucide (ISC)",
+            ).setPositiveButton("OK", null)
+            .show()
     }
 
     private fun setUpSearch() {
@@ -1289,8 +1402,9 @@ class MainActivity : AppCompatActivity() {
         homeSearchInputContainer = findViewById(R.id.homeSearchInputContainer)
         homeRecentsContainer = findViewById(R.id.homeRecentsContainer)
         findViewById<View>(R.id.homeRecentsClear).setOnClickListener {
-            prefs.edit().remove(KEY_RECENT_PLACES).apply()
+            recentPlaces.clear()
             renderRecents()
+            homeScreen.render()
         }
         homeSearchClearButton = findViewById(R.id.homeSearchClearButton)
         searchClearButton = findViewById(R.id.searchClearButton)
@@ -1326,9 +1440,13 @@ class MainActivity : AppCompatActivity() {
 
                     if (text.trim().length < GeocodingService.MIN_LIVE_QUERY_LENGTH) {
                         searchSeq++ // any reply still in flight is now stale
-                        currentResults = emptyList()
-                        resultsList.visibility = View.GONE
-                        if (resultsList === homeSearchResultsList) setHomeQuickPicksVisible(true)
+                        if (resultsList === homeSearchResultsList) {
+                            activeSearchResultsList = resultsList
+                            showSearchResults(emptyList()) // Saved / Recent, or nearby petrol
+                        } else {
+                            currentResults = emptyList()
+                            resultsList.visibility = View.GONE
+                        }
                         return
                     }
                     // Only the driver typing triggers a search - not a
@@ -1383,7 +1501,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         resultsList.setOnItemClickListener { _, _, position, _ ->
-            val result = currentResults.getOrNull(position) ?: return@setOnItemClickListener
+            val result = (resultsList.adapter as? PlaceRows.Adapter)?.results?.getOrNull(position) ?: return@setOnItemClickListener
             onDestinationSelected(result)
         }
     }
@@ -1391,12 +1509,12 @@ class MainActivity : AppCompatActivity() {
     private fun setUpRouteControls() {
         topBar = findViewById(R.id.topBar)
         routePreviewCard = findViewById(R.id.routePreviewCard)
-        routePreviewSummary = findViewById(R.id.routePreviewSummary)
         routePreviewHint = findViewById(R.id.routePreviewHint)
         topNavBar = findViewById(R.id.topNavBar)
         bottomNavBar = findViewById(R.id.bottomNavBar)
         arrivalCard = findViewById(R.id.arrivalCard)
         findViewById<View>(R.id.arrivalConfirmButton).setOnClickListener {
+            Motion.confirm(it)
             hideArrivalCard()
             endActiveNavigation()
         }
@@ -1411,26 +1529,37 @@ class MainActivity : AppCompatActivity() {
             updateNavFloatingOffset()
             true
         }
-        turnDistanceText = findViewById(R.id.turnDistanceText)
+        turnDistanceText = findViewById(R.id.turnSignDistance)
         turnStreetText = findViewById(R.id.turnStreetText)
         recalcPill = findViewById(R.id.recalcPill)
-        routeViewToggle = findViewById(R.id.routeViewToggle)
-        toggleMap = findViewById(R.id.toggleMap)
-        toggleList = findViewById(R.id.toggleList)
+        routeBackButton = findViewById(R.id.routeBackButton)
         routeListOverlay = findViewById(R.id.routeListOverlay)
         routeListItems = findViewById(R.id.routeListItems)
-        toggleMap.setOnClickListener { setRouteListVisible(false) }
-        toggleList.setOnClickListener { setRouteListVisible(true) }
+        routePreviewSheet =
+            RoutePreviewSheet(
+                root = findViewById(android.R.id.content),
+                onSelect = { index ->
+                    if (routeListShowing) setRouteListVisible(false)
+                    selectRoute(index)
+                },
+                onShowAll = { setRouteListVisible(true) },
+            )
         recalcText = findViewById(R.id.recalcText)
-        recalcLogo = findViewById(R.id.recalcLogo)
-        recalcNeedle = findViewById(R.id.recalcNeedle)
+        busy = BusyPill(recalcPill, recalcText, mainHandler)
         etaClockText = findViewById(R.id.etaClockText)
         etaDetailText = findViewById(R.id.etaDetailText)
         navStopButton = findViewById(R.id.stopNavigationButton)
-        routePreviewEta = findViewById(R.id.routePreviewEta)
-        routePreviewVia = findViewById(R.id.routePreviewVia)
+        routePreviewAddress = findViewById(R.id.routePreviewAddress)
         routePreviewDestination = findViewById(R.id.routePreviewDestination)
-        turnIcon = findViewById(R.id.turnIcon)
+        turnIcon = findViewById(R.id.turnSignIcon)
+        turnRefTag = findViewById(R.id.turnRefTag)
+        nextTurnStreet = findViewById(R.id.nextTurnStreet)
+        nextTurnDistance = findViewById(R.id.nextTurnDistance)
+        cameraAlertDistance = findViewById(R.id.cameraAlertDistance)
+        muteButton = findViewById(R.id.muteButton)
+        muteButton.setOnClickListener { setVoiceGuidance(!prefs.getBoolean(KEY_VOICE_ENABLED, true)) }
+        styleMuteButton()
+        findViewById<View>(R.id.topNavBar).setOnClickListener { openNextTurns() }
         speedBadge = findViewById(R.id.speedBadge)
         speedLimitSign = findViewById(R.id.speedLimitSign)
         recenterButton = findViewById(R.id.recenterButton)
@@ -1448,6 +1577,9 @@ class MainActivity : AppCompatActivity() {
         homeSheet = findViewById(R.id.homeSheet)
         homeSheetBasePaddingBottom = homeSheet.paddingBottom
         homeSheetCollapsedRow = findViewById(R.id.homeSheetCollapsedRow)
+        homeSheetCollapsedRow.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            if (v.visibility == View.VISIBLE && v.height > 0) homeCollapsedContentHeight = v.height
+        }
         homeSheetExpandedRow = findViewById(R.id.homeSheetExpandedRow)
         homeSearchPill = findViewById(R.id.homeSearchPill)
         homeSettingsButton = findViewById(R.id.homeSettingsButton)
@@ -1479,10 +1611,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         findViewById<View>(R.id.startNavigationButton).setOnClickListener {
+            Motion.confirm(it)
             beginActiveNavigation()
         }
-        findViewById<View>(R.id.cancelRouteButton).setOnClickListener {
-            cancelRoutePreview()
+        routeBackButton.setOnClickListener {
+            if (routeListShowing) setRouteListVisible(false) else cancelRoutePreview()
         }
         navStopButton.setOnClickListener {
             endActiveNavigation()
@@ -1494,8 +1627,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.bottomSearchButton).setOnClickListener {
             enterSearchFromNav()
         }
+        // End (X): opens the bar to the big End trip button, so a stray tap never ends a drive.
         findViewById<View>(R.id.bottomAltRouteButton).setOnClickListener {
-            openNextTurns()
+            setNavSheetExpanded(!navSheetExpanded)
         }
         findViewById<View>(R.id.nextTurnsClose).setOnClickListener { closeNextTurns() }
         findViewById<View>(R.id.nextTurnsSwitchRoute).setOnClickListener {
@@ -1553,7 +1687,7 @@ class MainActivity : AppCompatActivity() {
         if (state == HomeSheetState.SEARCH) {
             activeSearchInput = homeSearchInput
             activeSearchResultsList = homeSearchResultsList
-            if (homeSearchInput.text.isNullOrEmpty()) renderRecents()
+            if (homeSearchInput.text.isNullOrEmpty()) setHomeQuickPicksVisible(true)
             homeSearchInput.requestFocus()
             imm.showSoftInput(homeSearchInput, InputMethodManager.SHOW_IMPLICIT)
         } else {
@@ -1561,6 +1695,7 @@ class MainActivity : AppCompatActivity() {
             // whatever was typed - otherwise the next time the sheet opens
             // in search mode it still shows the last destination typed,
             // instead of the empty "Search destination in Malaysia" hint.
+            searchScreen.reset()
             homeSearchInput.setText("")
             homeSearchInput.clearFocus()
             homeSearchResultsList.visibility = View.GONE
@@ -1582,13 +1717,14 @@ class MainActivity : AppCompatActivity() {
             MotionEvent.ACTION_DOWN -> {
                 if (homeSheetState == HomeSheetState.SETTINGS) return false
                 dragStartRawY = event.rawY
+                dragDownTime = event.eventTime
                 dragging = false
                 dragVelocityTracker?.recycle()
-                dragVelocityTracker = VelocityTracker.obtain().also { it.addMovement(event) }
+                dragVelocityTracker = VelocityTracker.obtain().also { trackScreenMovement(it, event) }
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                dragVelocityTracker?.addMovement(event)
+                dragVelocityTracker?.let { trackScreenMovement(it, event) }
                 val deltaY = dragStartRawY - event.rawY // positive = finger moved up
                 if (!dragging) {
                     val slop = ViewConfiguration.get(this).scaledTouchSlop
@@ -1598,28 +1734,62 @@ class MainActivity : AppCompatActivity() {
                 }
                 val collapsed = sheetCollapsedHeight()
                 val full = sheetFullHeight()
-                val target = (dragStartSheetHeight + deltaY.toInt()).coerceIn(collapsed, full)
-                applySheetDragHeight(target, collapsed, full)
+                val raw = (dragStartSheetHeight + deltaY).toFloat()
+                val range = (full - collapsed).toFloat().coerceAtLeast(1f)
+                // Past either end the sheet keeps following, with growing
+                // resistance, instead of stopping dead under the finger.
+                val target =
+                    when {
+                        raw < collapsed -> collapsed - Motion.rubberband(collapsed - raw, range)
+                        raw > full -> full + Motion.rubberband(raw - full, range)
+                        else -> raw
+                    }
+                val maxHeight = (homeSheet.parent as View).height
+                applySheetDragHeight(target.toInt().coerceAtMost(maxHeight), collapsed, full)
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 val tracker = dragVelocityTracker
                 dragVelocityTracker = null
+                // A quick flick on a busy phone can lift off before any move
+                // past the touch slop was delivered: it is still a flick,
+                // not a tap. Take the sheet over now and judge it below.
+                val movedPx = dragStartRawY - event.rawY
+                if (!dragging && event.actionMasked == MotionEvent.ACTION_UP &&
+                    kotlin.math.abs(movedPx) > ViewConfiguration.get(this).scaledTouchSlop &&
+                    homeSheetState != HomeSheetState.SETTINGS
+                ) {
+                    tracker?.addMovement(event)
+                    startSheetDrag()
+                }
                 if (dragging) {
                     dragging = false
                     tracker?.computeCurrentVelocity(1000)
-                    val velocityY = tracker?.yVelocity ?: 0f // px/s, negative = flinging up
+                    val trackedVelocityY = tracker?.yVelocity ?: 0f // px/s, negative = flinging up
                     tracker?.recycle()
+                    // VelocityTracker drops its samples when touch events
+                    // arrive more than ~40 ms apart (a device dropping
+                    // frames), reporting ~0 for a real flick. For a short,
+                    // quick gesture fall back to its average speed.
+                    val elapsedMs = (event.eventTime - dragDownTime).coerceAtLeast(1L)
+                    val averageVelocityY = (event.rawY - dragStartRawY) * 1000f / elapsedMs
+                    // Too few samples can also leave it pointing the wrong way.
+                    val trackerUnreliable =
+                        kotlin.math.abs(trackedVelocityY) < FLICK_FALLBACK_MIN_PX_S ||
+                            (averageVelocityY != 0f && kotlin.math.sign(trackedVelocityY) != kotlin.math.sign(averageVelocityY))
+                    val velocityY = if (trackerUnreliable && elapsedMs < FLICK_FALLBACK_MAX_MS) averageVelocityY else trackedVelocityY
+                    Log.i(
+                        "NavOSSheet",
+                        "release tracked=${trackedVelocityY.toInt()} avg=${averageVelocityY.toInt()} used=${velocityY.toInt()} ms=$elapsedMs",
+                    )
                     val collapsed = sheetCollapsedHeight()
                     val full = sheetFullHeight()
-                    val progress = (homeSheet.height - collapsed).toFloat() / (full - collapsed).coerceAtLeast(1)
-                    val flingThreshold = 900f
-                    val open =
-                        when {
-                            velocityY < -flingThreshold -> true
-                            velocityY > flingThreshold -> false
-                            else -> progress > 0.5f
-                        }
+                    // Snap to whichever end the gesture is heading for (its
+                    // projected landing point), not just where it let go - so
+                    // a quick short flick is enough to open or close.
+                    val projected = homeSheet.height - Motion.project(velocityY)
+                    val open = kotlin.math.abs(projected - full) < kotlin.math.abs(projected - collapsed)
+                    if (open != (homeSheetState == HomeSheetState.SEARCH)) Motion.snap(homeSheet)
                     animateHomeSheetTo(open, velocityY)
                     return true
                 }
@@ -1654,15 +1824,34 @@ class MainActivity : AppCompatActivity() {
         applySheetInsets()
     }
 
-    /** Sets the sheet to [height] px and fades the body in with it. */
+    /** Feeds [event] to [tracker] in screen coordinates. The drag handle
+     * rides up and down with the finger, so its own (view-relative)
+     * coordinates barely change during a drag - tracking those reported
+     * almost zero velocity and made every flick behave like a slow drag. */
+    private fun trackScreenMovement(
+        tracker: VelocityTracker,
+        event: MotionEvent,
+    ) {
+        val screen = MotionEvent.obtain(event)
+        screen.setLocation(event.rawX, event.rawY)
+        tracker.addMovement(screen)
+        screen.recycle()
+    }
+
+    /** Sets the sheet to [height] px and fades the body in with it. Below
+     * the collapsed height (rubber-banding, or a spring settling past it)
+     * the sheet keeps its collapsed size and slides down instead, so the
+     * search pill is never clipped. */
     private fun applySheetDragHeight(
         height: Int,
         collapsed: Int = sheetCollapsedHeight(),
         full: Int = sheetFullHeight(),
     ) {
+        homeSheet.translationY = (collapsed - height).coerceAtLeast(0).toFloat()
+        val laidOutHeight = height.coerceAtLeast(collapsed)
         val params = homeSheet.layoutParams
-        if (params.height != height) {
-            params.height = height
+        if (params.height != laidOutHeight) {
+            params.height = laidOutHeight
             homeSheet.layoutParams = params
         }
         homeSearchBody.alpha = ((height - collapsed).toFloat() / (full - collapsed).coerceAtLeast(1)).coerceIn(0f, 1f)
@@ -1693,46 +1882,52 @@ class MainActivity : AppCompatActivity() {
     ) {
         val collapsed = sheetCollapsedHeight()
         val full = sheetFullHeight()
-        val from = homeSheet.height.coerceIn(collapsed, full)
         val to = if (open) full else collapsed
         settlingDrag = true
         sheetSettleAnimator?.cancel()
 
-        // Longer travel takes a little longer, and a hard fling in the
-        // same direction as the snap shortens it - so it keeps the finger's
-        // momentum instead of stopping and restarting.
-        val distanceFraction = kotlin.math.abs(to - from).toFloat() / (full - collapsed).coerceAtLeast(1)
-        val flingBoost = (kotlin.math.abs(velocityY) / 6000f).coerceAtMost(0.4f)
-        val durationMs = (240 + 160 * distanceFraction) * (1f - flingBoost)
+        val finish = {
+            sheetSettleAnimator = null
+            settlingDrag = false
+            homeSearchBody.alpha = 1f
+            setHomeSheetState(if (open) HomeSheetState.SEARCH else HomeSheetState.COLLAPSED)
+            // Dragged down mid-drive: treat as "back to navigation".
+            if (!open && searchOpenedFromNav) exitSearchFromNav()
+        }
+        if (!Motion.animationsEnabled()) {
+            applySheetDragHeight(to, collapsed, full)
+            finish()
+            return
+        }
 
-        var cancelled = false
-        val animator =
-            ValueAnimator.ofInt(from, to).apply {
-                duration = durationMs.toLong().coerceAtLeast(160L)
-                interpolator = DecelerateInterpolator(1.8f)
-                addUpdateListener { anim ->
-                    applySheetDragHeight(anim.animatedValue as Int, collapsed, full)
+        // A spring, not a fixed-duration tween: it starts from wherever the
+        // sheet is on screen right now (mid-drag, rubber-banded or mid-
+        // settle) and carries the finger's release speed straight on, so
+        // there is no seam between dragging and settling. Critically damped
+        // by default; a hard flick in the direction of travel earns a little
+        // overshoot, because the gesture itself had momentum.
+        val heightVelocity = -velocityY // finger up (negative y) = sheet growing
+        val flungTowardTarget = kotlin.math.abs(heightVelocity) > SHEET_BOUNCE_FLING_PX_S &&
+            kotlin.math.sign(heightVelocity) == kotlin.math.sign((to - homeSheet.height).toFloat())
+        val maxHeight = (homeSheet.parent as View).height
+        val settle =
+            SpringAnimation(FloatValueHolder(homeSheet.height.toFloat())).apply {
+                spring =
+                    SpringForce(to.toFloat()).apply {
+                        dampingRatio = if (flungTowardTarget) 0.85f else SpringForce.DAMPING_RATIO_NO_BOUNCY
+                        stiffness = Motion.stiffnessFor(SHEET_SPRING_RESPONSE_S)
+                    }
+                setStartVelocity(heightVelocity)
+                setMinimumVisibleChange(1f)
+                addUpdateListener { _, value, _ ->
+                    applySheetDragHeight(value.toInt().coerceIn(0, maxHeight), collapsed, full)
                 }
-                addListener(
-                    object : AnimatorListenerAdapter() {
-                        override fun onAnimationCancel(animation: Animator) {
-                            cancelled = true
-                        }
-
-                        override fun onAnimationEnd(animation: Animator) {
-                            if (cancelled) return
-                            sheetSettleAnimator = null
-                            settlingDrag = false
-                            homeSearchBody.alpha = 1f
-                            setHomeSheetState(if (open) HomeSheetState.SEARCH else HomeSheetState.COLLAPSED)
-                            // Dragged down mid-drive: treat as "back to navigation".
-                            if (!open && searchOpenedFromNav) exitSearchFromNav()
-                        }
-                    },
-                )
+                addEndListener { _, canceled, _, _ ->
+                    if (!canceled) finish()
+                }
             }
-        sheetSettleAnimator = animator
-        animator.start()
+        sheetSettleAnimator = settle
+        settle.start()
     }
 
     /** Tap on the search pill: same slide-up as a drag. */
@@ -1795,9 +1990,9 @@ class MainActivity : AppCompatActivity() {
             speedBadge.visibility = if (MapDisplayPrefs.speedometer) View.VISIBLE else View.GONE
             poiToggleColumn.visibility = View.VISIBLE
         } else if (navMode == NavMode.PREVIEW) {
-            // Backing out of "Add stop" from the route preview.
+            // Backing out of tr("Add stop", "Tambah hentian") from the route preview.
             routePreviewCard.visibility = View.VISIBLE
-            routeViewToggle.visibility = if (routeOptions.size > 1) View.VISIBLE else View.GONE
+            routeBackButton.visibility = View.VISIBLE
         }
     }
 
@@ -1810,55 +2005,48 @@ class MainActivity : AppCompatActivity() {
         location: Location,
         currentKmh: Double,
     ) {
-        maybeFetchSpeedLimits(location)
-        val limit = SpeedLimitService.limitAt(speedRoads, RoutePoint(location.latitude, location.longitude))
+        val here = RoutePoint(location.latitude, location.longitude)
+        if (navMode == NavMode.ACTIVE) speedLimits.onLocation(here)
+        val limit = speedLimits.limitAt(here)
         if (limit == null || !MapDisplayPrefs.speedLimit || navMode != NavMode.ACTIVE || searchOpenedFromNav) {
             speedLimitSign.visibility = View.GONE
-            speedBadge.setTextColor(getColor(R.color.navos_text))
+            showSpeed(currentKmh, speeding = false)
             return
         }
-        speedLimitSign.text = Units.speed(limit.toDouble()).toString()
+        val limitText = Units.speed(limit.toDouble()).toString()
+        speedLimitSign.text = limitText
+        speedLimitSign.contentDescription = getString(R.string.speed_limit, limitText)
         speedLimitSign.visibility = View.VISIBLE
-        val speeding = currentKmh > limit + SPEEDING_MARGIN_KMH
-        speedBadge.setTextColor(if (speeding) Color.parseColor("#E5484D") else getColor(R.color.navos_text))
+        showSpeed(currentKmh, speeding = currentKmh > limit + SpeedLimitTracker.SPEEDING_MARGIN_KMH)
     }
 
-    /** Downloads the limited roads around the driver on the first fix of a drive, then
-     * again every 700 m - at most every 20 s (Overpass is a free shared server). */
-    private fun maybeFetchSpeedLimits(location: Location) {
-        if (navMode != NavMode.ACTIVE || speedFetchInFlight) return
-        val now = SystemClock.elapsedRealtime()
-        if (lastSpeedFetchAtMs != 0L && now - lastSpeedFetchAtMs < SPEED_MIN_REFETCH_MS) return
-        val last = speedRoadsCenter
-        if (last != null && last.distanceTo(location) < SPEED_REFETCH_DISTANCE_M) return
+    private var lastSpeedKmh = 0.0
 
-        speedFetchInFlight = true
-        lastSpeedFetchAtMs = now
-        val fetchAt = Location(location)
-        speedExecutor.execute {
-            val roads =
-                try {
-                    SpeedLimitService.fetchAround(fetchAt.latitude, fetchAt.longitude)
-                } catch (e: Exception) {
-                    null
-                }
-            mainHandler.post {
-                speedFetchInFlight = false
-                if (isDestroyed || navMode != NavMode.ACTIVE || roads == null) return@post
-                speedRoads = roads
-                speedRoadsCenter = fetchAt
-            }
-        }
+    /** The round speed readout: big number (limit red when speeding) over a small unit. */
+    private fun showSpeed(
+        kmh: Double,
+        speeding: Boolean,
+    ) {
+        val number = Units.speed(kmh).toString()
+        val unit = Units.speedUnit
+        val text = android.text.SpannableString("$number\n$unit")
+        text.setSpan(android.text.style.AbsoluteSizeSpan(34, true), 0, number.length, 0)
+        text.setSpan(
+            android.text.style.ForegroundColorSpan(getColor(if (speeding) R.color.sig_limit else R.color.sig_text)),
+            0,
+            number.length,
+            0,
+        )
+        text.setSpan(android.text.style.AbsoluteSizeSpan(12, true), number.length + 1, text.length, 0)
+        text.setSpan(android.text.style.ForegroundColorSpan(getColor(R.color.sig_text_quiet)), number.length + 1, text.length, 0)
+        speedBadge.text = text
+        speedBadge.contentDescription = getString(R.string.your_speed, number, unit)
     }
 
     private fun clearSpeedLimit(resetData: Boolean) {
         if (::speedLimitSign.isInitialized) speedLimitSign.visibility = View.GONE
-        if (::speedBadge.isInitialized) speedBadge.setTextColor(getColor(R.color.navos_text))
-        if (resetData) {
-            speedRoads = emptyList()
-            speedRoadsCenter = null
-            lastSpeedFetchAtMs = 0L
-        }
+        if (::speedBadge.isInitialized) showSpeed(lastSpeedKmh, speeding = false)
+        if (resetData) speedLimits.reset()
     }
 
     // ---- Share ETA --------------------------------------------------------
@@ -1872,84 +2060,25 @@ class MainActivity : AppCompatActivity() {
         val time = SimpleDateFormat("h:mm a", Locale.US).format(arrival)
         val place = destinationName?.takeIf { it.isNotBlank() }
         val text =
-            "I'm on my way" + (if (place != null) " to $place" else "") +
-                " - arriving around $time (${Units.short(state.distanceRemainingMeters)} to go)."
+            tr("I'm on my way", "Saya dalam perjalanan") + (if (place != null) tr(" to $place", " ke $place") else "") +
+                tr(" - arriving around $time (${Units.short(state.distanceRemainingMeters)} to go).", " - sampai lebih kurang $time (lagi ${Units.short(state.distanceRemainingMeters)}).")
         val send =
             Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_TEXT, text)
             }
-        startActivity(Intent.createChooser(send, "Share ETA"))
-    }
-
-    // ---- Navigation preferences (units, avoid tolls / highways) ------------
-
-    private fun showNavPreferencesDialog() {
-        val textColor = getColor(R.color.navos_text)
-        val column =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(22), dp(8), dp(22), 0)
-            }
-
-        fun heading(label: String) =
-            TextView(this).apply {
-                text = label
-                textSize = 15f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(textColor)
-                setPadding(0, dp(10), 0, dp(4))
-            }
-
-        column.addView(heading("Distance units"))
-        val group = RadioGroup(this)
-        val kmButton = MaterialRadioButton(this).apply { id = View.generateViewId(); text = "Kilometers"; setTextColor(textColor) }
-        val miButton = MaterialRadioButton(this).apply { id = View.generateViewId(); text = "Miles"; setTextColor(textColor) }
-        group.addView(kmButton)
-        group.addView(miButton)
-        group.check(if (Units.miles) miButton.id else kmButton.id)
-        group.setOnCheckedChangeListener { _, checkedId -> Units.save(prefs, checkedId == miButton.id) }
-        column.addView(group)
-
-        column.addView(heading("Route preferences"))
-        val tolls =
-            MaterialCheckBox(this).apply {
-                text = "Avoid tolls"
-                isChecked = RoutePrefs.avoidTolls
-                setTextColor(textColor)
-            }
-        val highways =
-            MaterialCheckBox(this).apply {
-                text = "Avoid highways"
-                isChecked = RoutePrefs.avoidHighways
-                setTextColor(textColor)
-            }
-        tolls.setOnCheckedChangeListener { _, checked -> RoutePrefs.save(prefs, checked, RoutePrefs.avoidHighways) }
-        highways.setOnCheckedChangeListener { _, checked -> RoutePrefs.save(prefs, RoutePrefs.avoidTolls, checked) }
-        column.addView(tolls)
-        column.addView(highways)
-        column.addView(
-            TextView(this).apply {
-                text = "Route preferences apply the next time you search for a route."
-                textSize = 12f
-                setTextColor(getColor(R.color.navos_hint))
-                setPadding(0, dp(6), 0, dp(4))
-            },
-        )
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Navigation preferences")
-            .setView(column)
-            .setPositiveButton("Done", null)
-            .show()
+        startActivity(Intent.createChooser(send, tr("Share ETA", "Kongsi ETA")))
     }
 
     // ---- Petrol / EV charging pins (active drive) ---------------------------
 
     private fun setUpPoiControls() {
         poiToggleColumn = findViewById(R.id.poiToggleColumn)
-        fuelToggleButton = findViewById(R.id.fuelToggleButton)
-        evToggleButton = findViewById(R.id.evToggleButton)
+        roadReportsUi = RoadReportsUi(this, roadReportsHost)
+        navPetrolChip = findViewById(R.id.navPetrolChip)
+        navEvChip = findViewById(R.id.navEvChip)
+        navParkingChip = findViewById(R.id.navParkingChip)
+        navTransitChip = findViewById(R.id.navTransitChip)
         poiCard = findViewById(R.id.poiCard)
         poiLogo = findViewById(R.id.poiLogo)
         poiLogoIcon = findViewById(R.id.poiLogoIcon)
@@ -1958,21 +2087,30 @@ class MainActivity : AppCompatActivity() {
         poiSpec = findViewById(R.id.poiSpec)
         poiChips = findViewById(R.id.poiChips)
         poiFootnote = findViewById(R.id.poiFootnote)
+        poiAheadRow = findViewById(R.id.poiAheadRow)
+        poiAheadValue = findViewById(R.id.poiAheadValue)
+        poiAheadLabel = findViewById(R.id.poiAheadLabel)
+        poiAheadTime = findViewById(R.id.poiAheadTime)
+        poiSide = findViewById(R.id.poiSide)
+        poiNext = findViewById(R.id.poiNext)
+        poiNextIcon = findViewById(R.id.poiNextIcon)
+        poiNextLabel = findViewById(R.id.poiNextLabel)
+        poiNextValue = findViewById(R.id.poiNextValue)
+        poiGoIcon = findViewById(R.id.poiGoIcon)
+        poiGoTitle = findViewById(R.id.poiGoTitle)
+        poiGoSub = findViewById(R.id.poiGoSub)
+        poiGoInsteadButton = findViewById(R.id.poiGoInsteadButton)
 
         showFuelPins = prefs.getBoolean(KEY_SHOW_FUEL, true)
         showEvPins = prefs.getBoolean(KEY_SHOW_EV, true)
+        showParkingPins = prefs.getBoolean(KEY_SHOW_PARKING, true)
+        showTransitPins = prefs.getBoolean(KEY_SHOW_TRANSIT, false)
         stylePoiToggles()
 
-        fuelToggleButton.setOnClickListener {
-            showFuelPins = !showFuelPins
-            prefs.edit().putBoolean(KEY_SHOW_FUEL, showFuelPins).apply()
-            onPoiTogglesChanged(if (showFuelPins) "Petrol stations shown" else "Petrol stations hidden")
-        }
-        evToggleButton.setOnClickListener {
-            showEvPins = !showEvPins
-            prefs.edit().putBoolean(KEY_SHOW_EV, showEvPins).apply()
-            onPoiTogglesChanged(if (showEvPins) "EV charging shown" else "EV charging hidden")
-        }
+        navPetrolChip.setOnClickListener { setPoiKindShown(PoiKind.FUEL, !showFuelPins) }
+        navEvChip.setOnClickListener { setPoiKindShown(PoiKind.EV, !showEvPins) }
+        navParkingChip.setOnClickListener { setPoiKindShown(PoiKind.PARKING, !showParkingPins) }
+        navTransitChip.setOnClickListener { setPoiKindShown(PoiKind.TRANSIT, !showTransitPins) }
 
         findViewById<View>(R.id.poiCloseButton).setOnClickListener { hidePoiCard() }
         findViewById<View>(R.id.poiGoButton).setOnClickListener {
@@ -1984,6 +2122,33 @@ class MainActivity : AppCompatActivity() {
             }
             val poi = selectedPoi ?: return@setOnClickListener
             hidePoiCard()
+            if (poi.kind == PoiKind.PARKING) {
+                onDestinationSelected(GeocodeResult(poi.name, poi.latitude, poi.longitude))
+                return@setOnClickListener
+            }
+            if (poi.kind == PoiKind.TRANSIT) {
+                // Park & Ride: drive to the station's car park; else to the station.
+                val park = poi.parkAndRide
+                onDestinationSelected(
+                    if (park != null) {
+                        GeocodeResult(tr("Park & Ride ${poi.name}", "Park & Ride ${poi.name}"), park.latitude, park.longitude)
+                    } else {
+                        GeocodeResult(poi.name, poi.latitude, poi.longitude)
+                    },
+                )
+                return@setOnClickListener
+            }
+            if (navMode == NavMode.ACTIVE && navigationService != null) {
+                // Stop here: the station becomes a stop, the destination stays.
+                navigationService?.addStop(RouteStop(RoutePoint(poi.latitude, poi.longitude), poi.name, 0))
+                busy.set(BusyPill.Job.STOP, tr("Adding stop…", "Tambah hentian…"))
+            } else {
+                onDestinationSelected(GeocodeResult(poi.name, poi.latitude, poi.longitude))
+            }
+        }
+        poiGoInsteadButton.setOnClickListener {
+            val poi = selectedPoi ?: return@setOnClickListener
+            hidePoiCard()
             // Same path as picking a search result: ends this drive and
             // previews a route to the station.
             onDestinationSelected(GeocodeResult(poi.name, poi.latitude, poi.longitude))
@@ -1992,6 +2157,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun onPoiTogglesChanged(message: String) {
         stylePoiToggles()
+        if (::homeScreen.isInitialized) homeScreen.render()
         val selected = selectedPoi
         if (selected != null && !isPoiKindShown(selected.kind)) hidePoiCard()
         renderPoiPins()
@@ -1999,36 +2165,192 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
-    private fun isPoiKindShown(kind: PoiKind): Boolean = if (kind == PoiKind.FUEL) showFuelPins else showEvPins
-
-    /** On = filled orange/green with a white icon; off = plain white with
-     * a navy icon. */
-    private fun stylePoiToggles() {
-        val offIcon = ContextCompat.getColor(this, R.color.navos_text)
-        val offFill = ContextCompat.getColor(this, R.color.navos_surface)
-        fun style(
-            button: ImageButton,
-            on: Boolean,
-            color: String,
-        ) {
-            button.backgroundTintList = ColorStateList.valueOf(if (on) Color.parseColor(color) else offFill)
-            button.imageTintList = ColorStateList.valueOf(if (on) Color.WHITE else offIcon)
+    private fun isPoiKindShown(kind: PoiKind): Boolean =
+        when (kind) {
+            PoiKind.FUEL -> showFuelPins
+            PoiKind.EV -> showEvPins
+            PoiKind.PARKING -> showParkingPins
+            PoiKind.TRANSIT -> showTransitPins
         }
-        style(fuelToggleButton, showFuelPins, FUEL_COLOR)
-        style(evToggleButton, showEvPins, EV_COLOR)
+
+    /** The petrol / EV toggles on the drive map and in Map display. */
+    private fun setPoiKindShown(
+        kind: PoiKind,
+        shown: Boolean,
+    ) {
+        when (kind) {
+            PoiKind.FUEL -> {
+                showFuelPins = shown
+                prefs.edit().putBoolean(KEY_SHOW_FUEL, shown).apply()
+                onPoiTogglesChanged(if (shown) tr("Petrol stations shown", "Stesen minyak ditunjuk") else tr("Petrol stations hidden", "Stesen minyak disorok"))
+            }
+            PoiKind.EV -> {
+                showEvPins = shown
+                prefs.edit().putBoolean(KEY_SHOW_EV, shown).apply()
+                onPoiTogglesChanged(if (shown) tr("EV charging shown", "Cas EV ditunjuk") else tr("EV charging hidden", "Cas EV disorok"))
+            }
+            PoiKind.PARKING -> {
+                showParkingPins = shown
+                prefs.edit().putBoolean(KEY_SHOW_PARKING, shown).apply()
+                onPoiTogglesChanged(
+                    if (shown) tr("Parking near your destination shown", "Parking dekat destinasi ditunjuk") else tr("Parking hidden", "Parking disorok"),
+                )
+                if (shown) activeRoute?.let { loadParking(it) }
+            }
+            PoiKind.TRANSIT -> {
+                showTransitPins = shown
+                prefs.edit().putBoolean(KEY_SHOW_TRANSIT, shown).apply()
+                onPoiTogglesChanged(
+                    if (shown) tr("Train stations near your destination shown", "Stesen tren dekat destinasi ditunjuk") else tr("Train stations hidden", "Stesen tren disorok"),
+                )
+                if (shown) activeRoute?.let { loadTransit(it) }
+            }
+        }
     }
 
-    /** Draws the current station list - only during an active drive, and
-     * only the kinds the driver hasn't toggled off. */
+    /** The drive sheet's place chips, like the Home ones: on = ink chip with
+     * the icon in the text colour; off = plain chip with the icon in its colour. */
+    private fun stylePoiToggles() {
+        fun style(
+            chip: TextView,
+            on: Boolean,
+            iconRes: Int,
+            colorRes: Int,
+        ) {
+            chip.isSelected = on
+            val icon = ContextCompat.getDrawable(this, iconRes)?.mutate() ?: return
+            icon.setBounds(0, 0, dp(16), dp(16))
+            icon.setTint(ContextCompat.getColor(this, if (on) R.color.sig_on_ink else colorRes))
+            chip.setCompoundDrawablesRelative(icon, null, null, null)
+        }
+        style(navPetrolChip, showFuelPins, R.drawable.ic_fuel, R.color.sig_petrol)
+        style(navEvChip, showEvPins, R.drawable.ic_ev, R.color.sig_ev)
+        style(navParkingChip, showParkingPins, R.drawable.ic_parking, R.color.sig_flood)
+        style(navTransitChip, showTransitPins, R.drawable.ic_train, R.color.sig_text)
+    }
+
+    /** Train stations within [PoiService.TRANSIT_RADIUS_M] of [route]'s destination
+     * (to park & ride, drop someone off, or walk on), looked up once per destination. */
+    private fun loadTransit(route: Route) {
+        if (!showTransitPins) return
+        val dest = route.geometry.lastOrNull() ?: return
+        val last = transitFor
+        if (last != null && GeoUtils.distanceMeters(last, dest) < 100.0) return
+        transitFor = dest
+        transitPois = emptyList()
+        poiExecutor.execute {
+            val found = runCatching { PoiService.fetchTransit(dest.latitude, dest.longitude) }.getOrNull()
+            mainHandler.post {
+                if (isDestroyed || navMode != NavMode.ACTIVE || transitFor != dest) return@post
+                if (found == null) {
+                    transitFor = null
+                    return@post
+                }
+                transitPois = found
+                renderPoiPins()
+            }
+        }
+    }
+
+    /** Car parks within [PoiService.PARKING_RADIUS_M] of [route]'s destination,
+     * looked up once per destination (where you'll want one, not along the way). */
+    private fun loadParking(route: Route) {
+        if (!showParkingPins) return
+        val dest = route.geometry.lastOrNull() ?: return
+        val last = parkingFor
+        if (last != null && GeoUtils.distanceMeters(last, dest) < 100.0) return
+        parkingFor = dest
+        parkingPois = emptyList()
+        poiExecutor.execute {
+            val found = runCatching { PoiService.fetchParking(dest.latitude, dest.longitude) }.getOrNull()
+            mainHandler.post {
+                if (isDestroyed || navMode != NavMode.ACTIVE || parkingFor != dest) return@post
+                if (found == null) {
+                    parkingFor = null // try again on the next reroute / toggle
+                    return@post
+                }
+                parkingPois = found
+                renderPoiPins()
+            }
+        }
+    }
+
+    /** Where [poi] sits on the current drive (ahead, off the line), or null
+     * when there is no drive or it isn't on the way (see [PoiAlongRoute]). */
+    private fun poiSpot(poi: Poi): PoiAlongRoute.Spot? {
+        if (navMode != NavMode.ACTIVE) return null
+        val route = activeRoute ?: return null
+        if (route.geometry.size < 2) return null
+        val track = routeTrack?.takeIf { it.source === route.geometry } ?: RouteTrack(route.geometry).also { routeTrack = it }
+        return PoiAlongRoute.spot(track, RoutePoint(poi.latitude, poi.longitude), driveFollower.progressMeters, snapSegmentIndex - 5) {
+            onExpresswayAt(route, track, it)
+        }
+    }
+
+    // Which stretches of the active route are expressway: where each step
+    // starts along the route, and whether its road is one.
+    private var expresswayRoute: Route? = null
+    private var expresswayStarts = DoubleArray(0)
+    private var expresswayFlags = BooleanArray(0)
+
+    private fun onExpresswayAt(
+        route: Route,
+        track: RouteTrack,
+        progressM: Double,
+    ): Boolean {
+        if (expresswayRoute !== route) {
+            var seg = 0
+            val starts = ArrayList<Double>()
+            val flags = ArrayList<Boolean>()
+            for (step in route.steps) {
+                val snap = GeoUtils.snapToPolyline(step.point, route.geometry, seg) ?: continue
+                seg = snap.segmentIndex
+                starts += track.progressOf(snap)
+                flags += SignPlanner.isExpressway(step.ref) || EXPRESSWAY_NAME.containsMatchIn(step.roadName)
+            }
+            expresswayStarts = starts.toDoubleArray()
+            expresswayFlags = flags.toBooleanArray()
+            expresswayRoute = route
+        }
+        var i = expresswayStarts.indexOfLast { it <= progressM }
+        if (i < 0) i = 0
+        return expresswayFlags.getOrElse(i) { false }
+    }
+
+    private var lastPoiPinProgress = Double.NaN
+
+    /** The car moved on a stretch: drop the stations now behind it. */
+    private fun refreshPoiPinsAlongRoute() {
+        val here = driveFollower.progressMeters
+        if (here.isNaN() || (!lastPoiPinProgress.isNaN() && kotlin.math.abs(here - lastPoiPinProgress) < POI_PIN_REFRESH_M)) return
+        renderPoiPins()
+    }
+
+    /** Petrol / EV pins: only during a drive, and only the stations on the
+     * way - near the route line ahead - so the driver can decide to fuel up
+     * or carry on. Kinds toggled off stay hidden. */
     private fun renderPoiPins() {
         val src = poiSource ?: return
+        lastPoiPinProgress = driveFollower.progressMeters
         val features =
-            if (navMode == NavMode.PREVIEW) {
+            if (navMode != NavMode.ACTIVE) {
                 emptyList()
             } else {
-                nearbyPois.filter { isPoiKindShown(it.kind) }.map { poi ->
+                (
+                    nearbyPois.filter { isPoiKindShown(it.kind) && poiSpot(it) != null } +
+                        parkingPois.takeIf { showParkingPins }.orEmpty() +
+                        transitPois.takeIf { showTransitPins }.orEmpty()
+                ).map { poi ->
                     Feature.fromGeometry(Point.fromLngLat(poi.longitude, poi.latitude)).also {
-                        it.addStringProperty(POI_ICON_PROPERTY, if (poi.kind == PoiKind.FUEL) FUEL_PIN_ICON_ID else EV_PIN_ICON_ID)
+                        it.addStringProperty(
+                            POI_ICON_PROPERTY,
+                            when (poi.kind) {
+                                PoiKind.FUEL -> FuelBrand.of(poi.name)?.pinIconId ?: FUEL_PIN_ICON_ID
+                                PoiKind.EV -> EV_PIN_ICON_ID
+                                PoiKind.PARKING -> PARKING_PIN_ICON_ID
+                                PoiKind.TRANSIT -> TRANSIT_PIN_ICON_ID
+                            },
+                        )
                         it.addStringProperty(POI_ID_PROPERTY, poi.id)
                     }
                 }
@@ -2050,6 +2372,15 @@ class MainActivity : AppCompatActivity() {
         poiFetchInFlight = true
         lastPoiFetchAtMs = now
         val fetchAt = Location(location)
+        // Search around a point up the road, so the stations ahead show
+        // (about 9 km of the route), not the ones behind.
+        val track = routeTrack?.takeIf { t -> activeRoute?.geometry === t.source }
+        val here = driveFollower.progressMeters
+        val center = if (track != null && !here.isNaN()) track.pointAt(here + POI_LOOK_AHEAD_M) else null
+        if (center != null) {
+            fetchAt.latitude = center.latitude
+            fetchAt.longitude = center.longitude
+        }
         poiExecutor.execute {
             val pois =
                 try {
@@ -2063,7 +2394,7 @@ class MainActivity : AppCompatActivity() {
             mainHandler.post {
                 poiFetchInFlight = false
                 if (isDestroyed || navMode != NavMode.ACTIVE || pois == null) return@post
-                lastPoiFetchLocation = fetchAt
+                lastPoiFetchLocation = location
                 nearbyPois = pois
                 val selected = selectedPoi
                 if (selected != null && pois.none { it.id == selected.id }) hidePoiCard()
@@ -2087,7 +2418,7 @@ class MainActivity : AppCompatActivity() {
                 emptyList()
             }
         val id = hits.firstNotNullOfOrNull { feature -> feature.getStringProperty(POI_ID_PROPERTY) }
-        val poi = id?.let { poiId -> nearbyPois.firstOrNull { it.id == poiId } }
+        val poi = id?.let { poiId -> (nearbyPois + parkingPois + transitPois).firstOrNull { it.id == poiId } }
         if (poi == null) {
             // A dropped pin is moved by the caller, not closed by an empty tap.
             if (poiCard.visibility == View.VISIBLE && droppedPin == null) {
@@ -2106,57 +2437,264 @@ class MainActivity : AppCompatActivity() {
             droppedPinResult = null
             clearDestinationMarker()
         }
+        resetPoiCardExtras()
         poiLogoIcon.clearColorFilter()
+        poiLogoIcon.imageTintList = null
         poiFootnote.visibility = View.VISIBLE
         selectedPoi = poi
+        if (poi.kind == PoiKind.PARKING) {
+            showParkingCard(poi)
+            return
+        }
+        if (poi.kind == PoiKind.TRANSIT) {
+            showTransitCard(poi)
+            return
+        }
         val isFuel = poi.kind == PoiKind.FUEL
-        poiLogo.backgroundTintList = ColorStateList.valueOf(Color.parseColor(if (isFuel) FUEL_COLOR else EV_COLOR))
-        poiLogoIcon.setImageResource(if (isFuel) R.drawable.ic_fuel else R.drawable.ic_ev)
+        val brand = if (isFuel) FuelBrand.of(poi.name) else null
+        if (brand != null) {
+            poiLogo.backgroundTintList = ColorStateList.valueOf(brand.fill)
+            poiLogoIcon.setImageBitmap(MapIcons.brandBadge(this, brand, 40))
+            poiLogoIcon.contentDescription = brand.displayName
+        } else {
+            poiLogo.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, if (isFuel) R.color.sig_petrol else R.color.sig_ev))
+            poiLogoIcon.setImageResource(if (isFuel) R.drawable.ic_fuel else R.drawable.ic_ev)
+            poiLogoIcon.contentDescription = null
+        }
         poiName.text = poi.name
 
-        val kindLabel = if (isFuel) "Petrol station" else "EV charging"
+        val kindLabel = if (isFuel) tr("Petrol station", "Stesen minyak") else tr("EV charging", "Cas EV")
         val here = lastKnownLocation
-        poiMeta.text =
-            if (here != null) {
-                val meters = GeocodingService.distanceMeters(here.latitude, here.longitude, poi.latitude, poi.longitude)
-                "$kindLabel · ${formatDistance(meters)} away"
-            } else {
-                kindLabel
-            }
+        val spot = poiSpot(poi)
+        if (spot != null) {
+            poiMeta.text = kindLabel
+            showPoiOnTheWay(poi, spot)
+        } else {
+            poiMeta.text =
+                if (here != null) {
+                    val meters = GeocodingService.distanceMeters(here.latitude, here.longitude, poi.latitude, poi.longitude)
+                    tr("$kindLabel · ${NavFormat.formatDistance(meters)} away", "$kindLabel · ${NavFormat.formatDistance(meters)} dari sini")
+                } else {
+                    kindLabel
+                }
+        }
 
-        val spec = poi.spec
+        val spec = Labels.spec(poi.spec)
         poiSpec.text = spec ?: ""
         poiSpec.visibility = if (spec.isNullOrBlank()) View.GONE else View.VISIBLE
 
+        // Only what the station has - a row of "not listed" is noise at a glance.
         poiChips.removeAllViews()
-        poi.facilities.forEach { facility ->
-            val chip =
-                Chip(this).apply {
-                    text = if (facility.listed) "\u2713 ${facility.label}" else "${facility.label}: not listed"
-                    isClickable = false
-                    isCheckable = false
-                    isFocusable = false
-                    setEnsureMinTouchTargetSize(false)
-                    chipStrokeWidth = 0f
-                    chipBackgroundColor =
-                        ColorStateList.valueOf(
-                            ContextCompat.getColor(
-                                context,
-                                if (facility.listed) R.color.navos_chip_ok_bg else R.color.navos_chip_off_bg,
-                            ),
-                        )
-                    setTextColor(
-                        ContextCompat.getColor(
-                            context,
-                            if (facility.listed) R.color.navos_chip_ok_text else R.color.navos_chip_off_text,
-                        ),
-                    )
-                    textSize = 12.5f
-                }
-            poiChips.addView(chip)
+        poi.facilities.filter { it.listed }.forEach { facility ->
+            poiChips.addView(
+                TextView(this).apply {
+                    text = Labels.show(facility.label)
+                    setTextAppearance(R.style.TextAppearance_Signal_Label)
+                    textSize = 14f
+                    setTextColor(ContextCompat.getColor(context, R.color.sig_text))
+                    background = ContextCompat.getDrawable(context, R.drawable.bg_sig_chip)
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(14), 0, dp(14), 0)
+                    minHeight = dp(36)
+                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36))
+                },
+            )
+        }
+        poiChips.visibility = if (poiChips.childCount == 0) View.GONE else View.VISIBLE
+
+        Motion.reveal(poiCard, pivotFraction = 1f)
+    }
+
+    /** A train station near the destination: its lines (in their colours), the
+     * walk, Park & Ride; "Park & ride here" (or "Drive here"). */
+    private fun showTransitCard(poi: Poi) {
+        poiLogo.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.sig_ink))
+        poiLogoIcon.setImageResource(R.drawable.ic_train)
+        poiLogoIcon.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.sig_on_ink)) // ink flips at night
+        poiLogoIcon.contentDescription = null
+        poiName.text = poi.name
+        val label = tr("Train station", "Stesen tren")
+        val dest = transitFor
+        poiMeta.text =
+            if (dest != null) {
+                val m = GeoUtils.distanceMeters(dest, RoutePoint(poi.latitude, poi.longitude))
+                val walk = Math.round(m / 80.0).toInt().coerceAtLeast(1)
+                tr("$label · ${NavFormat.formatDistance(m.toFloat())} from your destination ($walk min walk)", "$label · ${NavFormat.formatDistance(m.toFloat())} dari destinasi ($walk min jalan kaki)")
+            } else {
+                label
+            }
+        // The lines, full names under the badges.
+        val names = poi.lines.map { it.name.substringBefore(":").trim() }.distinct()
+        val park = poi.parkAndRide
+        val parkLine =
+            park?.let {
+                if (it.spaces != null) tr("Park & Ride · ${it.spaces} spaces", "Park & Ride · ${it.spaces} petak") else tr("Park & Ride", "Park & Ride")
+            }
+        val spec = (names + listOfNotNull(parkLine)).joinToString("\n")
+        poiSpec.text = spec
+        poiSpec.visibility = if (spec.isBlank()) View.GONE else View.VISIBLE
+        poiChips.removeAllViews()
+        for (line in poi.lines) {
+            val fill = line.colour ?: ContextCompat.getColor(this, R.color.sig_ink)
+            val ink = if (androidx.core.graphics.ColorUtils.calculateLuminance(fill) > 0.5) Color.BLACK else Color.WHITE
+            poiChips.addView(
+                TextView(this).apply {
+                    text = line.badge
+                    setTextAppearance(R.style.TextAppearance_Signal_Label)
+                    textSize = 14f
+                    setTextColor(ink)
+                    background = ContextCompat.getDrawable(context, R.drawable.bg_sig_chip)?.mutate()
+                    backgroundTintList = ColorStateList.valueOf(fill)
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(14), 0, dp(14), 0)
+                    minHeight = dp(36)
+                    contentDescription = line.name
+                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36))
+                },
+            )
+        }
+        poiChips.visibility = if (poiChips.childCount == 0) View.GONE else View.VISIBLE
+        poiFootnote.visibility = View.GONE
+        poiGoTitle.text = if (park != null) tr("Park & ride here", "Park & ride sini") else tr("Drive here", "Pergi sini")
+        Motion.reveal(poiCard, pivotFraction = 1f)
+    }
+
+    /** A car park near the destination: how far from it, what it has, "Park here". */
+    private fun showParkingCard(poi: Poi) {
+        poiLogo.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.sig_flood))
+        poiLogoIcon.setImageResource(R.drawable.ic_parking)
+        poiLogoIcon.contentDescription = null
+        poiName.text = if (poi.name == "Parking") tr("Parking", "Parking") else poi.name
+        val dest = parkingFor
+        val label = tr("Parking", "Parking")
+        poiMeta.text =
+            if (dest != null) {
+                val m = GeoUtils.distanceMeters(dest, RoutePoint(poi.latitude, poi.longitude))
+                val walk = Math.round(m / 80.0).toInt().coerceAtLeast(1) // ~80 m a minute on foot
+                tr("$label · ${NavFormat.formatDistance(m.toFloat())} from your destination ($walk min walk)", "$label · ${NavFormat.formatDistance(m.toFloat())} dari destinasi ($walk min jalan kaki)")
+            } else {
+                label
+            }
+        val spec = Labels.spec(poi.spec)
+        poiSpec.text = spec ?: ""
+        poiSpec.visibility = if (spec.isNullOrBlank()) View.GONE else View.VISIBLE
+        poiChips.removeAllViews()
+        poi.facilities.filter { it.listed }.forEach { facility ->
+            poiChips.addView(
+                TextView(this).apply {
+                    text = Labels.show(facility.label)
+                    setTextAppearance(R.style.TextAppearance_Signal_Label)
+                    textSize = 14f
+                    setTextColor(ContextCompat.getColor(context, R.color.sig_text))
+                    background = ContextCompat.getDrawable(context, R.drawable.bg_sig_chip)
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(14), 0, dp(14), 0)
+                    minHeight = dp(36)
+                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36))
+                },
+            )
+        }
+        poiChips.visibility = if (poiChips.childCount == 0) View.GONE else View.VISIBLE
+        poiFootnote.visibility = View.GONE
+        // Park here: the car park becomes where the drive ends.
+        poiGoTitle.text = tr("Park here", "Parking sini")
+        Motion.reveal(poiCard, pivotFraction = 1f)
+    }
+
+    /** The parts of the card only a station on the drive has, hidden; "Go here" as the button. */
+    private fun resetPoiCardExtras() {
+        poiAheadRow.visibility = View.GONE
+        poiSide.visibility = View.GONE
+        poiNext.visibility = View.GONE
+        poiGoInsteadButton.visibility = View.GONE
+        poiGoIcon.visibility = View.GONE
+        poiGoSub.visibility = View.GONE
+        poiGoTitle.text = getString(R.string.go_here)
+        poiChips.visibility = View.VISIBLE
+    }
+
+    /** "Fuel up here or carry on?": how far ahead, which side, what comes next, Stop here. */
+    private fun showPoiOnTheWay(
+        poi: Poi,
+        spot: PoiAlongRoute.Spot,
+    ) {
+        val ahead = spot.aheadM.coerceAtLeast(0.0)
+        poiAheadRow.visibility = View.VISIBLE
+        if (spot.aheadM < 0) {
+            poiAheadValue.text = tr("Here", "Sini")
+            poiAheadLabel.text = tr("just passed", "baru lepas")
+            poiAheadTime.text = ""
+        } else {
+            poiAheadValue.text = NavFormat.formatDistance(ahead.toFloat())
+            poiAheadLabel.text = tr("ahead", "di depan")
+            val minutes = Math.round(ahead / averageSpeedAheadMs() / 60.0).toInt().coerceAtLeast(1)
+            poiAheadTime.text = tr("about $minutes min", "lebih kurang $minutes min")
         }
 
-        poiCard.visibility = View.VISIBLE
+        val off = NavFormat.formatDistance(spot.offRouteM.toFloat())
+        poiSide.visibility = View.VISIBLE
+        if (spot.offRouteM <= PoiAlongRoute.ON_LINE_M) {
+            poiSide.text = tr("On your route", "Atas laluan anda")
+        } else {
+            poiSide.text =
+                android.text.SpannableStringBuilder().apply {
+                    append(tr("On your side", "Sebelah anda"), android.text.style.ForegroundColorSpan(ContextCompat.getColor(this@MainActivity, R.color.sig_success)), 0)
+                    append(tr(" · $off off route", " · $off dari laluan"), android.text.style.ForegroundColorSpan(ContextCompat.getColor(this@MainActivity, R.color.sig_text_quiet)), 0)
+                }
+        }
+        poiSide.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            ContextCompat.getDrawable(this, R.drawable.ic_check)?.mutate()?.apply { setTint(ContextCompat.getColor(this@MainActivity, R.color.sig_success)) },
+            null,
+            null,
+            null,
+        )
+
+        // What comes after this one on the route (stations are only known some way ahead).
+        val others = nearbyPois.filter { it.kind == poi.kind && it.id != poi.id }.mapNotNull { poiSpot(it)?.aheadM }
+        val next = PoiAlongRoute.nextAfter(ahead, others, POI_LOOK_AHEAD_M + PoiService.RADIUS_METERS)
+        val isFuel = poi.kind == PoiKind.FUEL
+        poiNext.visibility = View.VISIBLE
+        poiNextIcon.setImageResource(if (isFuel) R.drawable.ic_fuel else R.drawable.ic_ev)
+        val nextAt = next.nextAheadM
+        if (nextAt != null) {
+            poiNext.backgroundTintList = null
+            poiNextIcon.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.sig_text_quiet))
+            poiNextLabel.setTextColor(ContextCompat.getColor(this, R.color.sig_text_quiet))
+            poiNextValue.setTextColor(ContextCompat.getColor(this, R.color.sig_text))
+            poiNextLabel.text = if (isFuel) tr("Next petrol on your route", "Minyak seterusnya di laluan") else tr("Next charger on your route", "Cas EV seterusnya di laluan")
+            val nextPoi = nearbyPois.filter { it.kind == poi.kind }.firstOrNull { poiSpot(it)?.aheadM == nextAt }
+            val name = nextPoi?.let { FuelBrand.of(it.name)?.displayName ?: it.name }
+            val dist = NavFormat.formatDistance(nextAt.toFloat())
+            poiNextValue.text = if (name != null) "$name · $dist" else dist
+        } else {
+            val upTo = Math.round(next.knownUpToM / 1000.0).toInt()
+            poiNext.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.sig_caution_fill))
+            poiNextIcon.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.sig_caution_ink))
+            poiNextLabel.setTextColor(ContextCompat.getColor(this, R.color.sig_caution_ink))
+            poiNextValue.setTextColor(ContextCompat.getColor(this, R.color.sig_caution_ink))
+            poiNextValue.text = tr("Last one in the next $upTo km", "Yang terakhir dalam $upTo km")
+            poiNextLabel.text = if (isFuel) tr("No other petrol station on your route", "Tiada stesen minyak lain di laluan") else tr("No other charger on your route", "Tiada cas EV lain di laluan")
+        }
+
+        // Stop here (keeps the destination) is the main action mid-drive.
+        poiGoTitle.text = tr("Stop here", "Singgah sini")
+        poiGoIcon.visibility = View.VISIBLE
+        val dest = destinationName?.takeIf { it.isNotBlank() } ?: tripPlaces.lastOrNull()?.name
+        if (!dest.isNullOrBlank()) {
+            poiGoSub.text = tr("then on to $dest", "lepas tu terus ke $dest")
+            poiGoSub.visibility = View.VISIBLE
+        }
+        poiGoInsteadButton.text = tr("Go here instead", "Pergi sini saja")
+        poiGoInsteadButton.visibility = View.VISIBLE
+    }
+
+    /** Average speed of the rest of the drive (m/s), for "about N min" - 60 km/h when unknown. */
+    private fun averageSpeedAheadMs(): Double {
+        val st = lastNavState
+        if (st != null && st.durationRemainingSeconds > 30 && st.distanceRemainingMeters > 100) {
+            return (st.distanceRemainingMeters / st.durationRemainingSeconds).coerceIn(5.0, 35.0)
+        }
+        return 60 / 3.6
     }
 
     private fun hidePoiCard() {
@@ -2167,7 +2705,7 @@ class MainActivity : AppCompatActivity() {
             pinSeq++
             clearDestinationMarker()
         }
-        poiCard.visibility = View.GONE
+        Motion.dismiss(poiCard)
     }
 
     /** Drops a pin where the person tapped / long-pressed and shows a card
@@ -2182,7 +2720,7 @@ class MainActivity : AppCompatActivity() {
                 java.lang.String.format(java.util.Locale.US, "Pin %.5f, %.5f", latLng.latitude, latLng.longitude),
                 latLng.latitude,
                 latLng.longitude,
-                "Dropped pin",
+                tr("Dropped pin", "Pin diletak"),
                 "",
             )
         showDestinationMarker(latLng)
@@ -2190,12 +2728,13 @@ class MainActivity : AppCompatActivity() {
         poiLogo.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#1EA3EA"))
         poiLogoIcon.setImageResource(R.drawable.ic_place_pin)
         poiLogoIcon.setColorFilter(Color.WHITE)
-        poiName.text = "Dropped pin"
+        resetPoiCardExtras()
+        poiName.text = tr("Dropped pin", "Pin diletak")
         updatePinMeta(latLng, null)
         poiSpec.visibility = View.GONE
         poiChips.removeAllViews()
         poiFootnote.visibility = View.GONE
-        poiCard.visibility = View.VISIBLE
+        Motion.reveal(poiCard, pivotFraction = 1f)
 
         extrasExecutor.execute {
             val found =
@@ -2220,7 +2759,7 @@ class MainActivity : AppCompatActivity() {
         val here = lastKnownLocation
         val away =
             here?.let {
-                "${formatDistance(GeocodingService.distanceMeters(it.latitude, it.longitude, at.latitude, at.longitude))} away"
+                tr("${NavFormat.formatDistance(GeocodingService.distanceMeters(it.latitude, it.longitude, at.latitude, at.longitude))} away", "${NavFormat.formatDistance(GeocodingService.distanceMeters(it.latitude, it.longitude, at.latitude, at.longitude))} dari sini")
             }
         poiMeta.text = listOfNotNull(address?.takeIf { it.isNotBlank() }, away).joinToString(" \u00b7 ")
     }
@@ -2229,52 +2768,106 @@ class MainActivity : AppCompatActivity() {
 
     private fun setUpSavedPlaces() {
         homeButton = findViewById(R.id.homeButton)
-        homeButtonLabel = findViewById(R.id.homeButtonLabel)
         workButton = findViewById(R.id.workButton)
-        workButtonLabel = findViewById(R.id.workButtonLabel)
+        homeSearchEmpty = findViewById(R.id.homeSearchEmpty)
+        chooseOnMapButton = findViewById(R.id.chooseOnMapButton)
 
-        homeButton.setOnClickListener { onSavedPlaceTapped("home") }
-        workButton.setOnClickListener { onSavedPlaceTapped("work") }
+        val driveTimes =
+            HomeEtas(
+                runInBackground = { if (!extrasExecutor.isShutdown) extrasExecutor.execute(it) },
+                postToMain = { mainHandler.post(it) },
+                clock = SystemClock::elapsedRealtime,
+                fetchSeconds = { from, to -> RoutingService.calculateRoutes(from, to).first().durationSeconds },
+            )
+        homeScreen =
+            HomeScreen(
+                root = homeSheet,
+                savedPlaces = savedPlaces,
+                recentPlaces = recentPlaces,
+                driveTimes = driveTimes,
+                habits = tripHabits,
+                host =
+                    object : HomeScreen.Host {
+                        override fun currentLocation(): Location? = lastKnownLocation
 
+                        override fun onShortcutTapped(key: String) = onSavedPlaceTapped(key)
+
+                        override fun onRecentTapped(place: GeocodeResult) = onDestinationSelected(place)
+
+                        override fun isPoiKindShown(kind: PoiKind): Boolean = this@MainActivity.isPoiKindShown(kind)
+
+                        override fun setPoiKindShown(
+                            kind: PoiKind,
+                            shown: Boolean,
+                        ) = this@MainActivity.setPoiKindShown(kind, shown)
+                    },
+            )
+        searchScreen =
+            SearchScreen(
+                root = homeSheet,
+                savedPlaces = savedPlaces,
+                driveTimes = driveTimes,
+                host =
+                    object : SearchScreen.Host {
+                        override fun currentLocation(): Location? = lastKnownLocation
+
+                        override fun nearbyPetrol(): List<GeocodeResult> = nearbyPetrolResults()
+
+                        override fun onFilterChanged() = showSearchResults(currentResults)
+
+                        override fun onShortcutTapped(key: String) = onSavedPlaceTapped(key)
+
+                        override fun onChooseOnMap() {
+                            setHomeSheetState(HomeSheetState.COLLAPSED)
+                            Toast.makeText(this@MainActivity, R.string.choose_on_map_hint, Toast.LENGTH_LONG).show()
+                        }
+                    },
+            )
         refreshSavedPlaceLabels()
     }
 
     private fun refreshSavedPlaceLabels() {
-        homeButtonLabel.text = savedPlaceLabel("home") ?: "Home"
-        workButtonLabel.text = savedPlaceLabel("work") ?: "Work"
+        homeScreen.render()
+        searchScreen.renderSaved()
     }
 
-    private fun savedPlaceLabel(key: String): String? {
-        if (!prefs.contains("${key}_lat")) return null
-        return prefs.getString("${key}_label", null)
+    /** Petrol stations the map has already loaded, nearest to the driver first. */
+    private fun nearbyPetrolResults(): List<GeocodeResult> {
+        val here = lastKnownLocation
+        return nearbyPois
+            .filter { it.kind == PoiKind.FUEL }
+            .sortedBy { if (here == null) 0f else GeocodingService.distanceMeters(here.latitude, here.longitude, it.latitude, it.longitude) }
+            .take(MAX_PETROL_RESULTS)
+            .map { GeocodeResult(it.name, it.latitude, it.longitude, it.name, "", category = "Petrol") }
     }
+
+    private fun savedPlaceLabel(key: String): String? = savedPlaces.get(key)?.label
 
     private fun onSavedPlaceTapped(key: String) {
-        val label = savedPlaceLabel(key)
-        if (label != null) {
-            val lat = prefs.getFloat("${key}_lat", 0f).toDouble()
-            val lon = prefs.getFloat("${key}_lon", 0f).toDouble()
-            onDestinationSelected(GeocodeResult(label, lat, lon))
+        val saved = savedPlaces.get(key)
+        val label = saved?.label
+        if (saved != null && label != null) {
+            onDestinationSelected(GeocodeResult(label, saved.latitude, saved.longitude))
             return
         }
 
         // Not set yet - same as Waze's "Set once and go": start a search,
         // and save whatever destination gets picked next under this label.
         pendingSavedPlaceLabel = key
-        val name = if (key == "home") "home" else "work"
-        Toast.makeText(this, "Search your $name address - we'll save it", Toast.LENGTH_LONG).show()
+        val text =
+            if (key == "home") {
+                tr("Search your home address - we'll save it", "Cari alamat rumah - nanti kami simpan")
+            } else {
+                tr("Search your work address - we'll save it", "Cari alamat tempat kerja - nanti kami simpan")
+            }
+        Toast.makeText(this, text, Toast.LENGTH_LONG).show()
         setHomeSheetState(HomeSheetState.SEARCH)
     }
 
     private fun maybeSaveAsPendingPlace(result: GeocodeResult) {
         val key = pendingSavedPlaceLabel ?: return
         pendingSavedPlaceLabel = null
-        prefs
-            .edit()
-            .putFloat("${key}_lat", result.latitude.toFloat())
-            .putFloat("${key}_lon", result.longitude.toFloat())
-            .putString("${key}_label", result.label)
-            .apply()
+        savedPlaces.save(key, result)
         refreshSavedPlaceLabels()
     }
 
@@ -2308,11 +2901,11 @@ class MainActivity : AppCompatActivity() {
             mainHandler.post {
                 if (seq != searchSeq) return@post // a newer search/clear replaced this one
                 if (results == null) {
-                    if (!live) Toast.makeText(this, "Search failed - check your connection", Toast.LENGTH_SHORT).show()
+                    if (!live) Toast.makeText(this, tr("Search failed - check your connection", "Carian gagal - cek internet anda"), Toast.LENGTH_SHORT).show()
                     return@post
                 }
                 if (!live && results.isEmpty()) {
-                    Toast.makeText(this, "No places found", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, tr("No places found", "Tak jumpa tempat"), Toast.LENGTH_SHORT).show()
                 }
                 if (live && results.isNotEmpty()) {
                     lastLiveResults = results
@@ -2324,26 +2917,32 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showSearchResults(results: List<GeocodeResult>) {
+    private fun showSearchResults(found: List<GeocodeResult>) {
+        val query = activeSearchInput?.text?.toString().orEmpty()
+        val results = searchPicks.boost(found, query) // your usual places first
         currentResults = results
         val list = activeSearchResultsList ?: return
-        // Home/Work make way for real results, and come back once the box
-        // is cleared - same as Waze showing Home/Work only on an empty box.
-        if (list === homeSearchResultsList) setHomeQuickPicksVisible(results.isEmpty())
-        if (results.isEmpty()) {
+        // The home search runs through the filters; Saved / Recent make way
+        // for results and come back once there are none (empty box).
+        val shown = if (list === homeSearchResultsList) searchScreen.filter(results, query) else results
+        if (list === homeSearchResultsList) {
+            setHomeQuickPicksVisible(shown.isEmpty())
+            if (shown.isEmpty() && searchScreen.filter == SearchScreen.Filter.PETROL) {
+                Toast.makeText(this, R.string.no_petrol_nearby, Toast.LENGTH_SHORT).show()
+            }
+        }
+        if (shown.isEmpty()) {
             list.visibility = View.GONE
             return
         }
-        list.adapter = SearchResultAdapter(results, lastKnownLocation)
+        list.adapter = PlaceRows.Adapter(shown, lastKnownLocation, query)
         list.visibility = View.VISIBLE
         list.setSelection(0)
     }
 
     private fun setHomeQuickPicksVisible(visible: Boolean) {
-        val v = if (visible) View.VISIBLE else View.GONE
-        homeButton.visibility = v
-        workButton.visibility = v
-        if (visible) renderRecents() else homeRecentsContainer.visibility = View.GONE
+        homeSearchEmpty.visibility = if (visible) View.VISIBLE else View.GONE
+        if (visible) renderRecents()
     }
 
     // ---- Search helpers: instant matches + recent searches --------------
@@ -2351,54 +2950,17 @@ class MainActivity : AppCompatActivity() {
     private val searchCache = LinkedHashMap<String, List<GeocodeResult>>()
     private var lastLiveResults: List<GeocodeResult> = emptyList()
     private lateinit var homeRecentsContainer: LinearLayout
+    private lateinit var homeScreen: HomeScreen
 
     /** Matches shown the moment a key is pressed, before the network
      * answers: recent searches first, then the last live results. */
     private fun instantMatches(query: String): List<GeocodeResult> {
         val needle = query.trim().lowercase()
         if (needle.isEmpty()) return emptyList()
-        return (loadRecents() + lastLiveResults)
+        return (recentPlaces.load() + lastLiveResults)
             .distinctBy { it.label }
             .filter { it.label.lowercase().contains(needle) }
             .take(8)
-    }
-
-    private fun loadRecents(): List<GeocodeResult> {
-        val raw = prefs.getString(KEY_RECENT_PLACES, null) ?: return emptyList()
-        return try {
-            val array = JSONArray(raw)
-            (0 until array.length()).map { i ->
-                val o = array.getJSONObject(i)
-                val label = o.getString("label")
-                GeocodeResult(
-                    label = label,
-                    latitude = o.getDouble("lat"),
-                    longitude = o.getDouble("lon"),
-                    name = o.optString("name").ifBlank { label.substringBefore(",").trim() },
-                    address = o.optString("address"),
-                )
-            }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    private fun saveRecent(result: GeocodeResult) {
-        val updated =
-            (listOf(result) + loadRecents().filter { it.label != result.label })
-                .take(MAX_RECENTS_STORED)
-        val array = JSONArray()
-        for (r in updated) {
-            array.put(
-                JSONObject()
-                    .put("label", r.label)
-                    .put("lat", r.latitude)
-                    .put("lon", r.longitude)
-                    .put("name", r.name)
-                    .put("address", r.address),
-            )
-        }
-        prefs.edit().putString(KEY_RECENT_PLACES, array.toString()).apply()
     }
 
     /** Fills the "Recent" block under Home/Work (hidden when empty). */
@@ -2406,77 +2968,20 @@ class MainActivity : AppCompatActivity() {
         val container = homeRecentsContainer
         // Child 0 is the "Recent / Clear" header - everything after it is a row.
         while (container.childCount > 1) container.removeViewAt(1)
-        val recents = loadRecents().take(MAX_RECENTS_SHOWN)
+        val recents = recentPlaces.load().take(RecentPlaces.MAX_SHOWN)
         if (recents.isEmpty()) {
             container.visibility = View.GONE
             return
         }
         val origin = lastKnownLocation
         for (r in recents) {
-            val row = LayoutInflater.from(this).inflate(R.layout.item_search_result, container, false)
-            row.findViewById<ImageView>(R.id.resultIcon).setImageResource(R.drawable.ic_history)
-            row.findViewById<TextView>(R.id.resultName).text = r.name.ifBlank { r.label }
-            val address = row.findViewById<TextView>(R.id.resultAddress)
-            address.text = r.address
-            address.visibility = if (r.address.isBlank()) View.GONE else View.VISIBLE
-            val distance = row.findViewById<TextView>(R.id.resultDistance)
-            if (origin != null) {
-                distance.text =
-                    formatDistance(GeocodingService.distanceMeters(origin.latitude, origin.longitude, r.latitude, r.longitude))
-                distance.visibility = View.VISIBLE
-            } else {
-                distance.visibility = View.GONE
-            }
-            row.isClickable = true
+            val row = PlaceRows.inflate(container)
+            PlaceRows.bind(row, r, origin, iconRes = R.drawable.ic_history)
             row.setOnClickListener { onDestinationSelected(r) }
             container.addView(row)
         }
         container.visibility = View.VISIBLE
     }
-
-    /** Two-line results row (bold name, grey area) with the distance from
-     * the driver's last GPS fix on the right, like Waze. */
-    private inner class SearchResultAdapter(
-        private val results: List<GeocodeResult>,
-        private val origin: Location?,
-    ) : BaseAdapter() {
-        override fun getCount(): Int = results.size
-
-        override fun getItem(position: Int): Any = results[position]
-
-        override fun getItemId(position: Int): Long = position.toLong()
-
-        override fun getView(
-            position: Int,
-            convertView: View?,
-            parent: ViewGroup,
-        ): View {
-            val row = convertView ?: LayoutInflater.from(parent.context).inflate(R.layout.item_search_result, parent, false)
-            val result = results[position]
-            row.findViewById<TextView>(R.id.resultName).text = result.name.ifBlank { result.label }
-            val address = row.findViewById<TextView>(R.id.resultAddress)
-            address.text = result.address
-            address.visibility = if (result.address.isBlank()) View.GONE else View.VISIBLE
-            val distance = row.findViewById<TextView>(R.id.resultDistance)
-            if (origin != null) {
-                distance.text =
-                    formatDistance(
-                        GeocodingService.distanceMeters(origin.latitude, origin.longitude, result.latitude, result.longitude),
-                    )
-                distance.visibility = View.VISIBLE
-            } else {
-                distance.visibility = View.GONE
-            }
-            return row
-        }
-    }
-
-    private fun formatDistance(meters: Float): String =
-        if (Units.miles) Units.short(meters.toDouble()) else when {
-            meters < 1000f -> "${(Math.round(meters / 10f) * 10)} m"
-            meters < 100_000f -> String.format(java.util.Locale.US, "%.1f km", meters / 1000f)
-            else -> "${Math.round(meters / 1000f)} km"
-        }
 
     private fun onDestinationSelected(result: GeocodeResult) {
         if (droppedPin != null) hidePoiCard()
@@ -2499,7 +3004,7 @@ class MainActivity : AppCompatActivity() {
             imm.hideSoftInputFromWindow(activeInput.windowToken, 0)
         }
 
-        // "Add stop" search: the pick becomes a stop on the current trip
+        // tr("Add stop", "Tambah hentian") search: the pick becomes a stop on the current trip
         // instead of replacing it.
         if (addStopTarget != AddStopTarget.NONE) {
             onStopPicked(result)
@@ -2511,9 +3016,12 @@ class MainActivity : AppCompatActivity() {
         searchOpenedFromNav = false
         searchBackButton.visibility = View.GONE
 
-        saveRecent(result)
+        recentPlaces.save(result)
+        searchPicks.record(result)
         maybeSaveAsPendingPlace(result)
+        homeScreen.render()
         destinationName = result.name
+        destinationAddress = result.address
 
         topBar.visibility = View.GONE
         homeSheet.visibility = View.GONE
@@ -2551,8 +3059,23 @@ class MainActivity : AppCompatActivity() {
         isRestyle: Boolean,
     ) {
         appliedMapDark = styleUrl == MAP_STYLE_URL_DARK
+        if (::signOverlay.isInitialized) signOverlay.setNight(appliedMapDark == true)
+        if (::routeArrows.isInitialized) routeArrows.refreshColor()
         loadedMap.setStyle(Style.Builder().fromUri(styleUrl)) { style ->
-            setUpRouteLayers(style)
+            MapLabels.apply(style)
+            val sources = MapLayers(this).install(style)
+            altRouteSource = sources.altRoute
+            routeSource = sources.route
+            routePassedSource = sources.routePassed
+            routePoiSource = sources.routePoi
+            cameraZoneSource = sources.cameraZone
+            turnCalloutSource = sources.turnCallouts
+            destinationSource = sources.destination
+            stopsSource = sources.stops
+            poiSource = sources.poi
+            routeTimeSource = sources.routeTimes
+            trafficLayer.source = sources.traffic
+            renderPoiPins()
             if (isRestyle) {
                 redrawRouteLines()
                 destinationLatLng?.let { showDestinationMarker(it) }
@@ -2584,9 +3107,9 @@ class MainActivity : AppCompatActivity() {
         val incoming = pendingIncomingIntent ?: return
         pendingIncomingIntent = null
         val raw = IncomingLocation.rawFrom(incoming) ?: return
-        Toast.makeText(this, "Opening location\u2026", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, tr("Opening location\u2026", "Buka lokasi\u2026"), Toast.LENGTH_SHORT).show()
         val bias = lastKnownLocation
-        extrasExecutor.execute {
+        placeSearchExecutor.execute {
             val result: GeocodeResult? =
                 try {
                     when (val target = IncomingLocation.resolve(raw)) {
@@ -2598,7 +3121,7 @@ class MainActivity : AppCompatActivity() {
                                     } catch (e: Exception) {
                                         null
                                     }
-                                    ?: "Shared location"
+                                    ?: tr("Shared location", "Lokasi dikongsi")
                             GeocodeResult(label, target.latitude, target.longitude)
                         }
                         is IncomingLocation.Target.Query ->
@@ -2611,7 +3134,7 @@ class MainActivity : AppCompatActivity() {
             mainHandler.post {
                 if (isDestroyed) return@post
                 if (result == null) {
-                    Toast.makeText(this, "Couldn't read that location", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, tr("Couldn't read that location", "Tak dapat baca lokasi tu"), Toast.LENGTH_LONG).show()
                 } else {
                     onDestinationSelected(result)
                 }
@@ -2619,24 +3142,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Line width that grows with zoom (z10 / z14 / z18 / z20), so the
-     * route stays thick and easy to follow when driving close-in. */
-    private fun routeWidthByZoom(
-        z10: Float,
-        z14: Float,
-        z18: Float,
-        z20: Float,
-    ): Expression =
-        Expression.interpolate(
-            Expression.exponential(1.5f),
-            Expression.zoom(),
-            Expression.stop(10, z10),
-            Expression.stop(14, z14),
-            Expression.stop(18, z18),
-            Expression.stop(20, z20),
-        )
-
     private var routePoiSource: GeoJsonSource? = null
+    private var routeTimeSource: GeoJsonSource? = null
     private var cameraZoneSource: GeoJsonSource? = null
 
     /** Toll plazas / cameras around the plain (idle) map view. */
@@ -2658,6 +3165,13 @@ class MainActivity : AppCompatActivity() {
     private var routeListShowing = false
     private val extrasExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
+    /** Traffic lights / R&Rs lookups: big Overpass queries kept off [extrasExecutor]
+     * so they never hold up the toll / camera lookups queued there. */
+    private val lightsExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+    /** Sign planning: quick, and must never wait behind a network call. */
+    private val signExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
     private fun poiKey(poi: RoadPoi): String = String.format(Locale.US, "%.5f,%.5f", poi.latitude, poi.longitude)
 
     private fun currentRoadPois(): List<RoadPoi> =
@@ -2669,8 +3183,8 @@ class MainActivity : AppCompatActivity() {
 
     /** 200 m ring around a camera: the alert zone. */
     private fun zoneFeature(poi: RoadPoi): Feature {
-        val dLat = ZONE_RADIUS_M / 111_320.0
-        val dLon = ZONE_RADIUS_M / (111_320.0 * Math.cos(Math.toRadians(poi.latitude)).coerceAtLeast(0.2))
+        val dLat = CameraZone.RADIUS_M / 111_320.0
+        val dLon = CameraZone.RADIUS_M / (111_320.0 * Math.cos(Math.toRadians(poi.latitude)).coerceAtLeast(0.2))
         val ring = ArrayList<Point>()
         for (i in 0..48) {
             val a = 2.0 * Math.PI * i / 48.0
@@ -2692,7 +3206,18 @@ class MainActivity : AppCompatActivity() {
                 f.addStringProperty("key", poiKey(poi))
                 f
             }
-        src.setGeoJson(FeatureCollection.fromFeatures(features))
+        val reports =
+            if (navMode == NavMode.ACTIVE && ::roadReportsUi.isInitialized) {
+                roadReportsUi.onRoute.map { r ->
+                    val f = Feature.fromGeometry(Point.fromLngLat(r.report.longitude, r.report.latitude))
+                    f.addStringProperty("icon", reportIconId(r.report.kind))
+                    f.addStringProperty("key", "report-${r.report.id}")
+                    f
+                }
+            } else {
+                emptyList()
+            }
+        src.setGeoJson(FeatureCollection.fromFeatures(features + reports))
         cameraZoneSource?.setGeoJson(FeatureCollection.fromFeatures(pois.filter { it.kind == "camera" }.map { zoneFeature(it) }))
     }
 
@@ -2710,6 +3235,11 @@ class MainActivity : AppCompatActivity() {
                 emptyList()
             }
         val key = hits.firstNotNullOfOrNull { it.getStringProperty("key") } ?: return false
+        if (key.startsWith("report-")) {
+            val r = roadReportsUi.reportById(key.removePrefix("report-").toIntOrNull() ?: -1) ?: return false
+            Toast.makeText(this, "${r.kind.label} · ${RoadReports.detail(r)}", Toast.LENGTH_LONG).show()
+            return true
+        }
         val poi = currentRoadPois().firstOrNull { poiKey(it) == key } ?: return false
         if (poi.kind == "toll") showTollInfo(poi) else showCameraInfo(poi)
         return true
@@ -2718,26 +3248,18 @@ class MainActivity : AppCompatActivity() {
     private fun showCameraInfo(poi: RoadPoi) {
         val limit = poi.maxspeed?.filter { it.isDigit() }?.toIntOrNull()
         val text =
-            "Speed camera - alert zone ${Units.short(ZONE_RADIUS_M)}" +
-                (if (limit != null) ", limit ${Units.speed(limit.toDouble())} ${Units.speedUnit}" else "")
+            tr("Speed camera - alert zone ${Units.short(CameraZone.RADIUS_M)}", "Kamera laju - zon amaran ${Units.short(CameraZone.RADIUS_M)}") +
+                (if (limit != null) tr(", limit ", ", had ") + "${Units.speed(limit.toDouble())} ${Units.speedUnit}" else "")
         Toast.makeText(this, text, Toast.LENGTH_LONG).show()
     }
 
     /** Tap on a toll plaza: just its name (prices are intentionally not shown). */
     private fun showTollInfo(poi: RoadPoi) {
-        Toast.makeText(this, poi.name.ifBlank { "Toll plaza" }, Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, poi.name.ifBlank { tr("Toll plaza", "Plaza tol") }, Toast.LENGTH_SHORT).show()
     }
 
     // ---- Speed-camera zone (200 m) ------------------------------------
 
-    private fun angleDiff(
-        a: Double,
-        b: Double,
-    ): Double {
-        var d = ((a - b) % 360.0 + 360.0) % 360.0
-        if (d > 180.0) d -= 360.0
-        return Math.abs(d)
-    }
 
     /** Alerts when the driver ENTERS a camera's 200 m zone on the route:
      * pop-up banner + one spoken warning per camera, with the distance
@@ -2749,39 +3271,37 @@ class MainActivity : AppCompatActivity() {
             hideCameraAlert()
             return
         }
-        val here = RoutePoint(location.latitude, location.longitude)
-        var nearest: RoadPoi? = null
-        var nearestD = Double.MAX_VALUE
-        for (cam in cameras) {
-            val camPoint = RoutePoint(cam.latitude, cam.longitude)
-            val d = GeoUtils.distanceMeters(here, camPoint)
-            if (d > ZONE_RADIUS_M) continue
-            val seg = cameraRouteIndex.getOrPut(poiKey(cam)) { GeoUtils.snapToPolyline(camPoint, geometry)?.segmentIndex ?: -1 }
-            if (seg < 0 || seg < snapSegmentIndex - 1) continue // not on this route, or already passed
-            val heading = smoothedBearing
-            if (heading != null && d > 15.0 && angleDiff(GeoUtils.bearingDegrees(here, camPoint), heading) > 100.0) continue // behind us
-            if (d < nearestD) {
-                nearest = cam
-                nearestD = d
+        val approach =
+            CameraZone.nearestAhead(
+                here = RoutePoint(location.latitude, location.longitude),
+                heading = smoothedBearing,
+                cameras = cameras,
+                passedSegment = snapSegmentIndex,
+            ) { cam ->
+                cameraRouteIndex.getOrPut(poiKey(cam)) {
+                    GeoUtils.snapToPolyline(RoutePoint(cam.latitude, cam.longitude), geometry)?.segmentIndex ?: -1
+                }
             }
-        }
-        val cam = if (MapDisplayPrefs.cameraAlerts) nearest else null
-        if (cam == null) {
+        if (approach == null || !MapDisplayPrefs.cameraAlerts) {
             hideCameraAlert()
             return
         }
+        val cam = approach.camera
+        val nearestD = approach.distanceMeters
         val key = poiKey(cam)
-        if (alertedCameraKeys.add(key)) navigationService?.announce("camera-$key", "Speed camera ahead")
+        if (alertedCameraKeys.add(key)) navigationService?.announce("camera-$key", tr("Speed camera ahead", "Ada kamera laju di depan"))
         val limit = cam.maxspeed?.filter { it.isDigit() }?.toIntOrNull()
         val kmh = if (location.hasSpeed()) (location.speed * 3.6).toInt() else 0
         val distance = Units.short(nearestD.coerceAtLeast(10.0))
-        cameraAlertTitle.text = if (limit != null && kmh > limit) "Slow down - speed camera" else "Speed camera ahead"
-        cameraAlertSub.text = if (limit != null) "$distance  -  limit ${Units.speed(limit.toDouble())} ${Units.speedUnit}" else distance
-        cameraAlert.visibility = View.VISIBLE
+        cameraAlertTitle.text = getString(if (limit != null && kmh > limit) R.string.camera_slow_down else R.string.camera_ahead)
+        cameraAlertSub.text = if (limit != null) getString(R.string.camera_limit, Units.speed(limit.toDouble()).toString()) else ""
+        cameraAlertSub.visibility = if (limit != null) View.VISIBLE else View.GONE
+        cameraAlertDistance.text = distance
+        Motion.reveal(cameraAlert, pivotFraction = 0f)
     }
 
     private fun hideCameraAlert() {
-        if (::cameraAlert.isInitialized) cameraAlert.visibility = View.GONE
+        if (::cameraAlert.isInitialized) Motion.dismiss(cameraAlert)
     }
 
     // ---- Idle map: POIs around the view, instant from the cache ---------
@@ -2880,102 +3400,252 @@ class MainActivity : AppCompatActivity() {
             mainHandler.post {
                 if (token != previewToken || navMode != NavMode.PREVIEW) return@post
                 routePoisByIndex.putAll(found)
+                rebuildRouteStrips()
                 renderRoutePois()
                 updateRoutePreviewSummary()
                 if (routeListShowing) renderRouteList()
             }
         }
-    }
-
-    private fun loadActiveRoutePois(route: Route) {
+        // Live traffic on each route (quick): colours its strip, "Jam on ... +6 min".
         extrasExecutor.execute {
-            val found =
-                try {
-                    RoadPoiService.fetchAlong(listOf(route))[0].orEmpty()
-                } catch (e: Exception) {
-                    emptyList()
-                }
+            val notes = HashMap<Int, Pair<List<TripStrip.Traffic>, TrafficNote?>>()
+            routes.forEachIndexed { i, r -> previewTraffic(r)?.let { notes[i] = it } }
+            val leave = HashMap<Int, DepartureAdvisor.Advice>()
+            routes.forEachIndexed { i, r -> leaveAdvice(r)?.let { leave[i] = it } }
+            val reports = HashMap<Int, List<RoadReports.OnRoute>>()
+            routes.forEachIndexed { i, r -> previewReports(r)?.let { reports[i] = it } }
             mainHandler.post {
-                if (navMode == NavMode.ACTIVE && activeRoute === route) {
-                    activeRoutePois = found
-                    renderRoutePois()
+                if (token != previewToken || navMode != NavMode.PREVIEW) return@post
+                routeTraffic.putAll(notes)
+                routeReports.putAll(reports)
+                routeLeaveAdvice.putAll(leave)
+                rebuildRouteStrips()
+                updateRoutePreviewSummary()
+                if (routeListShowing) renderRouteList()
+            }
+        }
+        // Traffic lights and R&Rs: a second, bigger lookup on its own thread,
+        // so the toll counts above don't wait for it.
+        lightsExecutor.execute {
+            val extras =
+                try {
+                    RoadPoiService.fetchExtrasAlong(routes)
+                } catch (e: Exception) {
+                    Log.w("NavOSSigns", "traffic lights / R&R lookup failed: $e")
+                    emptyMap()
+                }
+            Log.i("NavOSSigns", "preview extras: " + extras.mapValues { it.value.groupingBy { p -> p.kind }.eachCount() })
+            val lights = extras.mapValues { (i, list) -> SignPlanner.trafficLights(routes[i], list) }
+            mainHandler.post {
+                if (token != previewToken || navMode != NavMode.PREVIEW) return@post
+                routeExtrasByIndex.putAll(extras)
+                routeLightCounts.putAll(lights.mapValues { it.value.size })
+                routeLightsM.putAll(lights)
+                rebuildRouteStrips()
+                updateRoutePreviewSummary()
+                if (routeListShowing) renderRouteList()
+            }
+        }
+        // Park & ride: stations near the destination, then Park & Ride car parks along the way.
+        val first = routes.firstOrNull()
+        if (first != null && first.distanceMeters >= PARK_RIDE_MIN_TRIP_M) {
+            lightsExecutor.execute {
+                val dest = first.geometry.lastOrNull() ?: return@execute
+                val alight = runCatching { PoiService.fetchTransit(dest.latitude, dest.longitude) }.getOrNull()?.filter { it.lines.isNotEmpty() }
+                if (alight.isNullOrEmpty()) return@execute
+                val board = runCatching { PoiService.fetchParkAndRideAlong(first.geometry) }.getOrNull()
+                if (board.isNullOrEmpty()) return@execute
+                mainHandler.post {
+                    if (token != previewToken || navMode != NavMode.PREVIEW) return@post
+                    parkRideBoard = board
+                    parkRideAlight = alight
+                    updateRoutePreviewSummary()
                 }
             }
         }
     }
 
-    /** "Toll" when a toll plaza is on the route, else null. No price. */
-    private fun tollSummary(pois: List<RoadPoi>?): String? =
-        if (pois?.any { it.kind == "toll" } == true) "Toll" else null
+    /** Traffic lights on each previewed route, once looked up. */
+    private val routeLightCounts = HashMap<Int, Int>()
 
-    private fun formatRouteMinutes(seconds: Double): String {
-        val minutes = Math.round(seconds / 60.0).toInt().coerceAtLeast(1)
-        return if (minutes >= 60) "${minutes / 60} h ${minutes % 60} min" else "$minutes min"
+    /** Where each previewed route's traffic lights are (metres along). */
+    private val routeLightsM = HashMap<Int, List<Double>>()
+
+    /** Live traffic on each previewed route: slow / jammed stretches and the one-line note. */
+    private val routeTraffic = HashMap<Int, Pair<List<TripStrip.Traffic>, TrafficNote?>>()
+
+    /** Park & ride candidates for this preview: stations with Park & Ride along
+     * the way, and stations near the destination (see [ParkAndRidePlanner]). */
+    private var parkRideBoard: List<Poi> = emptyList()
+    private var parkRideAlight: List<Poi> = emptyList()
+
+    /** Road reports on each previewed route (accident, police, ...). */
+    private val routeReports = HashMap<Int, List<RoadReports.OnRoute>>()
+
+    /** Live road reports on [route]. Blocking (network). */
+    private fun previewReports(route: Route): List<RoadReports.OnRoute>? {
+        if (route.geometry.size < 2) return null
+        val track = RouteTrack(route.geometry)
+        val box = RoadReports.boxAhead(track, 0.0) ?: return null
+        val found = runCatching { RoadReports.fetch(box) }.getOrNull() ?: return null
+        return RoadReports.onRoute(track, found).takeIf { it.isNotEmpty() }
     }
 
-    private fun styleRouteToggle() {
-        val blue = ContextCompat.getColor(this, R.color.navos_blue)
-        val grey = ContextCompat.getColor(this, R.color.navos_text_secondary)
-        toggleMap.setBackgroundResource(if (routeListShowing) 0 else R.drawable.bg_toggle_selected)
-        toggleList.setBackgroundResource(if (routeListShowing) R.drawable.bg_toggle_selected else 0)
-        toggleMap.setTextColor(if (routeListShowing) grey else blue)
-        toggleList.setTextColor(if (routeListShowing) blue else grey)
+    /** "Leave at 8:00 PM to save 12 min" for each previewed route, when worth saying. */
+    private val routeLeaveAdvice = HashMap<Int, DepartureAdvisor.Advice>()
+
+    /** Typical traffic on [route] leaving now vs in 1-3 hours. Blocking (network). */
+    private fun leaveAdvice(route: Route): DepartureAdvisor.Advice? {
+        val nodes = route.nodes ?: return null
+        val free = route.freeFlowMs ?: return null
+        val now = System.currentTimeMillis()
+        val buckets = DepartureAdvisor.OFFSETS_H.associateWith { DepartureAdvisor.bucketAt(now + it * 3_600_000L) }
+        val typical = runCatching { TrafficClient.typical(TrafficFlow.piecesAhead(nodes, 0), buckets.values.distinct()) }.getOrNull() ?: return null
+        val track = RouteTrack(route.geometry)
+        val cum = DoubleArray(route.geometry.size) { track.distanceAt(it) }
+        val delays = buckets.mapValues { (_, b) -> TrafficFlow.delaySeconds(nodes, free, cum, typical[b].orEmpty()) }
+        return DepartureAdvisor.advise(route.durationSeconds, delays)
     }
+
+    /** Each previewed route's whole trip on one line (see [TripStrip]). */
+    private val routeStrips = HashMap<Int, TripStrip.Strip>()
+
+    /** Builds the strips from what has been looked up so far (tolls / R&Rs / lights / traffic arrive separately). */
+    private fun rebuildRouteStrips() {
+        routeOptions.forEachIndexed { i, route ->
+            val pois = routePoisByIndex[i]
+            val extras = routeExtrasByIndex[i]
+            // Built even before (or without) the toll / R&R lookups: the line
+            // with Now / Arrive and traffic still helps; markers join as they come.
+            val track = RouteTrack(route.geometry)
+            TripStrip
+                .build(
+                    route,
+                    pois.orEmpty(),
+                    extras.orEmpty(),
+                    routeLightsM[i].orEmpty(),
+                    routeTraffic[i]?.first.orEmpty(),
+                    { onExpresswayAt(route, track, it) },
+                    routeReports[i].orEmpty(),
+                )
+                ?.let { routeStrips[i] = it }
+        }
+    }
+
+    /** Live traffic along [route] for the preview: its slow / jammed stretches and a
+     * one-line note with the delay. Blocking (network); null when there is none. */
+    private fun previewTraffic(route: Route): Pair<List<TripStrip.Traffic>, TrafficNote?>? {
+        val nodes = route.nodes ?: return null
+        val free = route.freeFlowMs ?: return null
+        val live = runCatching { TrafficClient.flow(TrafficFlow.piecesAhead(nodes, 0)) }.getOrNull() ?: return null
+        if (live.isEmpty()) return null
+        val track = RouteTrack(route.geometry)
+        val runs = TrafficFlow.runs(nodes, free, live)
+        if (runs.isEmpty()) return null
+        val spans = runs.map { TripStrip.Traffic(track.distanceAt(it.from), track.distanceAt(it.to), it.level == TrafficFlow.Level.JAM) }
+        val cum = DoubleArray(route.geometry.size) { track.distanceAt(it) }
+        val delayS = TrafficFlow.delaySeconds(nodes, free, cum, live)
+        val worst = runs.firstOrNull { it.level == TrafficFlow.Level.JAM } ?: runs.first()
+        val jam = worst.level == TrafficFlow.Level.JAM
+        val at = track.distanceAt(worst.from)
+        val road =
+            route.steps
+                .lastOrNull { s -> GeoUtils.snapToPolyline(s.point, route.geometry)?.let { track.progressOf(it) <= at + 1 } == true }
+                ?.roadName
+                ?.takeIf { it.isNotBlank() }
+        val minutes = Math.round(delayS / 60.0).toInt()
+        val what = if (jam) tr("Jam", "Jem") else tr("Slow traffic", "Trafik perlahan")
+        val where = road?.let { tr(" on $it", " di $it") }.orEmpty()
+        val note = TrafficNote(what + where + if (minutes >= 1) " · +$minutes min" else "", jam, delayS)
+        return spans to note
+    }
+
+    private fun loadActiveRoutePois(
+        route: Route,
+        needPois: Boolean = true,
+        needExtras: Boolean = true,
+    ) {
+        extrasExecutor.execute {
+            if (needPois) {
+                val found =
+                    try {
+                        RoadPoiService.fetchAlong(listOf(route))[0].orEmpty()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                mainHandler.post {
+                    if (navMode == NavMode.ACTIVE && activeRoute === route) {
+                        activeRoutePois = found
+                        renderRoutePois()
+                        updateRouteSigns(route)
+                    }
+                }
+            }
+        }
+        if (needExtras) {
+            lightsExecutor.execute {
+                val extras =
+                    try {
+                        RoadPoiService.fetchExtrasAlong(listOf(route))[0].orEmpty()
+                    } catch (e: Exception) {
+                        Log.w("NavOSSigns", "traffic lights / R&R lookup failed: $e")
+                        emptyList()
+                    }
+                mainHandler.post {
+                    if (navMode == NavMode.ACTIVE && activeRoute === route) {
+                        activeExtras = extras
+                        updateRouteSigns(route)
+                    }
+                }
+            }
+        }
+    }
+
+
 
     private fun setRouteListVisible(show: Boolean) {
         if (navMode != NavMode.PREVIEW) return
         routeListShowing = show
         routeListOverlay.visibility = if (show) View.VISIBLE else View.GONE
         routePreviewCard.visibility = if (show) View.GONE else View.VISIBLE
-        styleRouteToggle()
         if (show) renderRouteList() else fitSelectedRoute()
     }
 
-    /** One card per route, quickest first. Tap a card to pick it, Go to start. */
-    private fun renderRouteList() {
-        routeListItems.removeAllViews()
-        val order = routeOptions.indices.sortedBy { routeOptions[it].durationSeconds }
-        for (index in order) {
-            val route = routeOptions[index]
-            val row = LayoutInflater.from(this).inflate(R.layout.item_route_option, routeListItems, false)
-            row.findViewById<TextView>(R.id.routeItemDuration).text = formatRouteMinutes(route.durationSeconds)
-            val arrival = Date(System.currentTimeMillis() + (route.durationSeconds * 1000).toLong())
-            row.findViewById<TextView>(R.id.routeItemMeta).text =
-                SimpleDateFormat("h:mm a", Locale.US).format(arrival) + "  •  " + formatTripDistance(route.distanceMeters)
-            val via = viaRoadName(route)
-            val viaView = row.findViewById<TextView>(R.id.routeItemVia)
-            viaView.text = if (via != null) "Via $via" else ""
-            viaView.visibility = if (via != null) View.VISIBLE else View.GONE
-            val toll = tollSummary(routePoisByIndex[index])
-            val chip = row.findViewById<TextView>(R.id.routeItemToll)
-            chip.text = toll.orEmpty()
-            chip.visibility = if (toll != null) View.VISIBLE else View.GONE
-            if (index == selectedRouteIndex) row.setBackgroundResource(R.drawable.bg_route_card_selected)
-            row.setOnClickListener {
-                selectedRouteIndex = index
-                redrawRouteLines()
-                updateRoutePreviewSummary()
-                renderRouteList()
-            }
-            row.findViewById<View>(R.id.routeItemGo).setOnClickListener {
-                selectedRouteIndex = index
-                beginActiveNavigation()
-            }
-            routeListItems.addView(row)
+    /** Inputs for the route cards: time, distance, main road and tolls (null until looked up). */
+    private fun routeChoiceInputs(): List<RouteChoices.Input> =
+        routeOptions.mapIndexed { i, r ->
+            RouteChoices.Input(
+                // Live traffic counts: "fastest" is fastest today, not on a free road.
+                r.durationSeconds + (routeTraffic[i]?.second?.delaySeconds ?: 0.0),
+                r.distanceMeters,
+                NavFormat.viaRoadName(r),
+                routePoisByIndex[i]?.count { it.kind == "toll" },
+                routeLightCounts[i],
+                routeStrips[i],
+                routeTraffic[i]?.second,
+            )
         }
+
+    /** The "All routes" screen: every route as a card, quickest first; tap one to pick it. */
+    private fun renderRouteList() {
+        routePreviewSheet.renderAll(RouteChoices.order(routeChoiceInputs(), selectedRouteIndex))
     }
 
     private fun fitSelectedRoute() {
         val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
         val bounds = LatLngBounds.Builder()
         selected.geometry.forEach { bounds.include(LatLng(it.latitude, it.longitude)) }
-        map?.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 120, 120, 120, dp(380)), 800)
+        // Fit into the map left above the preview sheet and below the back button.
+        val sheet = if (routePreviewCard.isShown && routePreviewCard.height > 0) routePreviewCard.height else dp(380)
+        val top = dp(104)
+        val bottom = (sheet + dp(24)).coerceAtMost(mapView.height - top - dp(80))
+        map?.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), dp(40), top, dp(40), bottom), 800)
     }
 
     private fun hideRouteChooser() {
         routeListShowing = false
         routeListOverlay.visibility = View.GONE
-        routeViewToggle.visibility = View.GONE
+        routeBackButton.visibility = View.GONE
     }
 
     /** Keeps hunting for more route choices after the first ones are shown. */
@@ -2992,8 +3662,6 @@ class MainActivity : AppCompatActivity() {
                         routeOptions = routeOptions + found
                         redrawRouteLines()
                         updateRoutePreviewSummary()
-                        routeViewToggle.visibility = View.VISIBLE
-                        if (routeListShowing) renderRouteList()
                     }
                 }
             }
@@ -3008,148 +3676,8 @@ class MainActivity : AppCompatActivity() {
     private var turnCalloutSource: GeoJsonSource? = null
     private var renderedCalloutStep = -1
 
-    private val TURN_ICON_RES =
-        listOf(
-            R.drawable.ic_turn_arrive,
-            R.drawable.ic_turn_roundabout_left,
-            R.drawable.ic_turn_roundabout_right,
-            R.drawable.ic_turn_roundabout_straight,
-            R.drawable.ic_turn_uturn,
-            R.drawable.ic_turn_fork_left,
-            R.drawable.ic_turn_fork_right,
-            R.drawable.ic_turn_straight,
-            R.drawable.ic_turn_sharp_right,
-            R.drawable.ic_turn_right,
-            R.drawable.ic_turn_slight_right,
-            R.drawable.ic_turn_slight_left,
-            R.drawable.ic_turn_left,
-            R.drawable.ic_turn_sharp_left,
-        )
 
     private fun turnIconId(res: Int): String = "navos-turn-" + resources.getResourceEntryName(res)
-
-    // x position (in the icon's 48-unit grid) where each arrow's tail starts.
-    // The arrow is shifted so this tail sits exactly on the icon's centre, i.e.
-    // on the route line, instead of the whole arrow being centred on it.
-    private val TURN_STEM_X =
-        mapOf(
-            R.drawable.ic_turn_left to 36f,
-            R.drawable.ic_turn_right to 12f,
-            R.drawable.ic_turn_sharp_left to 34f,
-            R.drawable.ic_turn_sharp_right to 14f,
-            R.drawable.ic_turn_slight_left to 33f,
-            R.drawable.ic_turn_slight_right to 15f,
-            R.drawable.ic_turn_uturn to 14f,
-        )
-
-    /** A bold white chevron pointing RIGHT (east). On a line-placed symbol the
-     * icon's "right" is the direction the line runs, so this points the way
-     * the route goes. A faint dark edge keeps it readable on the blue. */
-    private fun makeRouteChevron(): Bitmap {
-        val size = 64
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val path =
-            android.graphics.Path().apply {
-                moveTo(20f, 14f)
-                lineTo(46f, 32f)
-                lineTo(20f, 50f)
-            }
-        val paint =
-            android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                style = android.graphics.Paint.Style.STROKE
-                strokeCap = android.graphics.Paint.Cap.ROUND
-                strokeJoin = android.graphics.Paint.Join.ROUND
-            }
-        paint.color = Color.argb(70, 10, 70, 120)
-        paint.strokeWidth = 15f
-        canvas.drawPath(path, paint)
-        paint.color = Color.WHITE
-        paint.strokeWidth = 10f
-        canvas.drawPath(path, paint)
-        return bitmap
-    }
-
-    /** The same white Waze-style turn arrow as the bottom button, made
-     * bolder with a navy outline, and shifted so its tail lies on the road. */
-    private fun makeTurnArrow(res: Int): Bitmap? {
-        val drawable = ContextCompat.getDrawable(this, res)?.mutate() ?: return null
-        val size = 160
-        val glyph = 100
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val shift = ((24f - (TURN_STEM_X[res] ?: 24f)) / 48f * glyph).toInt()
-        val left = (size - glyph) / 2 + shift
-        val top = (size - glyph) / 2
-        drawable.setBounds(left, top, left + glyph, top + glyph)
-        val dirs =
-            listOf(
-                1f to 0f, 0.71f to 0.71f, 0f to 1f, -0.71f to 0.71f,
-                -1f to 0f, -0.71f to -0.71f, 0f to -1f, 0.71f to -0.71f,
-            )
-
-        fun stamp(
-            color: Int,
-            radius: Float,
-        ) {
-            drawable.setTint(color)
-            for ((dx, dy) in dirs) {
-                canvas.save()
-                canvas.translate(dx * radius, dy * radius)
-                drawable.draw(canvas)
-                canvas.restore()
-            }
-        }
-        stamp(Color.parseColor("#14284B"), 8f) // outline
-        stamp(Color.WHITE, 3f) // fatten the white stroke
-        drawable.setTint(Color.WHITE)
-        drawable.draw(canvas)
-        return bitmap
-    }
-
-    /** Direction the route line heads just AFTER [point] (0 = north),
-     * measured to a spot ~10 m further along it. */
-    private fun outgoingBearing(
-        geometry: List<com.excellentmindblow.navos.routing.RoutePoint>,
-        point: com.excellentmindblow.navos.routing.RoutePoint,
-    ): Double {
-        if (geometry.size < 2) return 0.0
-        var nearest = 0
-        var best = Double.MAX_VALUE
-        for (i in geometry.indices) {
-            val d = GeoUtils.distanceMeters(geometry[i], point)
-            if (d < best) {
-                best = d
-                nearest = i
-            }
-        }
-        if (nearest >= geometry.size - 1) return GeoUtils.bearingDegrees(geometry[geometry.size - 2], geometry[geometry.size - 1])
-        var j = nearest + 1
-        while (j < geometry.size - 1 && GeoUtils.distanceMeters(geometry[nearest], geometry[j]) < 10.0) j++
-        return GeoUtils.bearingDegrees(geometry[nearest], geometry[j])
-    }
-
-    /** Direction of travel (0 = north) as the route arrives at [point]:
-     * measured from a spot ~6 m back along the route line. */
-    private fun incomingBearing(
-        geometry: List<com.excellentmindblow.navos.routing.RoutePoint>,
-        point: com.excellentmindblow.navos.routing.RoutePoint,
-    ): Double {
-        if (geometry.size < 2) return 0.0
-        var nearest = 0
-        var best = Double.MAX_VALUE
-        for (i in geometry.indices) {
-            val d = GeoUtils.distanceMeters(geometry[i], point)
-            if (d < best) {
-                best = d
-                nearest = i
-            }
-        }
-        if (nearest == 0) return GeoUtils.bearingDegrees(geometry[0], geometry[1])
-        var j = nearest - 1
-        while (j > 0 && GeoUtils.distanceMeters(geometry[j], geometry[nearest]) < 6.0) j--
-        return GeoUtils.bearingDegrees(geometry[j], geometry[nearest])
-    }
 
     /** Draws an arrow + road name on the route line at each upcoming turn
      * (from [fromStep] on). Cleared whenever we're not driving. */
@@ -3178,7 +3706,7 @@ class MainActivity : AppCompatActivity() {
             feature.addStringProperty("icon", turnIconId(R.drawable.ic_turn_straight))
             feature.addStringProperty("name", s.roadName)
             feature.addNumberProperty("order", i)
-            feature.addNumberProperty("bearing", outgoingBearing(geometry, s.point))
+            feature.addNumberProperty("bearing", GeoUtils.outgoingBearing(geometry, s.point))
             features.add(feature)
         }
         src.setGeoJson(FeatureCollection.fromFeatures(features))
@@ -3188,290 +3716,43 @@ class MainActivity : AppCompatActivity() {
      * arrow sits in the lower part of the view (Waze-style look-ahead). */
     private fun applyNavPadding(on: Boolean) {
         val m = map ?: return
+        navPaddingOn = on
         val top = if (on) (mapView.height * NAV_TOP_PADDING_FRACTION).toInt() else 0
         m.setPadding(0, top, 0, 0)
+        navSheetRaisePx = -1 // re-apply below
+        updateNavCameraForSheet(if (on) currentNavSheetRaise() else 0)
     }
 
-    private fun setUpRouteLayers(style: Style) {
-        // The base style's own road/POI name labels are symbol layers
-        // further up its layer stack. style.addLayer() appends at the very
-        // top by default, which was silently burying every label under our
-        // route lines and the destination pin - inserting our route layers
-        // below the first symbol layer keeps street names readable on top
-        // of the route, matching how Google Maps/Waze draw it. (The
-        // destination pin is deliberately NOT inserted this way - it's
-        // meant to sit on top of labels too, like a real map pin.)
-        // The base style also has icon-only symbol layers (one-way arrows)
-        // that sit BEFORE its bridge road layers. Anchoring to the first
-        // symbol layer of any kind therefore put the route underneath the
-        // bridges, which painted over it - the blue line "vanished" on every
-        // bridge/flyover. Anchor to the first symbol layer AFTER the last
-        // bridge layer instead, so the route draws over bridges but still
-        // under the street-name labels.
-        val allLayers = style.layers
-        val lastBridgeIndex = allLayers.indexOfLast { it.id.contains("bridge", ignoreCase = true) }
-        val firstSymbolLayerId =
-            allLayers.drop(lastBridgeIndex + 1).firstOrNull { it is SymbolLayer }?.id
-                ?: allLayers.firstOrNull { it is SymbolLayer }?.id
-        fun addBelowLabels(layer: Layer) {
-            if (firstSymbolLayerId != null) {
-                style.addLayerBelow(layer, firstSymbolLayerId)
-            } else {
-                style.addLayer(layer)
-            }
+    private var navPaddingOn = false
+    private var navSheetRaisePx = -1
+
+    /**
+     * Smart drive camera: when the drive sheet opens over the map, the car
+     * arrow moves up by the same amount, frame by frame with the sheet, so
+     * it stays in view just above the sheet's edge (and goes back down when
+     * it closes). Both paddings move: the view keeps its look-ahead shape
+     * instead of the arrow being squashed toward the top.
+     */
+    private fun updateNavCameraForSheet(raisePx: Int) {
+        if (raisePx == navSheetRaisePx) return
+        navSheetRaisePx = raisePx
+        if (!navPaddingOn || mapView.height == 0) {
+            driveFollower.setPadding(0.0, 0.0)
+            return
         }
-
-        // 3D buildings - the liberty style's vector tiles already carry
-        // building height data (OpenMapTiles schema: source-layer
-        // "building", render_height/render_min_height in metres), the
-        // style just never had a layer drawing them as extrusions. Only
-        // visible once the camera is tilted (active nav, or a two-finger
-        // tilt gesture while browsing) - flat top-down looks the same
-        // either way, which is correct, not a sign this isn't working.
-        // Wrapped defensively: if OpenFreeMap ever renames the source or
-        // the fields are absent, this silently draws nothing rather than
-        // crash.
-        try {
-            val buildingsLayer =
-                FillExtrusionLayer("navos-3d-buildings", "openmaptiles")
-                    .withSourceLayer("building")
-                    .withProperties(
-                        PropertyFactory.fillExtrusionColor("#D6D9E0"),
-                        PropertyFactory.fillExtrusionOpacity(0.85f),
-                        PropertyFactory.fillExtrusionHeight(Expression.get("render_height")),
-                        PropertyFactory.fillExtrusionBase(
-                            Expression.switchCase(
-                                Expression.has("render_min_height"),
-                                Expression.toNumber(Expression.get("render_min_height")),
-                                Expression.literal(0f),
-                            ),
-                        ),
-                    )
-            if (SHOW_3D_BUILDINGS) {
-                buildingsLayer.setProperties(
-                    PropertyFactory.visibility(if (MapDisplayPrefs.buildings3d) Property.VISIBLE else Property.NONE),
-                )
-                addBelowLabels(buildingsLayer)
-            }
-        } catch (e: Exception) {
-            // Missing source/source-layer on whatever style version is
-            // live - buildings just stay flat, nothing else breaks.
-        }
-
-        // Alternates first so the selected route's layers (added next) end
-        // up drawn on top of them.
-        val altSource = GeoJsonSource(ALT_ROUTE_SOURCE_ID)
-        style.addSource(altSource)
-        altRouteSource = altSource
-
-        val altLayer =
-            LineLayer(ALT_ROUTE_LAYER_ID, ALT_ROUTE_SOURCE_ID).withProperties(
-                PropertyFactory.lineColor(Color.parseColor("#9AA5B1")),
-                PropertyFactory.lineWidth(4f),
-                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-            )
-        addBelowLabels(altLayer)
-
-        val source = GeoJsonSource(ROUTE_SOURCE_ID)
-        style.addSource(source)
-        routeSource = source
-
-        // A white casing under the blue line, same two-tone look Google
-        // Maps draws its route in, instead of a single flat line.
-        // The part of the route already driven: same width, but faded, drawn
-        // beneath the live line (see trimRoute).
-        val passedSource = GeoJsonSource(ROUTE_PASSED_SOURCE_ID)
-        style.addSource(passedSource)
-        routePassedSource = passedSource
-        val passedLayer =
-            LineLayer(ROUTE_PASSED_LAYER_ID, ROUTE_PASSED_SOURCE_ID).withProperties(
-                PropertyFactory.lineColor(Color.parseColor("#8FA3B5")),
-                PropertyFactory.lineOpacity(0.55f),
-                PropertyFactory.lineWidth(routeWidthByZoom(6f, 11f, 19f, 29f)),
-                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-            )
-        addBelowLabels(passedLayer)
-
-        val routeCasingLayer =
-            LineLayer(ROUTE_CASING_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
-                PropertyFactory.lineColor(Color.WHITE),
-                PropertyFactory.lineWidth(routeWidthByZoom(9f, 15f, 26f, 38f)),
-                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-            )
-        addBelowLabels(routeCasingLayer)
-
-        val layer =
-            LineLayer(ROUTE_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
-                PropertyFactory.lineColor(Color.parseColor("#1CB0F6")),
-                PropertyFactory.lineWidth(routeWidthByZoom(6f, 11f, 19f, 29f)),
-                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-            )
-        addBelowLabels(layer)
-
-        // White direction chevrons painted INSIDE the blue lane, like Google Maps
-        // and Waze. They are placed along the line itself, so each one is turned
-        // to the exact direction of the lane at its spot (through bends too) and
-        // lies flat on the road with the map's tilt instead of floating upright.
-        style.addImage(ROUTE_CHEVRON_ICON_ID, makeRouteChevron())
-        addBelowLabels(
-            SymbolLayer(ROUTE_CHEVRON_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
-                PropertyFactory.symbolPlacement(Property.SYMBOL_PLACEMENT_LINE),
-                PropertyFactory.symbolSpacing(62f),
-                PropertyFactory.iconImage(ROUTE_CHEVRON_ICON_ID),
-                PropertyFactory.iconSize(
-                    Expression.interpolate(
-                        Expression.linear(),
-                        Expression.zoom(),
-                        Expression.stop(11, 0.22f),
-                        Expression.stop(15, 0.34f),
-                        Expression.stop(19, 0.5f),
-                    ),
-                ),
-                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
-                PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
-                PropertyFactory.iconKeepUpright(false),
-                PropertyFactory.visibility(if (MapDisplayPrefs.routeArrows) Property.VISIBLE else Property.NONE),
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true),
-            ),
-        )
-
-        // Turn callouts: a white arrow at every corner of the route plus a
-        // blue name bubble above it, like Waze. Above the route line, below
-        // the destination pin and the driver's arrow (added after this).
-        // Toll plazas and speed cameras along the route (always visible).
-        // Same pin look as the petrol / EV pins (see setUpPoiLayer).
-        registerMapIcon(style, POI_ICON_TOLL, R.drawable.ic_poi_toll_pin)
-        registerMapIcon(style, POI_ICON_CAMERA, R.drawable.ic_poi_camera_pin)
-        val poiSrc = GeoJsonSource(ROUTE_POI_SOURCE_ID)
-        style.addSource(poiSrc)
-        routePoiSource = poiSrc
-        // 200 m alert zone around each speed camera (under the icons).
-        val zoneSrc = GeoJsonSource(CAMERA_ZONE_SOURCE_ID)
-        style.addSource(zoneSrc)
-        cameraZoneSource = zoneSrc
-        addBelowLabels(
-            FillLayer(CAMERA_ZONE_FILL_ID, CAMERA_ZONE_SOURCE_ID).withProperties(
-                PropertyFactory.fillColor(Color.parseColor("#E5484D")),
-                PropertyFactory.fillOpacity(0.13f),
-            ),
-        )
-        addBelowLabels(
-            LineLayer(CAMERA_ZONE_LINE_ID, CAMERA_ZONE_SOURCE_ID).withProperties(
-                PropertyFactory.lineColor(Color.parseColor("#E5484D")),
-                PropertyFactory.lineWidth(2f),
-                PropertyFactory.lineOpacity(0.75f),
-                PropertyFactory.lineDasharray(arrayOf(2f, 2f)),
-            ),
-        )
-        style.addLayer(
-            SymbolLayer(ROUTE_POI_LAYER_ID, ROUTE_POI_SOURCE_ID).withProperties(
-                PropertyFactory.iconImage(Expression.get("icon")),
-                PropertyFactory.iconSize(1.0f),
-                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM), // pin tip on the spot, like the petrol pins
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true),
-            ),
-        )
-        val turnSrc = GeoJsonSource(TURN_SOURCE_ID)
-        style.addSource(turnSrc)
-        turnCalloutSource = turnSrc
-        // One layer: the badge, with the road-name bubble above it. If two
-        // corners are too close, the earlier one wins and the other is
-        // hidden (instead of piling up); a name that doesn't fit is dropped
-        // but its badge stays.
-        style.addLayer(
-            SymbolLayer(TURN_ARROW_LAYER_ID, TURN_SOURCE_ID).withProperties(
-                // Road-name bubble only: the direction arrows are the chevrons
-                // inside the blue lane (see ROUTE_CHEVRON_LAYER_ID).
-                PropertyFactory.textField(Expression.get("name")),
-                PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
-                PropertyFactory.textSize(14f),
-                PropertyFactory.textColor(Color.WHITE),
-                PropertyFactory.textHaloColor(Color.parseColor("#1B77A0")),
-                PropertyFactory.textHaloWidth(5f),
-                PropertyFactory.textMaxWidth(9f),
-                PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM),
-                PropertyFactory.textOffset(arrayOf(0f, -0.9f)),
-                PropertyFactory.textOptional(false),
-                PropertyFactory.textAllowOverlap(false),
-                PropertyFactory.textPadding(6f),
-                PropertyFactory.textRotationAlignment(Property.TEXT_ROTATION_ALIGNMENT_VIEWPORT),
-                PropertyFactory.textPitchAlignment(Property.TEXT_PITCH_ALIGNMENT_VIEWPORT),
-                PropertyFactory.symbolSortKey(Expression.get("order")),
-            ),
-        )
-
-        // Destination pin - added last, with the plain addLayer() that
-        // puts it above everything (including labels), same as a real pin.
-        val pinBitmap = ContextCompat.getDrawable(this, R.drawable.ic_destination_pin)?.toBitmap()
-        if (pinBitmap != null) {
-            style.addImage(DESTINATION_ICON_ID, pinBitmap)
-        }
-
-        val destSource = GeoJsonSource(DESTINATION_SOURCE_ID)
-        style.addSource(destSource)
-        destinationSource = destSource
-
-        val destLayer =
-            SymbolLayer(DESTINATION_LAYER_ID, DESTINATION_SOURCE_ID).withProperties(
-                PropertyFactory.iconImage(DESTINATION_ICON_ID),
-                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
-                PropertyFactory.iconAllowOverlap(true),
-            )
-        style.addLayer(destLayer)
-
-        // Numbered stop pins: drawn below the destination pin so it stays on top.
-        for (n in 1..STOP_ICON_COUNT) style.addImage("$STOP_ICON_PREFIX$n", makeStopPinBitmap(n))
-        val stopsSrc = GeoJsonSource(STOPS_SOURCE_ID)
-        style.addSource(stopsSrc)
-        stopsSource = stopsSrc
-        style.addLayerBelow(
-            SymbolLayer(STOPS_LAYER_ID, STOPS_SOURCE_ID).withProperties(
-                PropertyFactory.iconImage(Expression.get("icon")),
-                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true),
-            ),
-            DESTINATION_LAYER_ID,
-        )
-
-        setUpPoiLayer(style)
+        val base = mapView.height * NAV_TOP_PADDING_FRACTION
+        // Never push the arrow above ~35% of the screen (a very tall sheet).
+        val maxRaise = ((base + mapView.height) / 2 - mapView.height * NAV_ARROW_MIN_FRACTION).coerceAtLeast(0.0)
+        val raise = raisePx.toDouble().coerceIn(0.0, maxRaise)
+        driveFollower.setPadding((base - raise).coerceAtLeast(0.0), raise)
     }
 
-    /** Petrol (orange) and EV (green) pins - above street labels but below
-     * the destination pin, so the destination always stays on top. */
-    private fun setUpPoiLayer(style: Style) {
-        registerMapIcon(style, FUEL_PIN_ICON_ID, R.drawable.ic_poi_fuel_pin)
-        registerMapIcon(style, EV_PIN_ICON_ID, R.drawable.ic_poi_ev_pin)
-
-        val src = GeoJsonSource(POI_SOURCE_ID)
-        style.addSource(src)
-        poiSource = src
-
-        val layer =
-            SymbolLayer(POI_LAYER_ID, POI_SOURCE_ID).withProperties(
-                PropertyFactory.iconImage(Expression.get(POI_ICON_PROPERTY)),
-                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
-                PropertyFactory.iconAllowOverlap(true),
-            )
-        style.addLayerBelow(layer, DESTINATION_LAYER_ID)
-        renderPoiPins()
-    }
-
-    private fun registerMapIcon(
-        style: Style,
-        iconId: String,
-        drawableRes: Int,
-    ) {
-        val bitmap = ContextCompat.getDrawable(this, drawableRes)?.toBitmap()
-        if (bitmap != null) {
-            style.addImage(iconId, bitmap)
-        }
+    /** How far the drive sheet stands above its closed height right now (px). */
+    private fun currentNavSheetRaise(): Int {
+        if (bottomNavBar.visibility != View.VISIBLE || navBarRow.height == 0) return 0
+        val parentHeight = (bottomNavBar.parent as View).height
+        val collapsedHeight = bottomNavBar.paddingTop + bottomNavBar.paddingBottom + dp(24) + navBarRow.height
+        return ((parentHeight - collapsedHeight) - bottomNavBar.top).coerceAtLeast(0)
     }
 
     private fun showDestinationMarker(latLng: LatLng) {
@@ -3504,7 +3785,7 @@ class MainActivity : AppCompatActivity() {
         val destination = places.lastOrNull() ?: return
         val origin = lastKnownLocation
         if (origin == null) {
-            Toast.makeText(this, "Still waiting for a GPS fix - can't calculate a route yet", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, tr("Still waiting for a GPS fix - can't calculate a route yet", "Masih tunggu GPS - belum boleh cari laluan"), Toast.LENGTH_SHORT).show()
             if (isEdit) tripPlaces = tripRoutedPlaces.toMutableList()
             return
         }
@@ -3513,7 +3794,7 @@ class MainActivity : AppCompatActivity() {
         val destinationPoint = tripPoint(destination)
         val stops = places.dropLast(1).mapIndexed { i, p -> RouteStop(tripPoint(p), p.name, i + 1) }
         val seq = ++tripRequestSeq
-        if (isEdit) routePreviewHint.text = "Updating route..."
+        busy.set(BusyPill.Job.ROUTE, if (isEdit) tr("Updating route…", "Kemas kini laluan…") else tr("Finding route…", "Cari laluan…"))
 
         searchExecutor.execute {
             var routes: List<Route> = emptyList()
@@ -3527,8 +3808,9 @@ class MainActivity : AppCompatActivity() {
             mainHandler.post {
                 // A newer edit (or cancelling the trip) already superseded this one.
                 if (seq != tripRequestSeq) return@post
+                busy.set(BusyPill.Job.ROUTE, null)
                 if (couldNotAvoid && routes.isNotEmpty()) {
-                    Toast.makeText(this, "The routing server can't avoid tolls or highways yet - showing normal routes", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, tr("The routing server can't avoid tolls or highways yet - showing normal routes", "Server laluan belum boleh elak tol atau highway - tunjuk laluan biasa"), Toast.LENGTH_LONG).show()
                 }
                 if (routes.isNotEmpty()) {
                     tripRoutedPlaces = places
@@ -3536,14 +3818,24 @@ class MainActivity : AppCompatActivity() {
                     selectedRouteIndex = 0
                     previewToken++
                     routePoisByIndex.clear()
+                    routeExtrasByIndex.clear()
+                    routeLightsM.clear()
+                    routeLeaveAdvice.clear()
+                    routeTraffic.clear()
+                    routeReports.clear()
+                    parkRideBoard = emptyList()
+                    parkRideAlight = emptyList()
+                    routeStrips.clear()
+                    routeLightCounts.clear()
                     destinationName = destination.name
+                    destinationAddress = destination.address
                     showDestinationMarker(LatLng(destination.latitude, destination.longitude))
                     showRoutePreview()
                     loadRoutePois(routes, previewToken)
                     // Extra alternatives only exist for a plain A -> B trip.
                     if (stops.isEmpty()) searchMoreRoutes(originPoint, destinationPoint, previewToken)
                 } else if (isEdit) {
-                    Toast.makeText(this, "Couldn't find a route through those stops", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, tr("Couldn't find a route through those stops", "Tak jumpa laluan ikut hentian tu"), Toast.LENGTH_SHORT).show()
                     tripPlaces = tripRoutedPlaces.toMutableList()
                     updateRoutePreviewSummary()
                 } else {
@@ -3551,7 +3843,7 @@ class MainActivity : AppCompatActivity() {
                     followingUser = true
                     homeSheet.visibility = View.VISIBLE
                     setHomeSheetState(HomeSheetState.SEARCH)
-                    Toast.makeText(this, "Couldn't calculate a route to that destination", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, tr("Couldn't calculate a route to that destination", "Tak dapat cari laluan ke tempat tu"), Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -3570,6 +3862,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun clearTrip() {
         tripRequestSeq++ // a late route reply must not bring the trip back
+        busy.set(BusyPill.Job.ROUTE, null)
         tripPlaces = mutableListOf()
         tripRoutedPlaces = emptyList()
         passedStopNumbers.clear()
@@ -3600,39 +3893,24 @@ class MainActivity : AppCompatActivity() {
         }
 
     /** Builds the multi-stop views in code (no layout changes): the stop list
-     * and "Add stop" button in the route preview card, and the next-stop line
-     * plus "Add stop" / "Skip next stop" buttons in the drive bar. */
+     * and tr("Add stop", "Tambah hentian") button in the route preview card, and the next-stop line
+     * plus tr("Add stop", "Tambah hentian") / tr("Skip next stop", "Langkau hentian seterusnya") buttons in the drive bar. */
     private fun setUpTripUi() {
         val blue = ContextCompat.getColor(this, R.color.navos_blue)
         val secondary = ContextCompat.getColor(this, R.color.navos_text_secondary)
         val primary = ContextCompat.getColor(this, R.color.navos_text)
 
-        val card = routePreviewDestination.parent as LinearLayout
-        val at = card.indexOfChild(routePreviewDestination)
+        // Stops are listed in the preview header, under the destination.
+        val header = findViewById<LinearLayout>(R.id.routePreviewHeader)
         tripStopsPanel =
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 visibility = View.GONE
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             }
-        card.addView(tripStopsPanel, at)
-        addStopButton =
-            TextView(this).apply {
-                text = "+  Add stop"
-                gravity = Gravity.CENTER
-                textSize = 15f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                setTextColor(blue)
-                background = roundedBackground(Color.TRANSPARENT, blue)
-                setPadding(dp(20), dp(9), dp(20), dp(9))
-                isClickable = true
-                isFocusable = true
-                layoutParams =
-                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                        .apply { topMargin = dp(10) }
-                setOnClickListener { enterAddStopSearch(AddStopTarget.PREVIEW) }
-            }
-        card.addView(addStopButton, at + 2) // just under the destination line
+        header.addView(tripStopsPanel)
+        addStopButton = findViewById(R.id.previewAddStopButton)
+        addStopButton.setOnClickListener { enterAddStopSearch(AddStopTarget.PREVIEW) }
 
         val bar = bottomNavBar as LinearLayout
         nextStopText =
@@ -3667,30 +3945,35 @@ class MainActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(10) }
             setOnClickListener { onClick() }
         }
-        addStopDriveButton = driveButton("Add stop") { enterAddStopSearch(AddStopTarget.ACTIVE) }
-        skipStopDriveButton = driveButton("Skip next stop") { skipNextStopFromDrive() }
+        addStopDriveButton = driveButton(tr("Add stop", "Tambah hentian")) { enterAddStopSearch(AddStopTarget.ACTIVE) }
+        skipStopDriveButton = driveButton(tr("Skip next stop", "Langkau hentian seterusnya")) { skipNextStopFromDrive() }
         val stopAt = bar.indexOfChild(navStopButton)
         bar.addView(addStopDriveButton, stopAt)
         bar.addView(skipStopDriveButton, stopAt + 1)
     }
 
     /** The stop list in the preview card: numbered stops then the destination,
-     * each with move up / move down / remove, plus "Optimize order". Hidden for
+     * each with move up / move down / remove, plus tr("Optimize order", "Susun ikut paling dekat"). Hidden for
      * an ordinary A -> B trip (the destination line shows as before). */
     private fun renderTripStopsPanel() {
         val multi = tripPlaces.size > 1
         tripStopsPanel.removeAllViews()
         tripStopsPanel.visibility = if (multi) View.VISIBLE else View.GONE
-        if (multi) routePreviewDestination.visibility = View.GONE
+        if (multi) {
+            // The list below names every stop and the destination.
+            routePreviewDestination.visibility = View.GONE
+            routePreviewAddress.visibility = View.GONE
+        }
         val stopCount = (tripPlaces.size - 1).coerceAtLeast(0)
         addStopButton.visibility =
             if (tripPlaces.isNotEmpty() && stopCount < TripPlanner.MAX_STOPS) View.VISIBLE else View.GONE
         if (!multi) return
 
-        val primary = ContextCompat.getColor(this, R.color.navos_text)
-        val secondary = ContextCompat.getColor(this, R.color.navos_text_secondary)
-        val navy = ContextCompat.getColor(this, R.color.navos_navy)
-        val red = Color.parseColor("#E5484D")
+        val primary = ContextCompat.getColor(this, R.color.sig_text)
+        val secondary = ContextCompat.getColor(this, R.color.sig_text_quiet)
+        val ink = ContextCompat.getColor(this, R.color.sig_ink)
+        val onInk = ContextCompat.getColor(this, R.color.sig_on_ink)
+        val red = ContextCompat.getColor(this, R.color.sig_limit)
 
         fun action(
             glyph: String,
@@ -3720,19 +4003,19 @@ class MainActivity : AppCompatActivity() {
                 TextView(this).apply {
                     gravity = Gravity.CENTER
                     text = if (isDestination) "\u25A0" else "${i + 1}"
-                    setTextColor(Color.WHITE)
+                    setTextColor(if (isDestination) Color.WHITE else onInk)
                     textSize = 13f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                     background =
                         android.graphics.drawable.GradientDrawable().apply {
                             shape = android.graphics.drawable.GradientDrawable.OVAL
-                            setColor(if (isDestination) red else navy)
+                            setColor(if (isDestination) red else ink)
                         }
                     layoutParams = LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginEnd = dp(10) }
                 }
             val label =
                 TextView(this).apply {
-                    text = place.name.ifBlank { if (isDestination) "Destination" else "Stop ${i + 1}" }
+                    text = place.name.ifBlank { if (isDestination) tr("Destination", "Destinasi") else tr("Stop ${i + 1}", "Hentian ${i + 1}") }
                     setTextColor(primary)
                     textSize = 16f
                     maxLines = 1
@@ -3741,19 +4024,20 @@ class MainActivity : AppCompatActivity() {
                 }
             row.addView(badge)
             row.addView(label)
-            if (i > 0) row.addView(action("\u25B2", "Move up") { editTrip { it.add(i - 1, it.removeAt(i)) } })
-            if (!isDestination) row.addView(action("\u25BC", "Move down") { editTrip { it.add(i + 1, it.removeAt(i)) } })
-            row.addView(action("\u2715", "Remove") { editTrip { it.removeAt(i) } })
+            if (i > 0) row.addView(action("\u25B2", tr("Move up", "Naik")) { editTrip { it.add(i - 1, it.removeAt(i)) } })
+            if (!isDestination) row.addView(action("\u25BC", tr("Move down", "Turun")) { editTrip { it.add(i + 1, it.removeAt(i)) } })
+            row.addView(action("\u2715", tr("Remove", "Buang")) { editTrip { it.removeAt(i) } })
             tripStopsPanel.addView(row)
         }
 
         if (stopCount >= 2) {
             tripStopsPanel.addView(
                 TextView(this).apply {
-                    text = "Optimize order"
+                    text = tr("Optimize order", "Susun ikut paling dekat")
                     textSize = 14f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
-                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.navos_blue))
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.sig_text))
+                    paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
                     setPadding(0, dp(8), 0, dp(4))
                     isClickable = true
                     isFocusable = true
@@ -3776,7 +4060,7 @@ class MainActivity : AppCompatActivity() {
                 tripPoint(destination),
             )
         if (order == stops.indices.toList()) {
-            Toast.makeText(this, "Your stops are already in the shortest order", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, tr("Your stops are already in the shortest order", "Hentian dah tersusun paling dekat"), Toast.LENGTH_SHORT).show()
             return
         }
         editTrip { places ->
@@ -3792,14 +4076,14 @@ class MainActivity : AppCompatActivity() {
             AddStopTarget.PREVIEW -> {
                 if (navMode != NavMode.PREVIEW || tripPlaces.isEmpty()) return
                 if (tripPlaces.size - 1 >= TripPlanner.MAX_STOPS) {
-                    Toast.makeText(this, "A trip can have up to ${TripPlanner.MAX_STOPS} stops", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, tr("A trip can have up to ${TripPlanner.MAX_STOPS} stops", "Satu perjalanan boleh ada sampai ${TripPlanner.MAX_STOPS} hentian"), Toast.LENGTH_SHORT).show()
                     return
                 }
                 if (routeListShowing) setRouteListVisible(false)
                 addStopTarget = target
                 searchOpenedFromNav = true // same back / drag-down handling as a mid-drive search
                 routePreviewCard.visibility = View.GONE
-                routeViewToggle.visibility = View.GONE
+                routeBackButton.visibility = View.GONE
                 topBar.visibility = View.GONE
                 homeSheet.visibility = View.VISIBLE
                 setHomeSheetState(HomeSheetState.SEARCH)
@@ -3807,7 +4091,7 @@ class MainActivity : AppCompatActivity() {
             AddStopTarget.ACTIVE -> {
                 if (navMode != NavMode.ACTIVE) return
                 if ((navigationService?.remainingStops()?.size ?: 0) >= TripPlanner.MAX_STOPS) {
-                    Toast.makeText(this, "A trip can have up to ${TripPlanner.MAX_STOPS} stops", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, tr("A trip can have up to ${TripPlanner.MAX_STOPS} stops", "Satu perjalanan boleh ada sampai ${TripPlanner.MAX_STOPS} hentian"), Toast.LENGTH_SHORT).show()
                     return
                 }
                 addStopTarget = target
@@ -3817,16 +4101,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** A place was picked in the "Add stop" search. */
+    /** A place was picked in the tr("Add stop", "Tambah hentian") search. */
     private fun onStopPicked(result: GeocodeResult) {
         val target = addStopTarget
         exitSearchFromNav() // puts the preview card / drive bar back, clears addStopTarget
-        saveRecent(result)
+        recentPlaces.save(result)
+        searchPicks.record(result)
         when (target) {
             AddStopTarget.PREVIEW -> {
                 val pick = tripPoint(result)
                 if (tripPlaces.any { GeoUtils.distanceMeters(tripPoint(it), pick) < 30.0 }) {
-                    Toast.makeText(this, "That place is already on your trip", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, tr("That place is already on your trip", "Tempat tu dah ada dalam perjalanan"), Toast.LENGTH_SHORT).show()
                     return
                 }
                 editTrip { places ->
@@ -3842,7 +4127,7 @@ class MainActivity : AppCompatActivity() {
             }
             AddStopTarget.ACTIVE -> {
                 navigationService?.addStop(RouteStop(tripPoint(result), result.name, 0))
-                Toast.makeText(this, "Adding stop...", Toast.LENGTH_SHORT).show()
+                busy.set(BusyPill.Job.STOP, tr("Adding stop…", "Tambah hentian…"))
             }
             AddStopTarget.NONE -> Unit
         }
@@ -3850,7 +4135,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun skipNextStopFromDrive() {
         navigationService?.skipNextStop()
-        Toast.makeText(this, "Skipping next stop...", Toast.LENGTH_SHORT).show()
+        busy.set(BusyPill.Job.STOP, tr("Skipping stop…", "Langkau hentian…"))
     }
 
     /** The drive bar's extra buttons: only in the expanded bar, and "Skip next
@@ -3868,9 +4153,9 @@ class MainActivity : AppCompatActivity() {
         if (state == null || stop == null || state.offRoute) {
             nextStopText.visibility = View.GONE
         } else {
-            val title = if (stop.name.isBlank()) "Stop ${stop.number}" else "Stop ${stop.number}: ${stop.name}"
+            val title = if (stop.name.isBlank()) tr("Stop ${stop.number}", "Hentian ${stop.number}") else tr("Stop ${stop.number}: ${stop.name}", "Hentian ${stop.number}: ${stop.name}")
             nextStopText.text =
-                "$title \u2022 ${formatRouteMinutes(state.durationToNextStopSeconds)} \u2022 ${formatTripDistance(state.distanceToNextStopMeters)}"
+                "$title \u2022 ${NavFormat.formatRouteMinutes(state.durationToNextStopSeconds)} \u2022 ${NavFormat.formatTripDistance(state.distanceToNextStopMeters)}"
             nextStopText.visibility = View.VISIBLE
         }
         updateStopButtons()
@@ -3888,24 +4173,6 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
         src.setGeoJson(FeatureCollection.fromFeatures(features))
-    }
-
-    private fun makeStopPinBitmap(number: Int): Bitmap {
-        val size = dp(30)
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        val r = size / 2f
-        paint.color = Color.WHITE
-        canvas.drawCircle(r, r, r, paint)
-        paint.color = ContextCompat.getColor(this, R.color.navos_navy)
-        canvas.drawCircle(r, r, r - dp(2), paint)
-        paint.color = Color.WHITE
-        paint.textAlign = Paint.Align.CENTER
-        paint.textSize = size * 0.5f
-        paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
-        canvas.drawText(number.toString(), r, r - (paint.descent() + paint.ascent()) / 2f, paint)
-        return bitmap
     }
 
     // Reroute-on-off-route used to live here, recalculating from
@@ -3955,6 +4222,7 @@ class MainActivity : AppCompatActivity() {
         val floating = listOf(speedBadge, speedLimitSign, poiToggleColumn, recenterButton, poiCard)
         if (bottomNavBar.visibility != View.VISIBLE || navBarRow.height == 0) {
             floating.forEach { if (it.translationY != 0f) it.translationY = 0f }
+            if (navMode == NavMode.ACTIVE) updateNavCameraForSheet(0)
             return
         }
         val parentHeight = (bottomNavBar.parent as View).height
@@ -3962,13 +4230,26 @@ class MainActivity : AppCompatActivity() {
         val extra = ((parentHeight - collapsedHeight) - bottomNavBar.top).coerceAtLeast(0)
         val ty = -extra.toFloat()
         floating.forEach { if (it.translationY != ty) it.translationY = ty }
+        // Same frame, same amount: the camera lifts the arrow with the sheet.
+        if (navMode == NavMode.ACTIVE) updateNavCameraForSheet(extra)
     }
 
     private fun setNavSheetExpanded(expanded: Boolean) {
         if (expanded == navSheetExpanded) return
         navSheetExpanded = expanded
-        TransitionManager.beginDelayedTransition(bottomNavBar as ViewGroup, AutoTransition().setDuration(220))
+        // Bounds change and fade together, not AutoTransition's three
+        // back-to-back steps (which tripled the time it took to settle).
+        TransitionManager.beginDelayedTransition(
+            bottomNavBar as ViewGroup,
+            TransitionSet()
+                .setOrdering(TransitionSet.ORDERING_TOGETHER)
+                .addTransition(ChangeBounds())
+                .addTransition(Fade())
+                .setDuration(200)
+                .setInterpolator(Motion.easeOut),
+        )
         navStopButton.visibility = if (expanded) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.navPoiChips).visibility = if (expanded) View.VISIBLE else View.GONE
         findViewById<View>(R.id.shareEtaButton).visibility = if (expanded) View.VISIBLE else View.GONE
         updateStopButtons()
     }
@@ -3983,32 +4264,12 @@ class MainActivity : AppCompatActivity() {
     ) {
         val arrival = Date(System.currentTimeMillis() + (durationSeconds * 1000).toLong())
         clockView.text = SimpleDateFormat("h:mm a", Locale.US).format(arrival)
-        detailView.text = "${formatTripDuration(durationSeconds)} • ${formatTripDistance(distanceMeters)}"
+        detailView.text = "${NavFormat.formatTripDuration(durationSeconds)} • ${NavFormat.formatTripDistance(distanceMeters)}" +
+            if (detailView === etaDetailText) lightsAheadSuffix() else ""
     }
 
-    private fun formatTripDuration(seconds: Double): String {
-        val totalMinutes = Math.round(seconds / 60.0).toInt().coerceAtLeast(1)
-        return if (totalMinutes >= 60) {
-            String.format(Locale.US, "%d:%02d h", totalMinutes / 60, totalMinutes % 60)
-        } else {
-            "$totalMinutes min"
-        }
-    }
 
-    private fun formatTripDistance(meters: Double): String =
-        if (Units.miles) Units.short(meters) else when {
-            meters < 1000 -> "${meters.toInt()} m"
-            meters < 10_000 -> String.format(Locale.US, "%.1f km", meters / 1000.0)
-            else -> String.format(Locale.US, "%.0f km", meters / 1000.0)
-        }
 
-    /** The road this route spends the most distance on - the "Via ..." line. */
-    private fun viaRoadName(route: Route): String? =
-        route.steps
-            .filter { it.roadName.isNotBlank() }
-            .groupBy { it.roadName }
-            .maxByOrNull { (_, steps) -> steps.sumOf { it.distanceMeters } }
-            ?.key
 
     private fun showRoutePreview() {
         // Opened mid-drive (switch route): the trip is whatever is still ahead.
@@ -4031,36 +4292,61 @@ class MainActivity : AppCompatActivity() {
         redrawRouteLines()
 
         routeOptions.getOrNull(selectedRouteIndex) ?: return
-        fitSelectedRoute()
 
         updateRoutePreviewSummary()
         routePreviewCard.visibility = View.VISIBLE
         routeListShowing = false
         routeListOverlay.visibility = View.GONE
-        routeViewToggle.visibility = if (routeOptions.size > 1) View.VISIBLE else View.GONE
-        styleRouteToggle()
+        routeBackButton.visibility = View.VISIBLE
+        // After layout, so the fit knows how tall the sheet is.
+        routePreviewCard.post { if (navMode == NavMode.PREVIEW) fitSelectedRoute() }
     }
 
     private fun updateRoutePreviewSummary() {
         val selected = routeOptions.getOrNull(selectedRouteIndex) ?: return
-        showTripSummary(selected.durationSeconds, selected.distanceMeters, routePreviewEta, routePreviewSummary)
-        val via = viaRoadName(selected)
-        val toll = tollSummary(routePoisByIndex[selectedRouteIndex])
-        routePreviewVia.text = (if (via != null) "Via $via" else "") + (if (toll != null) "\n$toll" else "")
-        routePreviewVia.visibility = if (via != null || toll != null) View.VISIBLE else View.GONE
-        val destination = destinationName.orEmpty()
-        routePreviewDestination.text = destination
-        routePreviewDestination.visibility = if (destination.isNotBlank()) View.VISIBLE else View.GONE
-        renderTripStopsPanel()
+        val inputs = routeChoiceInputs()
+        val arrival = SimpleDateFormat("h:mm a", Locale.US).format(Date(System.currentTimeMillis() + (selected.durationSeconds * 1000).toLong()))
         val stopCount = (tripPlaces.size - 1).coerceAtLeast(0)
-        routePreviewHint.text =
-            if (stopCount > 0) {
-                "${if (stopCount == 1) "1 stop" else "$stopCount stops"} - one route through all of them\nTypical time - no live traffic"
-            } else if (routeOptions.size > 1) {
-                "${routeOptions.size} routes found - tap a grey route, or open List\nTypical time - no live traffic"
-            } else {
-                "Typical time - no live traffic"
+        // The selected card's strip already says "Arrive ..." (with traffic).
+        val arrive = if (routeStrips[selectedRouteIndex] == null) getString(R.string.route_hint_arrive, arrival) else null
+        val leave =
+            routeLeaveAdvice[selectedRouteIndex]?.let { a ->
+                val at = SimpleDateFormat("h:mm a", Locale.US).format(Date(System.currentTimeMillis() + a.offsetHours * 3_600_000L))
+                val min = Math.round(a.savedSeconds / 60.0).toInt()
+                tr("Usually quicker later: leave at $at to save $min min", "Biasanya lebih cepat nanti: gerak pukul $at, jimat $min min")
             }
+        val hint =
+            listOfNotNull(
+                if (stopCount > 0) getString(R.string.route_hint_stops, if (stopCount == 1) "1 stop" else "$stopCount stops") else null,
+                arrive,
+                leave,
+            ).joinToString("\n")
+        routePreviewSheet.render(
+            shown = RouteChoices.order(inputs, selectedRouteIndex, RouteChoices.SHOWN),
+            totalRoutes = routeOptions.size,
+            destinationName = destinationName,
+            destinationAddress = destinationAddress,
+            hintText = hint,
+        )
+        val plan =
+            if (parkRideBoard.isEmpty() || parkRideAlight.isEmpty() || selected.geometry.size < 2) {
+                null
+            } else {
+                ParkAndRidePlanner.best(
+                    RouteTrack(selected.geometry),
+                    selected.durationSeconds + (routeTraffic[selectedRouteIndex]?.second?.delaySeconds ?: 0.0),
+                    selected.geometry.last(),
+                    parkRideBoard,
+                    parkRideAlight,
+                )
+            }
+        routePreviewSheet.showParkRide(plan) {
+            val park = plan?.from?.parkAndRide ?: return@showParkRide
+            // Drive to the car park; the train part is up to the driver from there.
+            onDestinationSelected(GeocodeResult(tr("Park & Ride ${plan.from.name}", "Park & Ride ${plan.from.name}"), park.latitude, park.longitude))
+        }
+        if (routeListShowing) renderRouteList()
+        renderTripStopsPanel()
     }
 
     /** Redraws the map lines for the current routeOptions/selectedRouteIndex:
@@ -4094,6 +4380,30 @@ class MainActivity : AppCompatActivity() {
         clearPassedRoute()
         renderRoutePois()
         renderStopMarkers(selected.stops)
+        renderRouteTimeLabels()
+    }
+
+    /** Preview only: a time bubble halfway along each route (the chosen one in ink, on top). */
+    private fun renderRouteTimeLabels() {
+        val src = routeTimeSource ?: return
+        val style = map?.style
+        if (navMode != NavMode.PREVIEW || style == null) {
+            src.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+            return
+        }
+        val features =
+            routeOptions.mapIndexedNotNull { index, route ->
+                val at = RouteChoices.labelPoint(route.geometry) ?: return@mapIndexedNotNull null
+                val selected = index == selectedRouteIndex
+                val icon = "navos-route-time-$index-${if (selected) "on" else "off"}"
+                style.addImage(icon, MapIcons.timeBubble(this, NavFormat.formatRouteMinutes(route.durationSeconds), selected))
+                Feature.fromGeometry(Point.fromLngLat(at.longitude, at.latitude)).also {
+                    it.addStringProperty("icon", icon)
+                    it.addNumberProperty(ROUTE_INDEX_PROPERTY, index)
+                    it.addNumberProperty("order", if (selected) 1 else 0)
+                }
+            }
+        src.setGeoJson(FeatureCollection.fromFeatures(features))
     }
 
     private fun onMapTapped(
@@ -4114,7 +4424,7 @@ class MainActivity : AppCompatActivity() {
         val screenPoint = map.projection.toScreenLocation(latLng)
         val tapped =
             try {
-                map.queryRenderedFeatures(screenPoint, ALT_ROUTE_LAYER_ID)
+                map.queryRenderedFeatures(screenPoint, ROUTE_TIME_LAYER_ID, ALT_ROUTE_LAYER_ID)
             } catch (e: Exception) {
                 emptyList()
             }
@@ -4129,6 +4439,7 @@ class MainActivity : AppCompatActivity() {
         selectedRouteIndex = index
         redrawRouteLines()
         updateRoutePreviewSummary()
+        routePreviewCard.post { if (navMode == NavMode.PREVIEW && !routeListShowing) fitSelectedRoute() }
     }
 
     private fun cancelRoutePreview() {
@@ -4137,11 +4448,21 @@ class MainActivity : AppCompatActivity() {
         routeOptions = emptyList()
         previewToken++
         routePoisByIndex.clear()
+        routeExtrasByIndex.clear()
+        routeLightsM.clear()
+        routeLeaveAdvice.clear()
+        routeTraffic.clear()
+        routeReports.clear()
+        parkRideBoard = emptyList()
+        parkRideAlight = emptyList()
+        routeStrips.clear()
+        routeLightCounts.clear()
         hideRouteChooser()
         renderRoutePois()
         routePreviewCard.visibility = View.GONE
         routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        renderRouteTimeLabels()
         clearDestinationMarker()
         clearTrip()
         followingUser = true
@@ -4153,6 +4474,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun beginActiveNavigation() {
         val route = routeOptions.getOrNull(selectedRouteIndex) ?: return
+        driveStartedAtMs = SystemClock.elapsedRealtime()
+        tripPlaces.lastOrNull()?.let { tripHabits.record(it) }
+        // Offline safety net: the map along the route, for tunnels / dead zones.
+        runCatching { routeOfflineCache.save(route, mapStyleUrl()) }
+        if (::roadReportsUi.isInitialized) roadReportsUi.start()
 
         navMode = NavMode.ACTIVE
         driveFollower.resetArrowHeading()
@@ -4180,16 +4506,24 @@ class MainActivity : AppCompatActivity() {
         hideRouteChooser()
         previewToken++
         activeRoutePois = routePoisByIndex[selectedRouteIndex].orEmpty()
+        activeExtras = routeExtrasByIndex[selectedRouteIndex].orEmpty()
+        activeLights = emptyList()
         renderRoutePois()
-        if (activeRoutePois.isEmpty()) loadActiveRoutePois(route)
+        if (activeRoutePois.isEmpty() || activeExtras.isEmpty()) {
+            loadActiveRoutePois(route, needPois = activeRoutePois.isEmpty(), needExtras = activeExtras.isEmpty())
+        }
         applyNavPadding(true)
         renderedCalloutStep = -1
         renderTurnCallouts(1)
+        signOverlay.setNight(appliedMapDark == true)
+        updateRouteSigns(route)
+        trafficLayer.start(route)
+        showTrafficNoticeOnce()
         bottomNavBar.visibility = View.VISIBLE
         speedBadge.visibility = if (MapDisplayPrefs.speedometer) View.VISIBLE else View.GONE
         poiToggleColumn.visibility = View.VISIBLE
         turnDistanceText.text = ""
-        turnStreetText.text = "Starting navigation..."
+        turnStreetText.text = tr("Starting navigation...", "Mula navigasi...")
         showTripSummary(route.durationSeconds, route.distanceMeters, etaClockText, etaDetailText)
         navSheetExpanded = false
         navStopButton.visibility = View.GONE
@@ -4211,6 +4545,7 @@ class MainActivity : AppCompatActivity() {
         // there's only ever one GPS subscription live at a time.
         locationTracker?.stop()
         locationTracker = null
+        headingSensor.stop()
         startAndBindNavigationService(route)
     }
 
@@ -4316,6 +4651,7 @@ class MainActivity : AppCompatActivity() {
                 // behind so it never gets ahead of the gliding arrow).
                 lastTrimSnap?.let { trimRoute(it, geometry) }
                 lastTrimSnap = snap
+                trafficLayer.onProgress()
             }
         }
 
@@ -4451,7 +4787,7 @@ class MainActivity : AppCompatActivity() {
         recenterButton.visibility = View.GONE
         refreshCompassMode()
         if (location == null) {
-            Toast.makeText(this, "Waiting for GPS...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, tr("Waiting for GPS...", "Tunggu GPS..."), Toast.LENGTH_SHORT).show()
             return
         }
         driveFollower.holdCamera(NAV_RECENTER_EASE_MS + 50L)
@@ -4519,13 +4855,34 @@ class MainActivity : AppCompatActivity() {
             text = name
             visibility = if (name.isNotBlank()) View.VISIBLE else View.GONE
         }
-        findViewById<TextView>(R.id.arrivalTripSummary).apply {
-            val route = activeRoute
-            if (route != null) {
-                text = formatTripDistance(route.distanceMeters)
-                visibility = View.VISIBLE
-            } else {
-                visibility = View.GONE
+        val route = activeRoute
+        findViewById<TextView>(R.id.arrivalSide).apply {
+            val side = NavFormat.arrivalSide(route?.steps?.lastOrNull { it.maneuverType == "arrive" }?.modifier)
+            if (side != null) setText(side)
+            visibility = if (side != null) View.VISIBLE else View.GONE
+        }
+        // Trip stats: real drive time, the route's distance, toll plazas passed (only if any).
+        fun stat(
+            id: Int,
+            value: String?,
+            labelRes: Int,
+        ) {
+            val tile = findViewById<View>(id)
+            tile.visibility = if (value == null) View.GONE else View.VISIBLE
+            tile.findViewById<TextView>(R.id.statValue).text = value.orEmpty()
+            tile.findViewById<TextView>(R.id.statLabel).setText(labelRes)
+        }
+        val drove = if (driveStartedAtMs > 0) (SystemClock.elapsedRealtime() - driveStartedAtMs) / 1000.0 else null
+        val tolls = activeRoutePois.count { it.kind == "toll" }
+        stat(R.id.arrivalStatTime, drove?.let { NavFormat.formatRouteMinutes(it) }, R.string.stat_drive_time)
+        stat(R.id.arrivalStatDistance, route?.let { NavFormat.formatTripDistance(it.distanceMeters) }, R.string.stat_distance)
+        stat(R.id.arrivalStatTolls, if (tolls > 0) tolls.toString() else null, R.string.stat_tolls)
+        val arrivedAt = destinationLatLng
+        val arrivedName = destinationName
+        findViewById<View>(R.id.arrivalSaveButton).apply {
+            visibility = if (arrivedAt != null) View.VISIBLE else View.GONE
+            setOnClickListener {
+                if (arrivedAt != null) saveArrivedPlace(arrivedName, arrivedAt)
             }
         }
 
@@ -4539,7 +4896,7 @@ class MainActivity : AppCompatActivity() {
         arrivalCard.visibility = View.VISIBLE
         arrivalCard.post {
             arrivalCard.translationY = arrivalCard.height.toFloat()
-            arrivalCard.animate().translationY(0f).setDuration(250).start()
+            arrivalCard.animate().translationY(0f).setDuration(320).setInterpolator(Motion.easeDrawer).start()
         }
 
         destinationLatLng?.let { dest ->
@@ -4547,17 +4904,42 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** "Save place" on the arrival card: keep where we arrived as Home or Work. */
+    private fun saveArrivedPlace(
+        name: String?,
+        at: LatLng,
+    ) {
+        val label = listOfNotNull(name?.takeIf { it.isNotBlank() }, destinationAddress?.trim()?.takeIf { it.isNotBlank() }).joinToString(", ")
+        val place = GeocodeResult(label.ifBlank { tr("Saved place", "Tempat disimpan") }, at.latitude, at.longitude)
+        val keys = arrayOf(SavedPlaces.HOME, SavedPlaces.WORK)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.save_place)
+            .setItems(arrayOf(getString(R.string.save_as_home), getString(R.string.save_as_work))) { _, which ->
+                savedPlaces.save(keys[which], place)
+                refreshSavedPlaceLabels()
+                val what = getString(if (which == 0) R.string.shortcut_home else R.string.shortcut_work)
+                Toast.makeText(this, getString(R.string.saved_as, what), Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
     private fun hideArrivalCard() {
         arrivalCardShowing = false
         arrivalCard.animate().cancel()
         arrivalCard.animate().translationY(arrivalCard.height.toFloat())
             .setDuration(200)
+            .setInterpolator(Motion.easeOut)
             .withEndAction { arrivalCard.visibility = View.GONE }
             .start()
     }
 
     private fun endActiveNavigation() {
         navMode = NavMode.IDLE
+        if (::roadReportsUi.isInitialized) roadReportsUi.stop()
+        parkingPois = emptyList()
+        parkingFor = null
+        transitPois = emptyList()
+        transitFor = null
         arrivalCardShowing = false
         arrivalCard.animate().cancel()
         arrivalCard.visibility = View.GONE
@@ -4569,8 +4951,15 @@ class MainActivity : AppCompatActivity() {
         activeRoute = null
         applyNavPadding(false)
         activeRoutePois = emptyList()
+        activeExtras = emptyList()
+        activeLights = emptyList()
+        signOverlay.clear()
+        routeArrows.clear()
+        trafficLayer.stop()
+        hideFasterRoute()
         renderRoutePois()
         setRecalculating(false)
+        busy.set(BusyPill.Job.STOP, null)
         renderedCalloutStep = -1
         renderTurnCallouts(0)
         clearPassedRoute()
@@ -4633,86 +5022,22 @@ class MainActivity : AppCompatActivity() {
 
     /** Slides the "Recalculating..." pill in (spinner + pulsing text) or out. */
     private fun setRecalculating(show: Boolean) {
-        if (show == recalcShown) return
-        recalcShown = show
-        val slide = 24f * resources.displayMetrics.density
-        recalcPill.animate().cancel()
-        if (show) {
-            recalcPill.visibility = View.VISIBLE
-            recalcPill.alpha = 0f
-            recalcPill.translationY = -slide
-            recalcPill.animate().alpha(1f).translationY(0f).setDuration(220L).start()
-            recalcPulse?.cancel()
-            recalcPulse =
-                ObjectAnimator.ofFloat(recalcText, View.ALPHA, 1f, 0.45f).apply {
-                    duration = 700L
-                    repeatMode = ValueAnimator.REVERSE
-                    repeatCount = ValueAnimator.INFINITE
-                    start()
-                }
-            // The logo's compass needle sweeps around the ring (pivot = ring
-            // centre, which sits at ~31% across / half way down the logo)
-            // while the whole logo breathes in and out.
-            val density = resources.displayMetrics.density
-            recalcNeedle.pivotX = 55f * density * 0.3086f
-            recalcNeedle.pivotY = 34f * density * 0.5f
-            recalcNeedleSpin?.cancel()
-            recalcNeedleSpin =
-                ObjectAnimator.ofFloat(recalcNeedle, View.ROTATION, 0f, 360f).apply {
-                    duration = 1300L
-                    interpolator = android.view.animation.AccelerateDecelerateInterpolator()
-                    repeatCount = ValueAnimator.INFINITE
-                    start()
-                }
-            recalcLogo.pivotX = 55f * density / 2f
-            recalcLogo.pivotY = 34f * density / 2f
-            recalcLogoPulse?.cancel()
-            recalcLogoPulse =
-                ObjectAnimator
-                    .ofPropertyValuesHolder(
-                        recalcLogo,
-                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.1f),
-                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.1f),
-                    ).apply {
-                        duration = 650L
-                        repeatMode = ValueAnimator.REVERSE
-                        repeatCount = ValueAnimator.INFINITE
-                        start()
-                    }
-        } else {
-            recalcPulse?.cancel()
-            recalcText.alpha = 1f
-            recalcPill
-                .animate()
-                .alpha(0f)
-                .translationY(-slide)
-                .setDuration(180L)
-                .withEndAction {
-                    if (!recalcShown) {
-                        recalcPill.visibility = View.GONE
-                        // Stop the logo animations only once the pill has faded out.
-                        recalcNeedleSpin?.cancel()
-                        recalcLogoPulse?.cancel()
-                        recalcNeedle.rotation = 0f
-                        recalcLogo.scaleX = 1f
-                        recalcLogo.scaleY = 1f
-                    }
-                }
-                .start()
-        }
+        busy.set(BusyPill.Job.RECALCULATING, if (show) getString(R.string.recalculating) else null)
     }
 
     private fun onNavigationState(state: NavigationState) {
-        setRecalculating(state.offRoute && !state.isArrival)
+        // Parked / pulling in off the route (petrol, R&R): no "Recalculating" until it drives on.
+        val pulledIn = lastSpeedKmh < 3.0 * 3.6 && state.distanceToRouteMeters < 300.0
+        setRecalculating(state.offRoute && !state.isArrival && !pulledIn)
         lastNavState = state
-        val distanceLabel = formatCountdownDistance(state.distanceToNextTurnMeters)
+        val distanceLabel = NavFormat.formatCountdownDistance(state.distanceToNextTurnMeters)
         turnDistanceText.text = if (state.offRoute) "" else distanceLabel
         // Off the planned route: NavigationService is already fetching a new
         // one (and says "Recalculating"), so show that instead of a turn
         // instruction that no longer applies.
-        turnStreetText.text = if (state.offRoute) "Recalculating..." else state.instruction
+        turnStreetText.text = if (state.offRoute) tr("Recalculating…", "Cari laluan baru…") else state.instruction
 
-        showTripSummary(state.durationRemainingSeconds, state.distanceRemainingMeters, etaClockText, etaDetailText)
+        showTripSummary(state.durationRemainingSeconds + trafficLayer.delayAheadSeconds, state.distanceRemainingMeters, etaClockText, etaDetailText)
         updateNextStopLine(state)
 
         if (state.currentStepIndex != renderedCalloutStep) {
@@ -4720,14 +5045,17 @@ class MainActivity : AppCompatActivity() {
             renderTurnCallouts(state.currentStepIndex)
         }
 
-        turnIcon.setImageResource(iconForManeuver(state.maneuverType, state.modifier))
+        turnIcon.setImageResource(NavFormat.iconForManeuver(state.maneuverType, state.modifier))
         turnIcon.rotation = 0f
+        val ref = if (state.offRoute) null else state.roadRef
+        turnRefTag.text = ref.orEmpty()
+        turnRefTag.visibility = if (ref == null) View.GONE else View.VISIBLE
 
         if (nextTurnsSheet.visibility == View.VISIBLE) {
             if (state.currentStepIndex != nextTurnsRenderedIndex) {
                 refreshNextTurns()
             } else {
-                nextTurnsFirstDistance?.text = formatTurnDistance(state.distanceToNextTurnMeters)
+                nextTurnsFirstDistance?.text = NavFormat.formatTurnDistance(state.distanceToNextTurnMeters)
             }
         }
 
@@ -4735,8 +5063,15 @@ class MainActivity : AppCompatActivity() {
         // is close enough that the next one is relevant, same as Waze.
         val nextType = state.nextManeuverType
         if (nextType != null && state.distanceToNextTurnMeters <= 400 && !state.isArrival) {
-            nextTurnIcon.setImageResource(iconForManeuver(nextType, state.nextModifier))
+            nextTurnIcon.setImageResource(NavFormat.iconForManeuver(nextType, state.nextModifier))
             nextTurnIcon.rotation = 0f
+            nextTurnStreet.text = state.nextRoadName ?: state.nextInstruction.orEmpty()
+            nextTurnDistance.text =
+                if (state.distanceBetweenTurnsMeters > 0) {
+                    getString(R.string.in_distance, NavFormat.formatTurnDistance(state.distanceBetweenTurnsMeters))
+                } else {
+                    ""
+                }
             nextTurnStrip.visibility = View.VISIBLE
         } else {
             nextTurnStrip.visibility = View.GONE
@@ -4761,61 +5096,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Picks the Waze-style arrow for a maneuver: a distinct drawn arrow
-     * for every turn angle, plus U-turn, fork/ramp, roundabout (exit side)
-     * and arrival. No rotation tricks - each is its own icon. */
-    private fun iconForManeuver(
-        maneuverType: String,
-        modifier: String?,
-    ): Int {
-        val mod = modifier.orEmpty()
-        return when {
-            maneuverType == "arrive" -> R.drawable.ic_turn_arrive
-            maneuverType.contains("roundabout") || maneuverType.contains("rotary") ->
-                when {
-                    mod.contains("left") -> R.drawable.ic_turn_roundabout_left
-                    mod.contains("right") -> R.drawable.ic_turn_roundabout_right
-                    else -> R.drawable.ic_turn_roundabout_straight
-                }
-            maneuverType == "uturn" || mod == "uturn" -> R.drawable.ic_turn_uturn
-            maneuverType == "fork" || maneuverType == "off ramp" || maneuverType == "on ramp" ->
-                when {
-                    mod.contains("left") -> R.drawable.ic_turn_fork_left
-                    mod.contains("right") -> R.drawable.ic_turn_fork_right
-                    else -> R.drawable.ic_turn_straight
-                }
-            else ->
-                when (mod) {
-                    "sharp right" -> R.drawable.ic_turn_sharp_right
-                    "right" -> R.drawable.ic_turn_right
-                    "slight right" -> R.drawable.ic_turn_slight_right
-                    "slight left" -> R.drawable.ic_turn_slight_left
-                    "left" -> R.drawable.ic_turn_left
-                    "sharp left" -> R.drawable.ic_turn_sharp_left
-                    else -> R.drawable.ic_turn_straight // straight / depart / continue / new name / merge
-                }
-        }
-    }
 
-    /** Turn countdown shown on the round button: km with one decimal from
-     * 1 km up, then 950 m, 900 m ... 100 m in 50 m steps, then 10 m steps
-     * for the last stretch. */
-    private fun formatCountdownDistance(meters: Double): String =
-        if (Units.miles) Units.short(meters) else when {
-            meters >= 1000 -> String.format(Locale.US, "%.1f km", meters / 1000)
-            meters >= 100 -> "${(Math.round(meters / 50.0) * 50).toInt().coerceAtMost(950)} m"
-            else -> "${(Math.round(meters / 10.0) * 10).toInt().coerceAtLeast(10)} m"
-        }
 
-    private fun formatTurnDistance(meters: Double): String =
-        if (Units.miles) {
-            Units.short(meters)
-        } else if (meters >= 1000) {
-            String.format(Locale.US, "%.1f km", meters / 1000)
-        } else {
-            // Round to 10 m like Waze's list so it doesn't flicker every fix.
-            "${(Math.round(meters / 10.0) * 10).toInt().coerceAtLeast(10)} m"
-        }
 
     private fun openNextTurns() {
         if (navMode != NavMode.ACTIVE) return
@@ -4878,7 +5160,7 @@ class MainActivity : AppCompatActivity() {
         val icon =
             ImageView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(px(52), px(52)).apply { marginEnd = px(18) }
-                setImageResource(iconForManeuver(step.maneuverType, step.modifier))
+                setImageResource(NavFormat.iconForManeuver(step.maneuverType, step.modifier))
                 setColorFilter(textColor)
             }
         val texts =
@@ -4888,7 +5170,7 @@ class MainActivity : AppCompatActivity() {
             }
         val distance =
             TextView(this).apply {
-                text = formatTurnDistance(meters)
+                text = NavFormat.formatTurnDistance(meters)
                 setTextColor(textColor)
                 textSize = 24f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -4923,15 +5205,10 @@ class MainActivity : AppCompatActivity() {
         val size = (34 * density).toInt()
         val margin = (4 * density).toInt()
         val iconPadding = (7 * density).toInt()
-        val validColor = ContextCompat.getColor(this, R.color.navos_blue)
-        // Valid lane: blue pill with a dark arrow in both themes.
-        val validTint = ContextCompat.getColor(this, R.color.navos_navy)
-        // Other lanes: the theme's text colour, faded, so they read on
-        // both the light and the dark card.
-        val textColor = ContextCompat.getColor(this, R.color.navos_text)
-        val dimBackground = ColorStateList.valueOf(ColorUtils.setAlphaComponent(textColor, 0x1F))
-        val dimTint = ColorUtils.setAlphaComponent(textColor, 0x66)
-
+        // White arrows on the dark lane strip under the turn sign; lanes
+        // that don't keep you on the route are faded.
+        val validTint = Color.WHITE
+        val dimTint = ColorUtils.setAlphaComponent(Color.WHITE, 0x61)
         lanes.forEach { lane ->
             val indication = lane.indications.firstOrNull() ?: "straight"
             val icon =
@@ -4941,29 +5218,16 @@ class MainActivity : AppCompatActivity() {
                             marginStart = margin
                             marginEnd = margin
                         }
-                    setBackgroundResource(R.drawable.bg_lane_pill)
-                    backgroundTintList = if (lane.valid) ColorStateList.valueOf(validColor) else dimBackground
                     setImageResource(R.drawable.ic_turn_straight)
                     setColorFilter(if (lane.valid) validTint else dimTint)
                     setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
-                    rotation = rotationForIndication(indication)
+                    rotation = NavFormat.rotationForIndication(indication)
                 }
             laneContainer.addView(icon)
         }
         laneContainer.visibility = View.VISIBLE
     }
 
-    private fun rotationForIndication(indication: String): Float =
-        when (indication) {
-            "sharp right" -> 135f
-            "right" -> 90f
-            "slight right" -> 45f
-            "slight left" -> -45f
-            "left" -> -90f
-            "sharp left" -> -135f
-            "uturn" -> 180f
-            else -> 0f // straight / none
-        }
 
     // ---- Location / map plumbing ----------------------------------------
 
@@ -5008,7 +5272,11 @@ class MainActivity : AppCompatActivity() {
             }
         locationTracker = tracker
         tracker.start()
+        headingSensor.start()
     }
+
+    /** The phone's compass, for the arrow while standing still (idle map only). */
+    private val headingSensor by lazy { HeadingSensor(this) }
 
     // Only fires for the Activity's own idle/free-roam tracker - while
     // NavMode.ACTIVE, that tracker is stopped (see beginActiveNavigation())
@@ -5016,14 +5284,29 @@ class MainActivity : AppCompatActivity() {
     // instead, via navServiceListener.onNavLocation() above. So there's no
     // "are we navigating" branch needed here any more: this function only
     // ever runs for the non-navigating case.
+    private var lastTilePrefetch: Location? = null
+
+    /** Downloads the Overture place tiles around you ahead of the first search here. */
+    private fun prefetchPlaceTiles(location: Location) {
+        val last = lastTilePrefetch
+        if (last != null && last.distanceTo(location) < TILE_PREFETCH_MOVE_M) return
+        lastTilePrefetch = location
+        GeocodingService.prefetchTiles(location.latitude, location.longitude)
+    }
+
     @SuppressLint("MissingPermission") // permission is confirmed before startLocationTracking() runs
     private fun onLocationUpdate(location: Location) {
+        val firstFix = lastKnownLocation == null
         lastKnownLocation = location
+        if (firstFix) homeScreen.render() else homeScreen.onLocation()
+        prefetchPlaceTiles(location)
         val bearing =
             if (location.hasBearing() && (!location.hasSpeed() || location.speed > 1f)) {
                 location.bearing.toDouble()
             } else {
-                Double.NaN // standing still: keep the arrow's last heading
+                // Standing still: GPS has no heading, so point where the phone points
+                // (compass), or keep the arrow's last heading if there's no compass.
+                headingSensor.headingDegrees(location.latitude, location.longitude)
             }
 
         if (!hasCenteredOnFirstFix) {
@@ -5061,6 +5344,14 @@ class MainActivity : AppCompatActivity() {
             bindService(Intent(this, NavigationService::class.java), navServiceConnection, Context.BIND_AUTO_CREATE)
             navServiceBound = true
         }
+        // onStop() paused the idle tracker; resume it (it was never restarted
+        // before, so the arrow froze after coming back to the app).
+        if (navMode != NavMode.ACTIVE) {
+            locationTracker?.let {
+                it.start()
+                headingSensor.start()
+            }
+        }
     }
 
     override fun onResume() {
@@ -5094,6 +5385,7 @@ class MainActivity : AppCompatActivity() {
         // tracking without active navigation).
         unbindNavigationService()
         locationTracker?.stop()
+        headingSensor.stop()
         super.onStop()
     }
 
@@ -5107,10 +5399,13 @@ class MainActivity : AppCompatActivity() {
         mapView.onDestroy()
         searchExecutor.shutdownNow()
         extrasExecutor.shutdownNow()
+        lightsExecutor.shutdownNow()
+        signExecutor.shutdownNow()
+        trafficLayer.shutdown()
         placeSearchExecutor.shutdownNow()
         poiExecutor.shutdownNow()
         speedExecutor.shutdownNow()
-        liveSearchRunnable?.let { mainHandler.removeCallbacks(it) }
+        mainHandler.removeCallbacksAndMessages(null)
         unbindNavigationService()
         super.onDestroy()
     }

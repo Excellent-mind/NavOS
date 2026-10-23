@@ -34,6 +34,20 @@ object GeoUtils {
         return 2 * EARTH_RADIUS_M * asin(min(1.0, sqrt(h)))
     }
 
+    /** The point [meters] from [p] towards compass [bearingDeg] (flat-earth; fine for a few km). */
+    fun offset(
+        p: RoutePoint,
+        bearingDeg: Double,
+        meters: Double,
+    ): RoutePoint {
+        if (meters == 0.0) return p
+        val b = Math.toRadians(bearingDeg)
+        val mPerDeg = Math.toRadians(1.0) * EARTH_RADIUS_M
+        val dLat = meters * Math.cos(b) / mPerDeg
+        val dLon = meters * Math.sin(b) / (mPerDeg * Math.cos(Math.toRadians(p.latitude)).coerceAtLeast(0.2))
+        return RoutePoint(p.latitude + dLat, p.longitude + dLon)
+    }
+
     /** Compass bearing from a to b, in degrees (0 = north). */
     fun bearingDegrees(
         a: RoutePoint,
@@ -46,6 +60,38 @@ object GeoUtils {
         val x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLng)
         val deg = atan2(y, x) * 180 / PI
         return (deg % 360 + 360) % 360
+    }
+
+    /** Smallest angle between two compass bearings, 0..180 degrees. */
+    fun angleDiff(
+        a: Double,
+        b: Double,
+    ): Double {
+        var d = ((a - b) % 360.0 + 360.0) % 360.0
+        if (d > 180.0) d -= 360.0
+        return Math.abs(d)
+    }
+
+    /** Direction the route line heads just AFTER [point] (0 = north),
+     * measured to a spot ~10 m further along it. */
+    fun outgoingBearing(
+        geometry: List<RoutePoint>,
+        point: RoutePoint,
+    ): Double {
+        if (geometry.size < 2) return 0.0
+        var nearest = 0
+        var best = Double.MAX_VALUE
+        for (i in geometry.indices) {
+            val d = distanceMeters(geometry[i], point)
+            if (d < best) {
+                best = d
+                nearest = i
+            }
+        }
+        if (nearest >= geometry.size - 1) return bearingDegrees(geometry[geometry.size - 2], geometry[geometry.size - 1])
+        var j = nearest + 1
+        while (j < geometry.size - 1 && distanceMeters(geometry[nearest], geometry[j]) < 10.0) j++
+        return bearingDegrees(geometry[nearest], geometry[j])
     }
 
     /** Distance (meters) from a point to the nearest point on a polyline,

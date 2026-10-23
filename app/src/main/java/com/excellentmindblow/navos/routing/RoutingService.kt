@@ -1,10 +1,12 @@
 package com.excellentmindblow.navos.routing
 
 import com.excellentmindblow.navos.navigation.GeoUtils
+import com.excellentmindblow.navos.navigation.Phrases
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
+import com.excellentmindblow.navos.tr
 
 /** One lane at the intersection where this step's maneuver happens.
  * indications are OSRM's turn-direction vocabulary (e.g. "left",
@@ -26,6 +28,14 @@ data class RouteStep(
     val roadName: String,
     val point: RoutePoint,
     val lanes: List<LaneInfo>? = null,
+    /** Road number of the road taken at this step ("E33"), when the map has one. */
+    val ref: String? = null,
+    /** Signposted destinations at this junction, OSM style: "E33: Kuantan, Genting Highlands, Gombak". */
+    val destinations: String? = null,
+    /** Exit number(s) on the sign ("3305A"), expressway exits only. */
+    val exits: String? = null,
+    /** Roundabout steps: which exit to take (1 = first), else 0. */
+    val roundaboutExit: Int = 0,
 )
 
 /** An intermediate stop on a multi-stop trip (the final destination is NOT a
@@ -53,6 +63,12 @@ data class Route(
     val steps: List<RouteStep>,
     /** Intermediate stops, in driving order. Empty for an ordinary A -> B route. */
     val stops: List<RouteStop> = emptyList(),
+    /** OpenStreetMap node id at each point of [geometry] (same length), for
+     * live traffic: the piece between points i and i+1 is "nodes[i]-nodes[i+1]".
+     * Null when the server didn't send them or they don't line up. */
+    val nodes: LongArray? = null,
+    /** Normal (free-flow) speed of each piece of [geometry], m/s (length - 1). */
+    val freeFlowMs: DoubleArray? = null,
 )
 
 /**
@@ -74,17 +90,6 @@ object RoutingService {
     // (looks bot-like with no app identity behind it).
     private const val USER_AGENT = "NavOS/0.1 (navigation app; contact: excellentmindblow@gmail.com)"
 
-    private val MODIFIER_TEXT =
-        mapOf(
-            "uturn" to "make a U-turn",
-            "sharp right" to "turn sharp right",
-            "sharp left" to "turn sharp left",
-            "right" to "turn right",
-            "left" to "turn left",
-            "slight right" to "bear right",
-            "slight left" to "bear left",
-            "straight" to "continue straight",
-        )
 
     /** Returns every route OSRM offers - index 0 is always its preferred
      * ("fastest") one, any further entries are alternatives (OSRM doesn't
@@ -118,6 +123,48 @@ object RoutingService {
         val points = listOf(origin) + stops.map { it.point } + destination
         return withConnectors(requestRoutes(points, "false", stops), origin, destination)
     }
+
+    /** Heading of the car (degrees) for the request on this thread: routes start forwards. */
+    private val originHeading = ThreadLocal<Double?>()
+
+    /**
+     * Routes from a moving car: the server is told which way it faces, so
+     * the route starts forwards instead of with a needless U-turn (a common
+     * annoyance on Malaysian dual carriageways). Falls back to an ordinary
+     * request when the server can't place the car that way.
+     */
+    @Throws(Exception::class)
+    fun calculateRoutesFacing(
+        origin: RoutePoint,
+        headingDeg: Double?,
+        stops: List<RouteStop>,
+        destination: RoutePoint,
+    ): List<Route> {
+        if (headingDeg != null && !headingDeg.isNaN()) {
+            originHeading.set(headingDeg)
+            try {
+                val routes = calculateRoutes(origin, stops, destination)
+                if (routes.isNotEmpty()) return routes
+            } catch (e: Exception) {
+                // e.g. "NoSegment" when no road fits that heading - ask without it.
+            } finally {
+                originHeading.remove()
+            }
+        }
+        return calculateRoutes(origin, stops, destination)
+    }
+
+    /** OSRM `bearings`: the first point faces [heading] (±[HEADING_RANGE_DEG]), the rest are free. */
+    internal fun bearingsParam(
+        heading: Double?,
+        points: Int,
+    ): String {
+        if (heading == null || points < 2) return ""
+        val h = ((Math.round(heading) % 360) + 360) % 360
+        return "&bearings=$h,$HEADING_RANGE_DEG" + ";".repeat(points - 1)
+    }
+
+    private const val HEADING_RANGE_DEG = 60
 
     /** Thrown when the server rejects the `exclude` option (not every OSRM build supports it). */
     private class ExcludeUnsupported : Exception()
@@ -218,9 +265,10 @@ object RoutingService {
         val url =
             URL(
                 "$baseUrl$coords" +
-                    "?overview=full&geometries=polyline&steps=true&annotations=false&alternatives=$alternatives" +
+                    "?overview=full&geometries=polyline&steps=true&annotations=nodes,speed&alternatives=$alternatives" +
                     (if (exclude != null) "&exclude=$exclude" else "") +
-                    (if (snapAny) "&snapping=any" else ""),
+                    (if (snapAny) "&snapping=any" else "") +
+                    bearingsParam(originHeading.get(), coords.count { it == ';' } + 1),
             )
         val connection = url.openConnection() as HttpURLConnection
         connection.setRequestProperty("User-Agent", USER_AGENT)
@@ -500,6 +548,10 @@ object RoutingService {
                         roadName = roadName,
                         point = here,
                         lanes = parseLanes(step),
+                        ref = step.optString("ref", "").split(';').map { it.trim() }.firstOrNull { it.isNotEmpty() && it != "null" },
+                        destinations = step.optString("destinations", "").trim().takeIf { it.isNotEmpty() && it != "null" },
+                        exits = step.optString("exits", "").split(';').map { it.trim() }.firstOrNull { it.isNotEmpty() && it != "null" },
+                        roundaboutExit = if (type == "roundabout" || type == "rotary") maneuver.optInt("exit", 0) else 0,
                     ),
                 )
             }
@@ -512,13 +564,41 @@ object RoutingService {
                 stop.copy(stepIndex = stepIdx, geometryIndex = geometryIndices.getOrElse(i) { -1 })
             }
 
+        val (nodes, speeds) = parseAnnotations(legs, geometry.size)
         return Route(
             geometry = geometry,
             distanceMeters = route.optDouble("distance", 0.0),
             durationSeconds = route.optDouble("duration", 0.0),
             steps = steps,
             stops = placedStops,
+            nodes = nodes,
+            freeFlowMs = speeds,
         )
+    }
+
+    /**
+     * OSM node ids and per-piece speeds from each leg's annotation, joined
+     * into one run that lines up with the route line: a leg starts where the
+     * last one ended, so its first node is dropped. Null when they don't line
+     * up with the [points] of the decoded line (then live traffic is just off
+     * for this route).
+     */
+    internal fun parseAnnotations(
+        legs: org.json.JSONArray,
+        points: Int,
+    ): Pair<LongArray?, DoubleArray?> {
+        val nodes = ArrayList<Long>(points)
+        val speeds = ArrayList<Double>(points)
+        for (l in 0 until legs.length()) {
+            val ann = legs.getJSONObject(l).optJSONObject("annotation") ?: return null to null
+            val n = ann.optJSONArray("nodes") ?: return null to null
+            val sp = ann.optJSONArray("speed") ?: return null to null
+            if (sp.length() != n.length() - 1) return null to null
+            for (i in (if (l == 0) 0 else 1) until n.length()) nodes += n.getLong(i)
+            for (i in 0 until sp.length()) speeds += sp.optDouble(i, 0.0)
+        }
+        if (nodes.size != points || speeds.size != points - 1) return null to null
+        return nodes.toLongArray() to speeds.toDoubleArray()
     }
 
     private fun stopInstruction(
@@ -527,7 +607,7 @@ object RoutingService {
     ): String {
         val number = stop?.number ?: (legIndex + 1)
         val name = stop?.name.orEmpty().trim()
-        return if (name.isBlank()) "Arrive at stop $number" else "Arrive at stop $number: $name"
+        return if (name.isBlank()) tr("Arrive at stop $number", "Sampai hentian $number") else tr("Arrive at stop $number: $name", "Sampai hentian $number: $name")
     }
 
     /**
@@ -603,25 +683,5 @@ object RoutingService {
         modifier: String?,
         roadName: String,
         maneuver: JSONObject,
-    ): String {
-        val namedRoad = roadName.ifBlank { "the road" }
-        val modifierText = (modifier?.let { MODIFIER_TEXT[it] } ?: "continue").replaceFirstChar { it.uppercase() }
-
-        return when (type) {
-            "depart" -> if (roadName.isBlank()) "Head out" else "Head out onto $namedRoad"
-            "arrive" -> "Arrive at your destination"
-            "roundabout", "rotary" -> {
-                val exit = maneuver.optInt("exit", 0)
-                if (exit > 0) "At the roundabout, take exit $exit onto $namedRoad" else "Enter the roundabout"
-            }
-            "merge" -> "Merge onto $namedRoad"
-            "on ramp" -> "Take the ramp onto $namedRoad"
-            "off ramp" -> "Take the exit onto $namedRoad"
-            "fork" -> "Keep ${modifier ?: "straight"} at the fork onto $namedRoad"
-            "end of road" -> "$modifierText onto $namedRoad"
-            "new name" -> "Continue onto $namedRoad"
-            "continue" -> if (modifier == null || modifier == "straight") "Continue onto $namedRoad" else "$modifierText onto $namedRoad"
-            else -> "$modifierText onto $namedRoad"
-        }
-    }
+    ): String = Phrases.instruction(type, modifier, roadName, maneuver.optInt("exit", 0))
 }
