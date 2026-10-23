@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
+import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
 import com.excellentmindblow.navos.R
 import kotlin.math.cos
@@ -28,6 +29,9 @@ class SignPainter(
 ) {
     private val text: Typeface = ResourcesCompat.getFont(context, R.font.atkinson_hyperlegible_bold) ?: Typeface.DEFAULT_BOLD
     private val numbers: Typeface = ResourcesCompat.getFont(context, R.font.saira_semicondensed_bold) ?: Typeface.DEFAULT_BOLD
+
+    /** The R&R road-sign symbol (canopy over "R&R"), white. */
+    private val rnrSymbol = ContextCompat.getDrawable(context, R.drawable.ic_rnr)?.mutate()?.apply { setTint(Color.WHITE) }
 
     private val green = if (night) 0x16683A else 0x1B7F45
     private val blue = if (night) 0x18418A else 0x1D4FA8
@@ -558,7 +562,17 @@ class SignPainter(
             type.typeface = numbers
             type.textSize = 20f
             type.color = Color.WHITE
-            cv.drawText(title, 12f, 28f, type)
+            val symbol = rnrSymbol
+            if (c.services && symbol != null) {
+                // The R&R symbol in a white-edged box, as on the road signs.
+                stroke.color = Color.WHITE
+                stroke.strokeWidth = 2f
+                cv.drawRoundRect(RectF(10f, 6f, 40f, 36f), 3f, 3f, stroke)
+                symbol.setBounds(12, 8, 38, 34)
+                symbol.draw(cv)
+            } else {
+                cv.drawText(title, 12f, 28f, type)
+            }
             type.textAlign = Paint.Align.RIGHT
             cv.drawText(kmText(c.distanceMeters), w - 12f, 28f, type)
             type.textAlign = Paint.Align.LEFT
