@@ -31,6 +31,7 @@ import com.excellentmindblow.navos.routing.TripPlanner
 import com.excellentmindblow.navos.traffic.TrafficReporter
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import com.excellentmindblow.navos.tr
 
 /**
  * Keeps an active drive alive when the screen locks or the driver switches
@@ -239,7 +240,7 @@ class NavigationService : Service() {
         voiceNarrator?.resetGuard()
         lastNotifiedKey = null
 
-        startForegroundNotification("Starting navigation...", "")
+        startForegroundNotification(tr("Starting navigation...", "Mula navigasi..."), "")
         // startForegroundNotification() tears everything back down via
         // stopNavigationInternal() if the OS refuses to let this become a
         // foreground service - don't then go start a GPS subscription for
@@ -463,11 +464,11 @@ class NavigationService : Service() {
         val stopsAhead = remainingStops()
         isRerouting = true
 
-        // Say "Recalculating" once per wrong turn, not on every retry.
+        // Say tr("Recalculating", "Cari laluan baru") once per wrong turn, not on every retry.
         if (!recalcAnnounced) {
             recalcAnnounced = true
             rerouteCount += 1
-            voiceNarrator?.speak("reroute-$rerouteCount", "Recalculating")
+            voiceNarrator?.speak("reroute-$rerouteCount", tr("Recalculating", "Cari laluan baru"))
         }
 
         val executor = rerouteExecutor ?: Executors.newSingleThreadExecutor().also { rerouteExecutor = it }
@@ -514,7 +515,7 @@ class NavigationService : Service() {
      * the driver is now. Reports through [Listener.onStopChangeFailed] if it
      * cannot. */
     fun addStop(stop: RouteStop) =
-        changeStops("Stop added") { remaining, origin, destination ->
+        changeStops(tr("Stop added", "Hentian ditambah")) { remaining, origin, destination ->
             if (remaining.size >= TripPlanner.MAX_STOPS) {
                 null
             } else {
@@ -527,7 +528,7 @@ class NavigationService : Service() {
     /** Drops the next intermediate stop (closed, no longer needed) and re-plans
      * from where the driver is now. */
     fun skipNextStop() =
-        changeStops("Stop skipped") { remaining, _, _ ->
+        changeStops(tr("Stop skipped", "Hentian dilangkau")) { remaining, _, _ ->
             if (remaining.isEmpty()) null else remaining.drop(1)
         }
 
@@ -579,8 +580,8 @@ class NavigationService : Service() {
         val channel =
             NotificationChannelCompat
                 .Builder(CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_LOW)
-                .setName("Navigation")
-                .setDescription("Ongoing turn-by-turn navigation")
+                .setName(tr("Navigation", "Navigasi"))
+                .setDescription(tr("Ongoing turn-by-turn navigation", "Navigasi sedang berjalan"))
                 .setShowBadge(false)
                 .build()
         NotificationManagerCompat.from(this).createNotificationChannel(channel)
@@ -619,7 +620,7 @@ class NavigationService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(openPending)
-            .addAction(0, "End navigation", stopPending)
+            .addAction(0, tr("End navigation", "Tamat navigasi"), stopPending)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }

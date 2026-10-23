@@ -71,81 +71,81 @@ class SettingsScreen(
     fun build(container: LinearLayout) {
         container.removeAllViews()
 
-        container.addView(section("Guidance"))
+        container.addView(section(tr("Guidance", "Panduan")))
         container.addView(
             card(
-                switchRow("Voice guidance", "Spoken turn-by-turn directions", host.isVoiceOn()) { host.setVoiceOn(it) }
+                switchRow(tr("Voice guidance", "Suara arah"), tr("Spoken turn-by-turn directions", "Bagi tahu setiap belok dengan suara"), host.isVoiceOn()) { host.setVoiceOn(it) }
                     .also { voiceSwitch = it.findViewWithTag(SWITCH_TAG) },
-                switchRow("Speed camera alerts", null, MapDisplayPrefs.cameraAlerts) {
+                switchRow(tr("Speed camera alerts", "Amaran kamera laju"), null, MapDisplayPrefs.cameraAlerts) {
                     MapDisplayPrefs.cameraAlerts = it
                     MapDisplayPrefs.save(prefs)
                 },
-                switchRow("Speed limit sign", null, MapDisplayPrefs.speedLimit) {
+                switchRow(tr("Speed limit sign", "Papan had laju"), null, MapDisplayPrefs.speedLimit) {
                     MapDisplayPrefs.speedLimit = it
                     MapDisplayPrefs.save(prefs)
                 },
-                switchRow("Speedometer", null, MapDisplayPrefs.speedometer) {
+                switchRow(tr("Speedometer", "Meter laju"), null, MapDisplayPrefs.speedometer) {
                     MapDisplayPrefs.speedometer = it
                     MapDisplayPrefs.save(prefs)
                 },
             ),
         )
 
-        container.addView(section("Routes"))
+        container.addView(section(tr("Routes", "Laluan")))
         container.addView(
             card(
-                switchRow("Avoid tolls", null, RoutePrefs.avoidTolls) { RoutePrefs.save(prefs, it, RoutePrefs.avoidHighways) },
-                switchRow("Avoid highways", "Applies to the next route you search for", RoutePrefs.avoidHighways) {
+                switchRow(tr("Avoid tolls", "Elak tol"), null, RoutePrefs.avoidTolls) { RoutePrefs.save(prefs, it, RoutePrefs.avoidHighways) },
+                switchRow(tr("Avoid highways", "Elak highway"), tr("Applies to the next route you search for", "Untuk laluan yang anda cari lepas ni"), RoutePrefs.avoidHighways) {
                     RoutePrefs.save(prefs, RoutePrefs.avoidTolls, it)
                 },
-                switchRow("Share anonymous traffic speeds", "Helps show jams in red. No account, no start or end of your trip", TrafficPrefs.sharing(prefs)) {
+                switchRow(tr("Share anonymous traffic speeds", "Kongsi laju trafik tanpa nama"), tr("Helps show jams in red. No account, no start or end of your trip", "Bantu tunjuk jem warna merah. Tak guna akaun, tak hantar tempat mula atau hujung perjalanan"), TrafficPrefs.sharing(prefs)) {
                     TrafficPrefs.set(prefs, it)
                 },
             ),
         )
 
-        container.addView(section("Display"))
+        container.addView(section(tr("Display", "Paparan")))
         container.addView(
             card(
                 choiceRow(
-                    "Map style",
-                    listOf(MAP_STYLE_SYSTEM to "Auto", MAP_STYLE_LIGHT to "Day", MAP_STYLE_DARK to "Night"),
+                    tr("Map style", "Gaya peta"),
+                    listOf(MAP_STYLE_SYSTEM to tr("Auto", "Auto"), MAP_STYLE_LIGHT to tr("Day", "Siang"), MAP_STYLE_DARK to tr("Night", "Malam")),
                     host.currentMapStyleMode(),
                 ) { host.onMapStyleModeChosen(it) },
-                choiceRow("Driving view", listOf("3d" to "3D", "2d" to "2D"), if (MapDisplayPrefs.view3d) "3d" else "2d") {
+                choiceRow(tr("Driving view", "Pandangan memandu"), listOf("3d" to "3D", "2d" to "2D"), if (MapDisplayPrefs.view3d) "3d" else "2d") {
                     MapDisplayPrefs.view3d = it == "3d"
                     MapDisplayPrefs.save(prefs)
                     host.onDriveViewChanged()
                 },
-                choiceRow("Language", listOf(Lang.AUTO to "Phone", Lang.EN to "English", Lang.MS to "Melayu"), Lang.choice(prefs)) {
+                choiceRow(tr("Language", "Bahasa"), listOf(Lang.AUTO to tr("Phone", "Ikut telefon"), Lang.EN to "English", Lang.MS to "Melayu"), Lang.choice(prefs)) {
                     Lang.save(prefs, it)
                 },
-                choiceRow("Distance units", listOf("km" to "Kilometres", "mi" to "Miles"), if (Units.miles) "mi" else "km") {
+                choiceRow(tr("Distance units", "Unit jarak"), listOf("km" to tr("Kilometres", "Kilometer"), "mi" to tr("Miles", "Batu")), if (Units.miles) "mi" else "km") {
                     Units.save(prefs, it == "mi")
                 },
             ),
         )
 
-        container.addView(section("Show on map"))
+        container.addView(section(tr("Show on map", "Tunjuk di peta")))
         container.addView(
             card(
-                switchRow("3D buildings", null, MapDisplayPrefs.buildings3d) {
+                switchRow(tr("3D buildings", "Bangunan 3D"), null, MapDisplayPrefs.buildings3d) {
                     MapDisplayPrefs.buildings3d = it
                     MapDisplayPrefs.save(prefs)
                     host.applyMapDisplayLayers()
                 },
-                switchRow("Route direction arrows", null, MapDisplayPrefs.routeArrows) {
+                switchRow(tr("Route direction arrows", "Anak panah laluan"), null, MapDisplayPrefs.routeArrows) {
                     MapDisplayPrefs.routeArrows = it
                     MapDisplayPrefs.save(prefs)
                     host.applyMapDisplayLayers()
                 },
-                switchRow("Petrol stations", null, host.isPoiKindShown(PoiKind.FUEL)) { host.setPoiKindShown(PoiKind.FUEL, it) },
-                switchRow("EV charging", null, host.isPoiKindShown(PoiKind.EV)) { host.setPoiKindShown(PoiKind.EV, it) },
+                switchRow(tr("Petrol stations", "Stesen minyak"), null, host.isPoiKindShown(PoiKind.FUEL)) { host.setPoiKindShown(PoiKind.FUEL, it) },
+                switchRow(tr("EV charging", "Cas EV"), null, host.isPoiKindShown(PoiKind.EV)) { host.setPoiKindShown(PoiKind.EV, it) },
             ),
         )
 
         container.addView(spacer(18))
-        container.addView(card(linkRow("Help & feedback") { host.onHelp() }, linkRow("About NavOS") { host.onAbout() }))
+        container.addView(card(linkRow(tr("Help & feedback", "Bantuan & maklum balas")) { host.onHelp() }, linkRow(tr("About NavOS", "Tentang NavOS")) { host.onAbout() }))
 
         container.addView(
             TextView(context).apply {
@@ -293,7 +293,7 @@ class SettingsScreen(
                         null
                     }
                 b.setTextColor(color(if (on) R.color.sig_on_ink else R.color.sig_text))
-                b.contentDescription = "$label: ${options[i].second}" + if (on) ", selected" else ""
+                b.contentDescription = "$label: ${options[i].second}" + if (on) tr(", selected", ", dipilih") else ""
             }
         }
         for ((value, text) in options) {

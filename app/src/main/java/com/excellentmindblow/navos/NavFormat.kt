@@ -18,21 +18,24 @@ object NavFormat {
             else -> "${Math.round(meters / 1000f)} km"
         }
 
+    /** "h" for hours ("1 h 5 min"); "j" (jam) in Malay. Minutes are "min" in both. */
+    private val HOUR: String get() = tr("h", "j")
+
     /** "Toll" when a toll plaza is on the route, else null. No price. */
     fun tollSummary(pois: List<RoadPoi>?): String? =
-        if (pois?.any { it.kind == "toll" } == true) "Toll" else null
+        if (pois?.any { it.kind == "toll" } == true) tr("Toll", "Tol") else null
 
     /** A route's duration in the route list: "24 min", "1 h 5 min". */
     fun formatRouteMinutes(seconds: Double): String {
         val minutes = Math.round(seconds / 60.0).toInt().coerceAtLeast(1)
-        return if (minutes >= 60) "${minutes / 60} h ${minutes % 60} min" else "$minutes min"
+        return if (minutes >= 60) "${minutes / 60} $HOUR ${minutes % 60} min" else "$minutes min"
     }
 
     /** Remaining trip time under the ETA: "24 min", "1:05 h". */
     fun formatTripDuration(seconds: Double): String {
         val totalMinutes = Math.round(seconds / 60.0).toInt().coerceAtLeast(1)
         return if (totalMinutes >= 60) {
-            String.format(Locale.US, "%d:%02d h", totalMinutes / 60, totalMinutes % 60)
+            String.format(Locale.US, "%d:%02d %s", totalMinutes / 60, totalMinutes % 60, HOUR)
         } else {
             "$totalMinutes min"
         }

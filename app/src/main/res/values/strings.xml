@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">NavOS</string>
+    <string name="app_name" translatable="false">NavOS</string>
 
     <!-- Home -->
     <string name="home_search_hint">Where to?</string>
@@ -10,8 +10,8 @@
     <string name="shortcut_work">Work</string>
     <string name="shortcut_set">Set</string>
     <string name="shortcut_set_detail">Tap to add the address</string>
-    <string name="shortcut_no_time">—</string>
-    <string name="shortcut_description">%1$s, %2$s, %3$s</string>
+    <string name="shortcut_no_time" translatable="false">—</string>
+    <string name="shortcut_description" translatable="false">%1$s, %2$s, %3$s</string>
     <string name="chip_petrol">Petrol</string>
     <string name="chip_ev">EV charging</string>
     <string name="recent">Recent</string>
@@ -49,7 +49,7 @@
     <string name="all_routes">All %d routes</string>
     <string name="route_hint_arrive">Arrive %s · typical time, no live traffic</string>
     <string name="route_hint_stops">%1$s · one route through every stop</string>
-    <string name="route_card_description">%1$s, %2$s, %3$s</string>
+    <string name="route_card_description" translatable="false">%1$s, %2$s, %3$s</string>
 
     <!-- Driving -->
     <string name="next_turns">Next turns</string>
@@ -86,4 +86,25 @@
     <string name="side_ahead">Destination is straight ahead</string>
     <string name="settings_footer">NavOS %1$s · Powered by Excellent Mindblow</string>
     <string name="traffic_notice">Live traffic is on: NavOS shares your speed anonymously. Change it in Settings.</string>
+
+    <!-- Screens (layouts) -->
+    <string name="back_to_navigation">Back to navigation</string>
+    <string name="close">Close</string>
+    <string name="compass_description">Compass - tap to face north</string>
+    <string name="search_hint_malaysia">Search destination in Malaysia</string>
+    <string name="cancel">Cancel</string>
+    <string name="exit_question">Do you want to close the app?</string>
+    <string name="exit_title">Exit NavOS?</string>
+    <string name="exit">Exit</string>
+    <string name="facilities_note">Facilities from OpenStreetMap - may be incomplete</string>
+    <string name="go_here">Go here</string>
+    <string name="location_permission_title">Location permission needed</string>
+    <string name="location_off_title">Location services are off</string>
+    <string name="location_permission_body">NavOS can\'t show your position or navigate without it.</string>
+    <string name="open_app_settings">Open app settings</string>
+    <string name="open_location_settings">Open location settings</string>
+    <string name="recalculating">Recalculating…</string>
+    <string name="switch_route">Switch route</string>
+    <string name="try_again">Try again</string>
+    <string name="location_off_body">Turn on GPS in your phone\'s settings to see your position and navigate.</string>
 </resources>

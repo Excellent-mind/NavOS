@@ -50,7 +50,7 @@
                     android:layout_marginEnd="8dp"
                     android:background="@drawable/search_bar_bg"
                     android:backgroundTint="@color/navos_button_fill"
-                    android:contentDescription="Back to navigation"
+                    android:contentDescription="@string/back_to_navigation"
                     android:elevation="4dp"
                     android:padding="12dp"
                     android:src="@drawable/ic_close"
@@ -72,7 +72,7 @@
                         android:layout_weight="1"
                         android:autofillHints=""
                         android:background="@android:color/transparent"
-                        android:hint="Search destination in Malaysia"
+                        android:hint="@string/search_hint_malaysia"
                         android:imeOptions="actionSearch"
                         android:inputType="text"
                         android:maxLines="1"
@@ -86,7 +86,7 @@
                         android:layout_width="44dp"
                         android:layout_height="44dp"
                         android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="Clear search"
+                        android:contentDescription="@string/clear_search"
                         android:padding="10dp"
                         android:src="@drawable/ic_clear_circle"
                         android:visibility="gone" />
@@ -356,7 +356,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="12dp"
-                android:text="Recalculating…"
+                android:text="@string/recalculating"
                 android:textColor="@color/navos_text"
                 android:textSize="17sp"
                 android:textStyle="bold" />
@@ -372,7 +372,7 @@
             android:layout_marginTop="92dp"
             android:layout_marginEnd="8dp"
             android:clickable="true"
-            android:contentDescription="Compass - tap to face north"
+            android:contentDescription="@string/compass_description"
             android:focusable="true" />
 
         <!-- Your speed (big number, red when over the limit) - bottom left. -->
@@ -831,7 +831,7 @@
                     android:layout_marginStart="8dp"
                     android:background="@drawable/bg_circle_navy"
                     android:backgroundTint="@color/navos_line"
-                    android:contentDescription="Close"
+                    android:contentDescription="@string/close"
                     android:padding="8dp"
                     android:src="@drawable/ic_close"
                     app:tint="@color/navos_text" />
@@ -859,7 +859,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:id="@+id/poiFootnote"
-                android:text="Facilities from OpenStreetMap - may be incomplete"
+                android:text="@string/facilities_note"
                 android:textColor="@color/navos_text_tertiary"
                 android:textSize="11sp" />
 
@@ -872,7 +872,7 @@
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center"
-                android:text="Go here"
+                android:text="@string/go_here"
                 android:textColor="@color/white"
                 android:textSize="17sp"
                 android:textStyle="bold" />
@@ -1318,7 +1318,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
-                android:text="Location permission needed"
+                android:text="@string/location_permission_title"
                 android:textColor="@color/white"
                 android:textSize="20sp"
                 android:textStyle="bold" />
@@ -1329,7 +1329,7 @@
                 android:layout_marginTop="8dp"
                 android:layout_marginBottom="24dp"
                 android:gravity="center"
-                android:text="NavOS can't show your position or navigate without it."
+                android:text="@string/location_permission_body"
                 android:textColor="#B8C4D9"
                 android:textSize="14sp" />
 
@@ -1344,7 +1344,7 @@
                 android:gravity="center"
                 android:paddingStart="28dp"
                 android:paddingEnd="28dp"
-                android:text="Try again"
+                android:text="@string/try_again"
                 android:textColor="@color/white"
                 android:textStyle="bold" />
 
@@ -1359,7 +1359,7 @@
                 android:paddingEnd="16dp"
                 android:clickable="true"
                 android:focusable="true"
-                android:text="Open app settings"
+                android:text="@string/open_app_settings"
                 android:textColor="@color/navos_blue"
                 android:textSize="14sp" />
 
@@ -1382,7 +1382,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center"
-                android:text="Location services are off"
+                android:text="@string/location_off_title"
                 android:textColor="@color/white"
                 android:textSize="20sp"
                 android:textStyle="bold" />
@@ -1393,7 +1393,7 @@
                 android:layout_marginTop="8dp"
                 android:layout_marginBottom="24dp"
                 android:gravity="center"
-                android:text="Turn on GPS in your phone's settings to see your position and navigate."
+                android:text="@string/location_off_body"
                 android:textColor="#B8C4D9"
                 android:textSize="14sp" />
 
@@ -1408,7 +1408,7 @@
                 android:gravity="center"
                 android:paddingStart="28dp"
                 android:paddingEnd="28dp"
-                android:text="Open location settings"
+                android:text="@string/open_location_settings"
                 android:textColor="@color/white"
                 android:textStyle="bold" />
 
@@ -1515,7 +1515,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Next turns"
+                    android:text="@string/next_turns"
                     android:textColor="@color/navos_text"
                     android:textSize="22sp"
                     android:letterSpacing="-0.01"
@@ -1531,7 +1531,7 @@
                     android:gravity="center"
                     android:paddingStart="14dp"
                     android:paddingEnd="14dp"
-                    android:text="Switch route"
+                    android:text="@string/switch_route"
                     android:textColor="@color/navos_text"
                     android:textSize="14sp"
                     android:textStyle="bold" />
@@ -1542,7 +1542,7 @@
                     android:layout_height="44dp"
                     android:layout_marginStart="8dp"
                     android:background="@drawable/bg_circle_light"
-                    android:contentDescription="Close"
+                    android:contentDescription="@string/close"
                     android:padding="12dp"
                     android:src="@drawable/ic_close"
                     app:tint="@color/navos_text" />
@@ -1756,7 +1756,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Exit NavOS?"
+                android:text="@string/exit_title"
                 android:textColor="@color/navos_text"
                 android:textSize="20sp"
                 android:textStyle="bold" />
@@ -1765,7 +1765,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Do you want to close the app?"
+                android:text="@string/exit_question"
                 android:textColor="@color/navos_text_secondary"
                 android:textSize="15sp" />
 
@@ -1784,7 +1784,7 @@
                     android:clickable="true"
                     android:focusable="true"
                     android:gravity="center"
-                    android:text="Cancel"
+                    android:text="@string/cancel"
                     android:textColor="@color/navos_text"
                     android:textSize="16sp"
                     android:textStyle="bold" />
@@ -1799,7 +1799,7 @@
                     android:clickable="true"
                     android:focusable="true"
                     android:gravity="center"
-                    android:text="Exit"
+                    android:text="@string/exit"
                     android:textColor="@color/white"
                     android:textSize="16sp"
                     android:textStyle="bold" />

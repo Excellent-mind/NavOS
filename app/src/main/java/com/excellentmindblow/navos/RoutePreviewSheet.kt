@@ -80,7 +80,7 @@ class RoutePreviewSheet(
         }
         row.findViewById<TextView>(R.id.choiceDistance).text = distance
         val via = row.findViewById<TextView>(R.id.choiceVia)
-        via.text = choice.via?.let { "via $it" }.orEmpty()
+        via.text = choice.via?.let { tr("via $it", "ikut $it") }.orEmpty()
         via.visibility = if (choice.via == null) View.GONE else View.VISIBLE
         row.findViewById<View>(R.id.choiceFastest).visibility = if (choice.fastest) View.VISIBLE else View.GONE
 
@@ -113,7 +113,7 @@ class RoutePreviewSheet(
                 R.string.route_card_description,
                 duration,
                 distance,
-                listOfNotNull(choice.via?.let { "via $it" }, tollText, lightText).joinToString(", "),
+                listOfNotNull(choice.via?.let { tr("via $it", "ikut $it") }, tollText, lightText).joinToString(", "),
             )
         row.isSelected = choice.selected
         row.setOnClickListener { onSelect(choice.index) }

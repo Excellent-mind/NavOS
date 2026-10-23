@@ -1,6 +1,8 @@
 package com.excellentmindblow.navos
 
 import android.content.SharedPreferences
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.os.LocaleListCompat
 import java.util.Locale
 
 /**
@@ -35,5 +37,24 @@ object Lang {
     ) {
         prefs.edit().putString(KEY, value).apply()
         load(prefs)
+        applyToApp(prefs)
+    }
+
+    /** Makes Android's own text (layouts, strings.xml) follow the choice too.
+     * Re-creates the open screens when the language actually changes. */
+    fun applyToApp(prefs: SharedPreferences) {
+        val wanted =
+            when (choice(prefs)) {
+                MS -> LocaleListCompat.forLanguageTags("ms")
+                EN -> LocaleListCompat.forLanguageTags("en")
+                else -> LocaleListCompat.getEmptyLocaleList()
+            }
+        if (AppCompatDelegate.getApplicationLocales() != wanted) AppCompatDelegate.setApplicationLocales(wanted)
     }
 }
+
+/** The same text in English and everyday Malay; picks the app's language ([Lang]). */
+fun tr(
+    en: String,
+    ms: String,
+): String = if (Lang.malay) ms else en

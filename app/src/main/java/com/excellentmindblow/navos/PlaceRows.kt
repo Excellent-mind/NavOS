@@ -42,7 +42,7 @@ object PlaceRows {
         val holder = row.findViewById<View>(R.id.resultIconHolder)
         val icon = row.findViewById<ImageView>(R.id.resultIcon)
         // A petrol station of a company we know gets its brand badge.
-        val brand = if (place.category == context.getString(R.string.chip_petrol)) FuelBrand.of(place.name) else null
+        val brand = if (place.category == "Petrol") FuelBrand.of(place.name) else null
         when {
             brand != null -> {
                 holder.visibility = View.VISIBLE
@@ -69,7 +69,7 @@ object PlaceRows {
         name.typeface = font(row, R.font.signal_text, bold = !matches)
 
         val address = row.findViewById<TextView>(R.id.resultAddress)
-        val detail = listOfNotNull(place.category, place.address.trim().takeIf { it.isNotEmpty() }).joinToString(" · ")
+        val detail = listOfNotNull(Labels.show(place.category), place.address.trim().takeIf { it.isNotEmpty() }).joinToString(" · ")
         address.text = detail
         address.visibility = if (detail.isEmpty()) View.GONE else View.VISIBLE
 

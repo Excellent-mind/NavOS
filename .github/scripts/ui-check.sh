@@ -48,6 +48,14 @@ center() {
   echo "$out"
 }
 
+# Center of the first on-screen view whose text is exactly $1 (empty if none).
+text_center() {
+  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+  adb shell cat /sdcard/ui.xml 2>/dev/null | tr '>' '\n' | grep -F "text=\"$1\"" | head -1 |
+    sed -E 's/.*bounds="\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]".*/\1 \2 \3 \4/' |
+    awk 'NF==4 {printf "%d %d", ($1+$3)/2, ($2+$4)/2}'
+}
+
 # PASS/FAIL line for a view that should (or should not) be on screen.
 expect() {
   local want=$1 id=$2 what=$3 c
@@ -230,6 +238,20 @@ adb emu geo fix 101.70460 3.23489 >/dev/null 2>&1; sleep 2
 adb emu geo fix 101.70391 3.23524 >/dev/null 2>&1; sleep 4; shot 27-signs-1400m
 adb logcat -d -s NavOSSigns > "$OUT/signs.txt" 2>/dev/null
 tap_id navSheetHandle; sleep 1; tap_id stopNavigationButton; sleep 3
+
+# Bahasa Melayu: Settings > Language > Melayu, then the main screens in Malay.
+tap_id homeSettingsButton && sleep 1.5
+c=""
+for try in 1 2 3; do
+  c=$(text_center "Melayu"); [ -n "$c" ] && break
+  adb shell input swipe $((W / 2)) $((H * 3 / 4)) $((W / 2)) $((H / 3)) 300; sleep 1
+done
+if [ -n "$c" ]; then adb shell input tap $c; sleep 3; else log "FAIL Language > Melayu not found in Settings"; fi
+shot 30-ms-settings
+tap_id homeSheetBackButton; sleep 1.5; shot 31-ms-home
+if [ -n "$(text_center "Nak pergi mana?")" ]; then log "PASS home shows Malay (Nak pergi mana?)"; else log "FAIL home not in Malay"; fi
+tap_id homeSearchPill && sleep 1.5 && hide_keyboard && shot 32-ms-search
+tap_id homeSheetBackButton; sleep 1.5
 
 sleep 2
 adb shell pkill -INT screenrecord 2>/dev/null; wait "$REC" 2>/dev/null; sleep 2

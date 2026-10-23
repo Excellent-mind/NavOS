@@ -14,6 +14,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
+import com.excellentmindblow.navos.tr
 
 /** One place search hit. label is the full one-line description (name plus
  * locality/district/state), used for saved places. name/address are the
@@ -315,7 +316,7 @@ object GeocodingService {
                 latitude = street.latitude,
                 longitude = street.longitude,
                 name = "$num $streetName",
-                address = if (area.isBlank()) "Approximate location on street" else "Approximate location on street, $area",
+                address = if (area.isBlank()) tr("Approximate location on street", "Lokasi anggaran di jalan") else tr("Approximate location on street, $area", "Lokasi anggaran di jalan, $area"),
                 houseNumber = num,
                 approximate = true,
             )

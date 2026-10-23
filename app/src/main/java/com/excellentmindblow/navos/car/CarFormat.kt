@@ -11,6 +11,7 @@ import androidx.core.graphics.drawable.IconCompat
 import com.excellentmindblow.navos.R
 import com.excellentmindblow.navos.Units
 import java.util.TimeZone
+import com.excellentmindblow.navos.tr
 
 /** Converts NavOS route/step data into Car App Library model objects. */
 object CarFormat {
@@ -53,7 +54,7 @@ object CarFormat {
         val totalMin = Math.round(seconds / 60.0).toInt().coerceAtLeast(1)
         val h = totalMin / 60
         val m = totalMin % 60
-        return if (h > 0) "$h h $m min" else "$m min"
+        return if (h > 0) tr("$h h $m min", "$h j $m min") else "$m min"
     }
 
     fun step(

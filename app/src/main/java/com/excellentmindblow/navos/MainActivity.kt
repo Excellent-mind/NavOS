@@ -520,20 +520,20 @@ class MainActivity : AppCompatActivity() {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastRerouteFailToastMs < 10_000L) return
                 lastRerouteFailToastMs = now
-                Toast.makeText(this@MainActivity, "Can't find a new route - check your connection", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, tr("Can't find a new route - check your connection", "Tak jumpa laluan baru - cek internet anda"), Toast.LENGTH_SHORT).show()
             }
 
             override fun onStopReached(stop: RouteStop) {
                 passedStopNumbers.add(stop.number)
                 activeRoute?.let { renderStopMarkers(it.stops) }
-                val label = stop.name.ifBlank { "stop ${stop.number}" }
-                Toast.makeText(this@MainActivity, "Arrived at $label", Toast.LENGTH_SHORT).show()
+                val label = stop.name.ifBlank { tr("stop ${stop.number}", "hentian ${stop.number}") }
+                Toast.makeText(this@MainActivity, tr("Arrived at $label", "Dah sampai $label"), Toast.LENGTH_SHORT).show()
             }
 
             override fun onStopChangeFailed() {
                 Toast.makeText(
                     this@MainActivity,
-                    "Couldn't change the stops right now - check your GPS and connection",
+                    tr("Couldn't change the stops right now - check your GPS and connection", "Tak dapat tukar hentian sekarang - cek GPS dan internet anda"),
                     Toast.LENGTH_SHORT,
                 ).show()
             }
@@ -676,6 +676,9 @@ class MainActivity : AppCompatActivity() {
             )
         recentPlaces = RecentPlaces(prefs)
         MapDisplayPrefs.load(prefs)
+        // Language (English / Malay) before any text is made.
+        Lang.load(prefs)
+        Lang.applyToApp(prefs)
         driveFollower.driveTilt = if (MapDisplayPrefs.view3d) NAV_TILT_DEGREES else 0.0
         applyAppNightMode()
 
@@ -1225,7 +1228,7 @@ class MainActivity : AppCompatActivity() {
         try {
             startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(this, "No email app found", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, tr("No email app found", "Tiada app emel"), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1240,11 +1243,12 @@ class MainActivity : AppCompatActivity() {
         MaterialAlertDialogBuilder(this)
             .setTitle("NavOS")
             .setMessage(
-                "Version ${BuildConfig.VERSION_NAME}\nPowered by Excellent Mindblow\n\n" +
-                    "Map data \u00A9 OpenStreetMap contributors\nMap tiles by OpenFreeMap \u00A9 OpenMapTiles\n" +
-                    "Places: Overture Maps Foundation (Meta, Foursquare, Microsoft, AllThePlaces)\n" +
-                    "Search: Photon by komoot; backup Photon by OpenRoad\n" +
-                    "Icons: Lucide (ISC)",
+                tr("Version", "Versi") + " ${BuildConfig.VERSION_NAME}\nPowered by Excellent Mindblow\n\n" +
+                    tr("Map data", "Data peta") + " \u00A9 OpenStreetMap contributors\n" +
+                    tr("Map tiles", "Jubin peta") + ": OpenFreeMap \u00A9 OpenMapTiles\n" +
+                    tr("Places", "Tempat") + ": Overture Maps Foundation (Meta, Foursquare, Microsoft, AllThePlaces)\n" +
+                    tr("Search", "Carian") + ": Photon by komoot; " + tr("backup", "sandaran") + " Photon by OpenRoad\n" +
+                    tr("Icons", "Ikon") + ": Lucide (ISC)",
             ).setPositiveButton("OK", null)
             .show()
     }
@@ -1832,7 +1836,7 @@ class MainActivity : AppCompatActivity() {
             speedBadge.visibility = if (MapDisplayPrefs.speedometer) View.VISIBLE else View.GONE
             poiToggleColumn.visibility = View.VISIBLE
         } else if (navMode == NavMode.PREVIEW) {
-            // Backing out of "Add stop" from the route preview.
+            // Backing out of tr("Add stop", "Tambah hentian") from the route preview.
             routePreviewCard.visibility = View.VISIBLE
             routeBackButton.visibility = View.VISIBLE
         }
@@ -1902,14 +1906,14 @@ class MainActivity : AppCompatActivity() {
         val time = SimpleDateFormat("h:mm a", Locale.US).format(arrival)
         val place = destinationName?.takeIf { it.isNotBlank() }
         val text =
-            "I'm on my way" + (if (place != null) " to $place" else "") +
-                " - arriving around $time (${Units.short(state.distanceRemainingMeters)} to go)."
+            tr("I'm on my way", "Saya dalam perjalanan") + (if (place != null) tr(" to $place", " ke $place") else "") +
+                tr(" - arriving around $time (${Units.short(state.distanceRemainingMeters)} to go).", " - sampai lebih kurang $time (lagi ${Units.short(state.distanceRemainingMeters)}).")
         val send =
             Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_TEXT, text)
             }
-        startActivity(Intent.createChooser(send, "Share ETA"))
+        startActivity(Intent.createChooser(send, tr("Share ETA", "Kongsi ETA")))
     }
 
     // ---- Petrol / EV charging pins (active drive) ---------------------------
@@ -1970,11 +1974,11 @@ class MainActivity : AppCompatActivity() {
         if (kind == PoiKind.FUEL) {
             showFuelPins = shown
             prefs.edit().putBoolean(KEY_SHOW_FUEL, shown).apply()
-            onPoiTogglesChanged(if (shown) "Petrol stations shown" else "Petrol stations hidden")
+            onPoiTogglesChanged(if (shown) tr("Petrol stations shown", "Stesen minyak ditunjuk") else tr("Petrol stations hidden", "Stesen minyak disorok"))
         } else {
             showEvPins = shown
             prefs.edit().putBoolean(KEY_SHOW_EV, shown).apply()
-            onPoiTogglesChanged(if (shown) "EV charging shown" else "EV charging hidden")
+            onPoiTogglesChanged(if (shown) tr("EV charging shown", "Cas EV ditunjuk") else tr("EV charging hidden", "Cas EV disorok"))
         }
     }
 
@@ -2102,17 +2106,17 @@ class MainActivity : AppCompatActivity() {
         }
         poiName.text = poi.name
 
-        val kindLabel = if (isFuel) "Petrol station" else "EV charging"
+        val kindLabel = if (isFuel) tr("Petrol station", "Stesen minyak") else tr("EV charging", "Cas EV")
         val here = lastKnownLocation
         poiMeta.text =
             if (here != null) {
                 val meters = GeocodingService.distanceMeters(here.latitude, here.longitude, poi.latitude, poi.longitude)
-                "$kindLabel · ${NavFormat.formatDistance(meters)} away"
+                tr("$kindLabel · ${NavFormat.formatDistance(meters)} away", "$kindLabel · ${NavFormat.formatDistance(meters)} dari sini")
             } else {
                 kindLabel
             }
 
-        val spec = poi.spec
+        val spec = Labels.spec(poi.spec)
         poiSpec.text = spec ?: ""
         poiSpec.visibility = if (spec.isNullOrBlank()) View.GONE else View.VISIBLE
 
@@ -2120,7 +2124,8 @@ class MainActivity : AppCompatActivity() {
         poi.facilities.forEach { facility ->
             val chip =
                 Chip(this).apply {
-                    text = if (facility.listed) "\u2713 ${facility.label}" else "${facility.label}: not listed"
+                    val label = Labels.show(facility.label)
+                    text = if (facility.listed) "\u2713 $label" else tr("$label: not listed", "$label: tiada maklumat")
                     isClickable = false
                     isCheckable = false
                     isFocusable = false
@@ -2170,7 +2175,7 @@ class MainActivity : AppCompatActivity() {
                 java.lang.String.format(java.util.Locale.US, "Pin %.5f, %.5f", latLng.latitude, latLng.longitude),
                 latLng.latitude,
                 latLng.longitude,
-                "Dropped pin",
+                tr("Dropped pin", "Pin diletak"),
                 "",
             )
         showDestinationMarker(latLng)
@@ -2178,7 +2183,7 @@ class MainActivity : AppCompatActivity() {
         poiLogo.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#1EA3EA"))
         poiLogoIcon.setImageResource(R.drawable.ic_place_pin)
         poiLogoIcon.setColorFilter(Color.WHITE)
-        poiName.text = "Dropped pin"
+        poiName.text = tr("Dropped pin", "Pin diletak")
         updatePinMeta(latLng, null)
         poiSpec.visibility = View.GONE
         poiChips.removeAllViews()
@@ -2208,7 +2213,7 @@ class MainActivity : AppCompatActivity() {
         val here = lastKnownLocation
         val away =
             here?.let {
-                "${NavFormat.formatDistance(GeocodingService.distanceMeters(it.latitude, it.longitude, at.latitude, at.longitude))} away"
+                tr("${NavFormat.formatDistance(GeocodingService.distanceMeters(it.latitude, it.longitude, at.latitude, at.longitude))} away", "${NavFormat.formatDistance(GeocodingService.distanceMeters(it.latitude, it.longitude, at.latitude, at.longitude))} dari sini")
             }
         poiMeta.text = listOfNotNull(address?.takeIf { it.isNotBlank() }, away).joinToString(" \u00b7 ")
     }
@@ -2302,8 +2307,13 @@ class MainActivity : AppCompatActivity() {
         // Not set yet - same as Waze's "Set once and go": start a search,
         // and save whatever destination gets picked next under this label.
         pendingSavedPlaceLabel = key
-        val name = if (key == "home") "home" else "work"
-        Toast.makeText(this, "Search your $name address - we'll save it", Toast.LENGTH_LONG).show()
+        val text =
+            if (key == "home") {
+                tr("Search your home address - we'll save it", "Cari alamat rumah - nanti kami simpan")
+            } else {
+                tr("Search your work address - we'll save it", "Cari alamat tempat kerja - nanti kami simpan")
+            }
+        Toast.makeText(this, text, Toast.LENGTH_LONG).show()
         setHomeSheetState(HomeSheetState.SEARCH)
     }
 
@@ -2344,11 +2354,11 @@ class MainActivity : AppCompatActivity() {
             mainHandler.post {
                 if (seq != searchSeq) return@post // a newer search/clear replaced this one
                 if (results == null) {
-                    if (!live) Toast.makeText(this, "Search failed - check your connection", Toast.LENGTH_SHORT).show()
+                    if (!live) Toast.makeText(this, tr("Search failed - check your connection", "Carian gagal - cek internet anda"), Toast.LENGTH_SHORT).show()
                     return@post
                 }
                 if (!live && results.isEmpty()) {
-                    Toast.makeText(this, "No places found", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, tr("No places found", "Tak jumpa tempat"), Toast.LENGTH_SHORT).show()
                 }
                 if (live && results.isNotEmpty()) {
                     lastLiveResults = results
@@ -2446,7 +2456,7 @@ class MainActivity : AppCompatActivity() {
             imm.hideSoftInputFromWindow(activeInput.windowToken, 0)
         }
 
-        // "Add stop" search: the pick becomes a stop on the current trip
+        // tr("Add stop", "Tambah hentian") search: the pick becomes a stop on the current trip
         // instead of replacing it.
         if (addStopTarget != AddStopTarget.NONE) {
             onStopPicked(result)
@@ -2548,7 +2558,7 @@ class MainActivity : AppCompatActivity() {
         val incoming = pendingIncomingIntent ?: return
         pendingIncomingIntent = null
         val raw = IncomingLocation.rawFrom(incoming) ?: return
-        Toast.makeText(this, "Opening location\u2026", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, tr("Opening location\u2026", "Buka lokasi\u2026"), Toast.LENGTH_SHORT).show()
         val bias = lastKnownLocation
         placeSearchExecutor.execute {
             val result: GeocodeResult? =
@@ -2562,7 +2572,7 @@ class MainActivity : AppCompatActivity() {
                                     } catch (e: Exception) {
                                         null
                                     }
-                                    ?: "Shared location"
+                                    ?: tr("Shared location", "Lokasi dikongsi")
                             GeocodeResult(label, target.latitude, target.longitude)
                         }
                         is IncomingLocation.Target.Query ->
@@ -2575,7 +2585,7 @@ class MainActivity : AppCompatActivity() {
             mainHandler.post {
                 if (isDestroyed) return@post
                 if (result == null) {
-                    Toast.makeText(this, "Couldn't read that location", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, tr("Couldn't read that location", "Tak dapat baca lokasi tu"), Toast.LENGTH_LONG).show()
                 } else {
                     onDestinationSelected(result)
                 }
@@ -2673,14 +2683,14 @@ class MainActivity : AppCompatActivity() {
     private fun showCameraInfo(poi: RoadPoi) {
         val limit = poi.maxspeed?.filter { it.isDigit() }?.toIntOrNull()
         val text =
-            "Speed camera - alert zone ${Units.short(CameraZone.RADIUS_M)}" +
-                (if (limit != null) ", limit ${Units.speed(limit.toDouble())} ${Units.speedUnit}" else "")
+            tr("Speed camera - alert zone ${Units.short(CameraZone.RADIUS_M)}", "Kamera laju - zon amaran ${Units.short(CameraZone.RADIUS_M)}") +
+                (if (limit != null) tr(", limit ", ", had ") + "${Units.speed(limit.toDouble())} ${Units.speedUnit}" else "")
         Toast.makeText(this, text, Toast.LENGTH_LONG).show()
     }
 
     /** Tap on a toll plaza: just its name (prices are intentionally not shown). */
     private fun showTollInfo(poi: RoadPoi) {
-        Toast.makeText(this, poi.name.ifBlank { "Toll plaza" }, Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, poi.name.ifBlank { tr("Toll plaza", "Plaza tol") }, Toast.LENGTH_SHORT).show()
     }
 
     // ---- Speed-camera zone (200 m) ------------------------------------
@@ -2714,7 +2724,7 @@ class MainActivity : AppCompatActivity() {
         val cam = approach.camera
         val nearestD = approach.distanceMeters
         val key = poiKey(cam)
-        if (alertedCameraKeys.add(key)) navigationService?.announce("camera-$key", "Speed camera ahead")
+        if (alertedCameraKeys.add(key)) navigationService?.announce("camera-$key", tr("Speed camera ahead", "Ada kamera laju di depan"))
         val limit = cam.maxspeed?.filter { it.isDigit() }?.toIntOrNull()
         val kmh = if (location.hasSpeed()) (location.speed * 3.6).toInt() else 0
         val distance = Units.short(nearestD.coerceAtLeast(10.0))
@@ -3042,7 +3052,7 @@ class MainActivity : AppCompatActivity() {
         val destination = places.lastOrNull() ?: return
         val origin = lastKnownLocation
         if (origin == null) {
-            Toast.makeText(this, "Still waiting for a GPS fix - can't calculate a route yet", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, tr("Still waiting for a GPS fix - can't calculate a route yet", "Masih tunggu GPS - belum boleh cari laluan"), Toast.LENGTH_SHORT).show()
             if (isEdit) tripPlaces = tripRoutedPlaces.toMutableList()
             return
         }
@@ -3051,7 +3061,7 @@ class MainActivity : AppCompatActivity() {
         val destinationPoint = tripPoint(destination)
         val stops = places.dropLast(1).mapIndexed { i, p -> RouteStop(tripPoint(p), p.name, i + 1) }
         val seq = ++tripRequestSeq
-        if (isEdit) routePreviewHint.text = "Updating route..."
+        if (isEdit) routePreviewHint.text = tr("Updating route...", "Kemas kini laluan...")
 
         searchExecutor.execute {
             var routes: List<Route> = emptyList()
@@ -3066,7 +3076,7 @@ class MainActivity : AppCompatActivity() {
                 // A newer edit (or cancelling the trip) already superseded this one.
                 if (seq != tripRequestSeq) return@post
                 if (couldNotAvoid && routes.isNotEmpty()) {
-                    Toast.makeText(this, "The routing server can't avoid tolls or highways yet - showing normal routes", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, tr("The routing server can't avoid tolls or highways yet - showing normal routes", "Server laluan belum boleh elak tol atau highway - tunjuk laluan biasa"), Toast.LENGTH_LONG).show()
                 }
                 if (routes.isNotEmpty()) {
                     tripRoutedPlaces = places
@@ -3084,7 +3094,7 @@ class MainActivity : AppCompatActivity() {
                     // Extra alternatives only exist for a plain A -> B trip.
                     if (stops.isEmpty()) searchMoreRoutes(originPoint, destinationPoint, previewToken)
                 } else if (isEdit) {
-                    Toast.makeText(this, "Couldn't find a route through those stops", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, tr("Couldn't find a route through those stops", "Tak jumpa laluan ikut hentian tu"), Toast.LENGTH_SHORT).show()
                     tripPlaces = tripRoutedPlaces.toMutableList()
                     updateRoutePreviewSummary()
                 } else {
@@ -3092,7 +3102,7 @@ class MainActivity : AppCompatActivity() {
                     followingUser = true
                     homeSheet.visibility = View.VISIBLE
                     setHomeSheetState(HomeSheetState.SEARCH)
-                    Toast.makeText(this, "Couldn't calculate a route to that destination", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, tr("Couldn't calculate a route to that destination", "Tak dapat cari laluan ke tempat tu"), Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -3141,8 +3151,8 @@ class MainActivity : AppCompatActivity() {
         }
 
     /** Builds the multi-stop views in code (no layout changes): the stop list
-     * and "Add stop" button in the route preview card, and the next-stop line
-     * plus "Add stop" / "Skip next stop" buttons in the drive bar. */
+     * and tr("Add stop", "Tambah hentian") button in the route preview card, and the next-stop line
+     * plus tr("Add stop", "Tambah hentian") / tr("Skip next stop", "Langkau hentian seterusnya") buttons in the drive bar. */
     private fun setUpTripUi() {
         val blue = ContextCompat.getColor(this, R.color.navos_blue)
         val secondary = ContextCompat.getColor(this, R.color.navos_text_secondary)
@@ -3193,15 +3203,15 @@ class MainActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(10) }
             setOnClickListener { onClick() }
         }
-        addStopDriveButton = driveButton("Add stop") { enterAddStopSearch(AddStopTarget.ACTIVE) }
-        skipStopDriveButton = driveButton("Skip next stop") { skipNextStopFromDrive() }
+        addStopDriveButton = driveButton(tr("Add stop", "Tambah hentian")) { enterAddStopSearch(AddStopTarget.ACTIVE) }
+        skipStopDriveButton = driveButton(tr("Skip next stop", "Langkau hentian seterusnya")) { skipNextStopFromDrive() }
         val stopAt = bar.indexOfChild(navStopButton)
         bar.addView(addStopDriveButton, stopAt)
         bar.addView(skipStopDriveButton, stopAt + 1)
     }
 
     /** The stop list in the preview card: numbered stops then the destination,
-     * each with move up / move down / remove, plus "Optimize order". Hidden for
+     * each with move up / move down / remove, plus tr("Optimize order", "Susun ikut paling dekat"). Hidden for
      * an ordinary A -> B trip (the destination line shows as before). */
     private fun renderTripStopsPanel() {
         val multi = tripPlaces.size > 1
@@ -3263,7 +3273,7 @@ class MainActivity : AppCompatActivity() {
                 }
             val label =
                 TextView(this).apply {
-                    text = place.name.ifBlank { if (isDestination) "Destination" else "Stop ${i + 1}" }
+                    text = place.name.ifBlank { if (isDestination) tr("Destination", "Destinasi") else tr("Stop ${i + 1}", "Hentian ${i + 1}") }
                     setTextColor(primary)
                     textSize = 16f
                     maxLines = 1
@@ -3272,16 +3282,16 @@ class MainActivity : AppCompatActivity() {
                 }
             row.addView(badge)
             row.addView(label)
-            if (i > 0) row.addView(action("\u25B2", "Move up") { editTrip { it.add(i - 1, it.removeAt(i)) } })
-            if (!isDestination) row.addView(action("\u25BC", "Move down") { editTrip { it.add(i + 1, it.removeAt(i)) } })
-            row.addView(action("\u2715", "Remove") { editTrip { it.removeAt(i) } })
+            if (i > 0) row.addView(action("\u25B2", tr("Move up", "Naik")) { editTrip { it.add(i - 1, it.removeAt(i)) } })
+            if (!isDestination) row.addView(action("\u25BC", tr("Move down", "Turun")) { editTrip { it.add(i + 1, it.removeAt(i)) } })
+            row.addView(action("\u2715", tr("Remove", "Buang")) { editTrip { it.removeAt(i) } })
             tripStopsPanel.addView(row)
         }
 
         if (stopCount >= 2) {
             tripStopsPanel.addView(
                 TextView(this).apply {
-                    text = "Optimize order"
+                    text = tr("Optimize order", "Susun ikut paling dekat")
                     textSize = 14f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                     setTextColor(ContextCompat.getColor(this@MainActivity, R.color.sig_text))
@@ -3308,7 +3318,7 @@ class MainActivity : AppCompatActivity() {
                 tripPoint(destination),
             )
         if (order == stops.indices.toList()) {
-            Toast.makeText(this, "Your stops are already in the shortest order", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, tr("Your stops are already in the shortest order", "Hentian dah tersusun paling dekat"), Toast.LENGTH_SHORT).show()
             return
         }
         editTrip { places ->
@@ -3324,7 +3334,7 @@ class MainActivity : AppCompatActivity() {
             AddStopTarget.PREVIEW -> {
                 if (navMode != NavMode.PREVIEW || tripPlaces.isEmpty()) return
                 if (tripPlaces.size - 1 >= TripPlanner.MAX_STOPS) {
-                    Toast.makeText(this, "A trip can have up to ${TripPlanner.MAX_STOPS} stops", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, tr("A trip can have up to ${TripPlanner.MAX_STOPS} stops", "Satu perjalanan boleh ada sampai ${TripPlanner.MAX_STOPS} hentian"), Toast.LENGTH_SHORT).show()
                     return
                 }
                 if (routeListShowing) setRouteListVisible(false)
@@ -3339,7 +3349,7 @@ class MainActivity : AppCompatActivity() {
             AddStopTarget.ACTIVE -> {
                 if (navMode != NavMode.ACTIVE) return
                 if ((navigationService?.remainingStops()?.size ?: 0) >= TripPlanner.MAX_STOPS) {
-                    Toast.makeText(this, "A trip can have up to ${TripPlanner.MAX_STOPS} stops", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, tr("A trip can have up to ${TripPlanner.MAX_STOPS} stops", "Satu perjalanan boleh ada sampai ${TripPlanner.MAX_STOPS} hentian"), Toast.LENGTH_SHORT).show()
                     return
                 }
                 addStopTarget = target
@@ -3349,7 +3359,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** A place was picked in the "Add stop" search. */
+    /** A place was picked in the tr("Add stop", "Tambah hentian") search. */
     private fun onStopPicked(result: GeocodeResult) {
         val target = addStopTarget
         exitSearchFromNav() // puts the preview card / drive bar back, clears addStopTarget
@@ -3358,7 +3368,7 @@ class MainActivity : AppCompatActivity() {
             AddStopTarget.PREVIEW -> {
                 val pick = tripPoint(result)
                 if (tripPlaces.any { GeoUtils.distanceMeters(tripPoint(it), pick) < 30.0 }) {
-                    Toast.makeText(this, "That place is already on your trip", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, tr("That place is already on your trip", "Tempat tu dah ada dalam perjalanan"), Toast.LENGTH_SHORT).show()
                     return
                 }
                 editTrip { places ->
@@ -3374,7 +3384,7 @@ class MainActivity : AppCompatActivity() {
             }
             AddStopTarget.ACTIVE -> {
                 navigationService?.addStop(RouteStop(tripPoint(result), result.name, 0))
-                Toast.makeText(this, "Adding stop...", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, tr("Adding stop...", "Tambah hentian..."), Toast.LENGTH_SHORT).show()
             }
             AddStopTarget.NONE -> Unit
         }
@@ -3382,7 +3392,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun skipNextStopFromDrive() {
         navigationService?.skipNextStop()
-        Toast.makeText(this, "Skipping next stop...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, tr("Skipping next stop...", "Langkau hentian..."), Toast.LENGTH_SHORT).show()
     }
 
     /** The drive bar's extra buttons: only in the expanded bar, and "Skip next
@@ -3400,7 +3410,7 @@ class MainActivity : AppCompatActivity() {
         if (state == null || stop == null || state.offRoute) {
             nextStopText.visibility = View.GONE
         } else {
-            val title = if (stop.name.isBlank()) "Stop ${stop.number}" else "Stop ${stop.number}: ${stop.name}"
+            val title = if (stop.name.isBlank()) tr("Stop ${stop.number}", "Hentian ${stop.number}") else tr("Stop ${stop.number}: ${stop.name}", "Hentian ${stop.number}: ${stop.name}")
             nextStopText.text =
                 "$title \u2022 ${NavFormat.formatRouteMinutes(state.durationToNextStopSeconds)} \u2022 ${NavFormat.formatTripDistance(state.distanceToNextStopMeters)}"
             nextStopText.visibility = View.VISIBLE
@@ -3731,7 +3741,7 @@ class MainActivity : AppCompatActivity() {
         speedBadge.visibility = if (MapDisplayPrefs.speedometer) View.VISIBLE else View.GONE
         poiToggleColumn.visibility = View.VISIBLE
         turnDistanceText.text = ""
-        turnStreetText.text = "Starting navigation..."
+        turnStreetText.text = tr("Starting navigation...", "Mula navigasi...")
         showTripSummary(route.durationSeconds, route.distanceMeters, etaClockText, etaDetailText)
         navSheetExpanded = false
         navStopButton.visibility = View.GONE
@@ -3995,7 +4005,7 @@ class MainActivity : AppCompatActivity() {
         recenterButton.visibility = View.GONE
         refreshCompassMode()
         if (location == null) {
-            Toast.makeText(this, "Waiting for GPS...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, tr("Waiting for GPS...", "Tunggu GPS..."), Toast.LENGTH_SHORT).show()
             return
         }
         driveFollower.holdCamera(NAV_RECENTER_EASE_MS + 50L)
@@ -4118,7 +4128,7 @@ class MainActivity : AppCompatActivity() {
         at: LatLng,
     ) {
         val label = listOfNotNull(name?.takeIf { it.isNotBlank() }, destinationAddress?.trim()?.takeIf { it.isNotBlank() }).joinToString(", ")
-        val place = GeocodeResult(label.ifBlank { "Saved place" }, at.latitude, at.longitude)
+        val place = GeocodeResult(label.ifBlank { tr("Saved place", "Tempat disimpan") }, at.latitude, at.longitude)
         val keys = arrayOf(SavedPlaces.HOME, SavedPlaces.WORK)
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.save_place)
@@ -4301,7 +4311,7 @@ class MainActivity : AppCompatActivity() {
         // Off the planned route: NavigationService is already fetching a new
         // one (and says "Recalculating"), so show that instead of a turn
         // instruction that no longer applies.
-        turnStreetText.text = if (state.offRoute) "Recalculating…" else state.instruction
+        turnStreetText.text = if (state.offRoute) tr("Recalculating…", "Cari laluan baru…") else state.instruction
 
         showTripSummary(state.durationRemainingSeconds, state.distanceRemainingMeters, etaClockText, etaDetailText)
         updateNextStopLine(state)

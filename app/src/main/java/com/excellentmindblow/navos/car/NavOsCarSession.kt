@@ -28,6 +28,7 @@ import com.excellentmindblow.navos.search.GeocodeResult
 import com.excellentmindblow.navos.search.GeocodingService
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import com.excellentmindblow.navos.tr
 
 /** One Android Auto connection. Owns everything the car screens share. */
 class NavOsCarSession : Session() {
@@ -130,7 +131,7 @@ class NavOsCarSession : Session() {
         destinationName = dest.name
         destinationAddress = dest.address
         if (!link.startNavigation(route)) {
-            toast("Couldn't start navigation. Open NavOS on your phone once, then try again.")
+            toast(tr("Couldn't start navigation. Open NavOS on your phone once, then try again.", "Tak dapat mula navigasi. Buka NavOS di telefon sekali, lepas tu cuba lagi."))
             return
         }
         beginDrive(route)
@@ -142,7 +143,7 @@ class NavOsCarSession : Session() {
             if (s.isNavigating() && !driving) {
                 val route = s.currentRoute()
                 if (destinationName.isBlank()) {
-                    destinationName = route?.steps?.lastOrNull()?.roadName?.takeIf { it.isNotBlank() } ?: "Destination"
+                    destinationName = route?.steps?.lastOrNull()?.roadName?.takeIf { it.isNotBlank() } ?: tr("Destination", "Destinasi")
                 }
                 beginDrive(route)
             }
@@ -199,8 +200,8 @@ class NavOsCarSession : Session() {
             Trip.Builder()
                 .addDestination(
                     Destination.Builder()
-                        .setName(destinationName.ifBlank { "Destination" })
-                        .setAddress(destinationAddress.ifBlank { destinationName.ifBlank { "Destination" } })
+                        .setName(destinationName.ifBlank { tr("Destination", "Destinasi") })
+                        .setAddress(destinationAddress.ifBlank { destinationName.ifBlank { tr("Destination", "Destinasi") } })
                         .build(),
                     CarFormat.estimate(state.distanceRemainingMeters, state.durationRemainingSeconds),
                 )
@@ -225,7 +226,7 @@ class NavOsCarSession : Session() {
                 if (dest != null) {
                     screens.push(RoutePreviewScreen(carContext, this, dest))
                 } else {
-                    toast("Couldn't find that destination.")
+                    toast(tr("Couldn't find that destination.", "Tak jumpa destinasi tu."))
                 }
             }
         }
@@ -251,7 +252,7 @@ class NavOsCarSession : Session() {
         val hit = inQuery ?: inPath
         if (hit != null) {
             val label =
-                q?.substringAfter("(", "")?.substringBefore(")")?.takeIf { it.isNotBlank() } ?: "Destination"
+                q?.substringAfter("(", "")?.substringBefore(")")?.takeIf { it.isNotBlank() } ?: tr("Destination", "Destinasi")
             return GeocodeResult(label, hit.groupValues[1].toDouble(), hit.groupValues[2].toDouble())
         }
         if (!q.isNullOrBlank()) {

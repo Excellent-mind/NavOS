@@ -31,6 +31,7 @@ import com.excellentmindblow.navos.search.SavedPlaces
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.excellentmindblow.navos.tr
 
 // ---------------------------------------------------------------------------
 // Home: search + saved Home/Work
@@ -53,12 +54,12 @@ class HomeScreen(
 
     override fun onGetTemplate(): Template {
         if (!session.hasLocationPermission()) {
-            return MessageTemplate.Builder("NavOS needs location access. Tap Allow, then confirm on your phone.")
+            return MessageTemplate.Builder(tr("NavOS needs location access. Tap Allow, then confirm on your phone.", "NavOS perlu akses lokasi. Tekan Benarkan, lepas tu sahkan di telefon."))
                 .setTitle("NavOS")
                 .setHeaderAction(Action.APP_ICON)
                 .addAction(
                     Action.Builder()
-                        .setTitle("Allow")
+                        .setTitle(tr("Allow", "Benarkan"))
                         .setOnClickListener {
                             carContext.requestPermissions(
                                 listOf(Manifest.permission.ACCESS_FINE_LOCATION),
@@ -73,13 +74,13 @@ class HomeScreen(
         val list = ItemList.Builder()
         list.addItem(
             Row.Builder()
-                .setTitle("Search destination")
+                .setTitle(tr("Search destination", "Cari destinasi"))
                 .setBrowsable(true)
                 .setOnClickListener { screenManager.push(SearchScreen(carContext, session)) }
                 .build(),
         )
         val savedPlaces = SavedPlaces(prefs)
-        for ((key, title) in listOf(SavedPlaces.HOME to "Home", SavedPlaces.WORK to "Work")) {
+        for ((key, title) in listOf(SavedPlaces.HOME to tr("Home", "Rumah"), SavedPlaces.WORK to tr("Work", "Kerja"))) {
             val row = Row.Builder().setTitle(title)
             val saved = savedPlaces.get(key)
             if (saved != null) {
@@ -88,7 +89,7 @@ class HomeScreen(
                 if (label.isNotBlank()) row.addText(label)
                 row.setOnClickListener { screenManager.push(RoutePreviewScreen(carContext, session, dest)) }
             } else {
-                row.addText("Set this on your phone first")
+                row.addText(tr("Set this on your phone first", "Tetapkan di telefon dulu"))
             }
             list.addItem(row.build())
         }
@@ -122,7 +123,7 @@ class SearchScreen(
                 },
             )
                 .setHeaderAction(Action.BACK)
-                .setSearchHint("Where to?")
+                .setSearchHint(tr("Where to?", "Nak pergi mana?"))
                 .setShowKeyboardByDefault(true)
 
         val list = ItemList.Builder()
@@ -132,7 +133,7 @@ class SearchScreen(
             row.setOnClickListener { screenManager.push(RoutePreviewScreen(carContext, session, r)) }
             list.addItem(row.build())
         }
-        if (results.isEmpty()) list.setNoItemsMessage("Type a place or address")
+        if (results.isEmpty()) list.setNoItemsMessage(tr("Type a place or address", "Taip tempat atau alamat"))
         return builder.setItemList(list.build()).build()
     }
 
@@ -183,7 +184,7 @@ class RoutePreviewScreen(
         error = null
         val origin: Location? = session.currentLocation()
         if (origin == null) {
-            error = "Waiting for a GPS fix. Check that location is on."
+            error = tr("Waiting for a GPS fix. Check that location is on.", "Tunggu GPS. Pastikan lokasi dihidupkan.")
             return
         }
         session.executor.execute {
@@ -198,7 +199,7 @@ class RoutePreviewScreen(
                 }
             session.runOnMain {
                 route = routes.firstOrNull()
-                if (route == null) error = "Couldn't find a route. Check your connection."
+                if (route == null) error = tr("Couldn't find a route. Check your connection.", "Tak jumpa laluan. Cek internet anda.")
                 invalidate()
             }
         }
@@ -211,7 +212,7 @@ class RoutePreviewScreen(
                 .setHeaderAction(Action.BACK)
                 .addAction(
                     Action.Builder()
-                        .setTitle("Retry")
+                        .setTitle(tr("Retry", "Cuba lagi"))
                         .setOnClickListener {
                             load()
                             invalidate()
@@ -228,13 +229,13 @@ class RoutePreviewScreen(
                 .build()
 
         val eta = SimpleDateFormat("h:mm a", Locale.US).format(Date(System.currentTimeMillis() + (r.durationSeconds * 1000).toLong()))
-        val summary = "Arrive $eta  •  ${Units.short(r.distanceMeters)}  •  ${CarFormat.duration(r.durationSeconds)}"
+        val summary = tr("Arrive $eta  •  ${Units.short(r.distanceMeters)}  •  ${CarFormat.duration(r.durationSeconds)}", "Sampai $eta  •  ${Units.short(r.distanceMeters)}  •  ${CarFormat.duration(r.durationSeconds)}")
         return MessageTemplate.Builder(summary)
             .setTitle(dest.name)
             .setHeaderAction(Action.BACK)
             .addAction(
                 Action.Builder()
-                    .setTitle("Start")
+                    .setTitle(tr("Start", "Mula"))
                     .setOnClickListener { session.startDrive(r, dest) }
                     .build(),
             )
@@ -273,7 +274,7 @@ class DriveScreen(
             ActionStrip.Builder()
                 .addAction(
                     Action.Builder()
-                        .setTitle("End")
+                        .setTitle(tr("End", "Tamat"))
                         .setOnClickListener { session.endDrive() }
                         .build(),
                 )
@@ -286,7 +287,7 @@ class DriveScreen(
         val s = state
         when {
             s == null -> builder.setNavigationInfo(RoutingInfo.Builder().setLoading(true).build())
-            s.offRoute -> builder.setNavigationInfo(MessageInfo.Builder("Recalculating…").build())
+            s.offRoute -> builder.setNavigationInfo(MessageInfo.Builder(tr("Recalculating…", "Cari laluan baru…")).build())
             else -> {
                 val routing =
                     RoutingInfo.Builder()
@@ -354,7 +355,7 @@ class DriveScreen(
 }
 
 // ---------------------------------------------------------------------------
-// Arrival: same "Yes, I've arrived" confirmation as the phone card
+// Arrival: same tr("Yes, I've arrived", "Ya, dah sampai") confirmation as the phone card
 // ---------------------------------------------------------------------------
 
 class ArrivalScreen(
@@ -364,10 +365,10 @@ class ArrivalScreen(
     override fun onGetTemplate(): Template {
         val name = session.destinationName.ifBlank { "your destination" }
         return MessageTemplate.Builder(name)
-            .setTitle("You've arrived")
+            .setTitle(tr("You've arrived", "Dah sampai"))
             .addAction(
                 Action.Builder()
-                    .setTitle("Yes, I've arrived")
+                    .setTitle(tr("Yes, I've arrived", "Ya, dah sampai"))
                     .setOnClickListener {
                         session.renderer.clearRoute()
                         screenManager.popToRoot()

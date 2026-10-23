@@ -7,6 +7,7 @@ import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.routing.RouteStep
 import java.util.Locale
+import com.excellentmindblow.navos.tr
 
 /**
  * Decides which 3D signs stand along a route and where, from the route's own
@@ -158,7 +159,7 @@ object SignPlanner {
         prev: RouteStep,
     ): SignContent.Direction {
         val arrow = arrowOf(step.modifier)
-        val lines = targetLines(step).ifEmpty { listOf(SignLine(step.roadName.ifBlank { "Exit" })) }
+        val lines = targetLines(step).ifEmpty { listOf(SignLine(step.roadName.ifBlank { tr("Exit", "Keluar") })) }
         val green = isExpressway(prev.ref) || lines.any { line -> line.shields.any { isExpressway(it) } } || step.exits != null
         val lit = SignPanel(lines, arrow, lit = true, expressway = green)
         // The way you are NOT taking: staying on the road you are on.
@@ -203,7 +204,7 @@ object SignPlanner {
         if (sweep <= 0.0) sweep += 360.0
         val n = step.roundaboutExit
         val others = (1 until n).map { k -> norm(180.0 + sweep * k / n) }
-        val label = targetLines(step).firstOrNull() ?: SignLine(step.roadName.ifBlank { "Exit $n" })
+        val label = targetLines(step).firstOrNull() ?: SignLine(step.roadName.ifBlank { tr("Exit $n", "Keluar $n") })
         return SignContent.Roundabout(norm(exitAngle), others, label)
     }
 

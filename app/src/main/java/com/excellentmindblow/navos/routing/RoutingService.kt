@@ -6,6 +6,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
+import com.excellentmindblow.navos.tr
 
 /** One lane at the intersection where this step's maneuver happens.
  * indications are OSRM's turn-direction vocabulary (e.g. "left",
@@ -563,7 +564,7 @@ object RoutingService {
     ): String {
         val number = stop?.number ?: (legIndex + 1)
         val name = stop?.name.orEmpty().trim()
-        return if (name.isBlank()) "Arrive at stop $number" else "Arrive at stop $number: $name"
+        return if (name.isBlank()) tr("Arrive at stop $number", "Sampai hentian $number") else tr("Arrive at stop $number: $name", "Sampai hentian $number: $name")
     }
 
     /**
