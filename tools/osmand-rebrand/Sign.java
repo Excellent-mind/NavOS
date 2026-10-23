@@ -41,6 +41,7 @@ public class Sign {
                 .setOutputApk(new File(args[1]))
                 .setMinSdkVersion(24)
                 .setV2SigningEnabled(true)
+                .setV1SigningEnabled(false)  // minSdk 24 reads v2+; v1 only adds ~1.4 MB of per-file hashes
                 .setV3SigningEnabled(true)
                 .build()
                 .sign();

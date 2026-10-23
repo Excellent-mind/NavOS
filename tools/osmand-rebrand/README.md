@@ -150,3 +150,30 @@ renderer uses.
 Links stay as they are, so osmand.net and GitHub links still work. So do
 identifiers nobody sees: the user agent OsmAnd's servers check, the GPX
 creator tag, log tags and resource names.
+
+## NavOS's own UI code (`java/`, `navui.py`)
+
+`rebrand.sh` compiles `java/src` with the Android SDK's `d8` and adds it to
+the APK as an extra dex. `java/stubs` holds compile-only stand-ins for the
+OsmAnd classes it calls; they aren't packaged. `navui.py` hooks the code in.
+
+- **Main menu (`NavMenuSheet`):** the main menu is a bottom sheet instead
+  of the side drawer. Profile chips (Car, Walk, Bike…) sit on top, and
+  OsmAnd's menu items follow as a grid of rounded icon tiles, grouped as
+  in the drawer. Items press-scale for feedback. Every item still runs
+  OsmAnd's own action. The old drawer stays locked closed, so an edge
+  swipe can't open it.
+
+## Smaller APK (`slim.py`)
+
+From about 160 MB to about 90 MB, without touching the map engine or
+OsmAnd's data formats:
+
+- **World overview map (40 MB):** removed from the APK. It's downloadable
+  in Maps & Resources like any other map.
+- **Translations:** only English, Malay, Chinese and Tamil stay (the text
+  table drops from 34 MB to 6 MB). The script stops if a removed language
+  folder held anything not defined elsewhere.
+- **Images:** one xxhdpi bitmap per image instead of five densities.
+  Launcher icons keep every size.
+- **Signature:** v2/v3 only (minSdk 24), without the old v1 per-file hashes.

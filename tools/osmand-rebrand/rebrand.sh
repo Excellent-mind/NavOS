@@ -10,7 +10,8 @@
 # KEY_PASSWORD) set, signs with that key - use the same key every time, or
 # phones refuse the update. Without them, makes a throwaway test key in OUT_DIR.
 #
-# Needs: Java 17+, Maven, Python 3 with Pillow, numpy, scikit-image, fonttools, curl.
+# Needs: Java 17+, Maven, an Android SDK (a platform + build-tools, for d8),
+# Python 3 with Pillow, numpy, scikit-image, fonttools, curl.
 set -euo pipefail
 
 ABI="${1:-arm64-v8a}"
@@ -68,6 +69,23 @@ python3 "$HERE/rebrand.py" "$WORK" "$APP_ID"
 echo "== Restyling (NavOS design)"
 python3 "$HERE/restyle.py" "$WORK"
 python3 "$HERE/mapstyle.py" "$WORK"
+
+echo "== NavOS UI code (bottom-sheet menu)"
+SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/android-sdk}}"
+ANDROID_JAR="$(ls -d "$SDK"/platforms/android-*/android.jar | sort -V | tail -1)"
+D8="$(ls -d "$SDK"/build-tools/*/d8 | sort -V | tail -1)"
+[ -f "$ANDROID_JAR" ] && [ -x "$D8" ] || { echo "needs an Android SDK with a platform and build-tools (ANDROID_HOME)" >&2; exit 1; }
+JBUILD="$OUT/java-build"
+rm -rf "$JBUILD" && mkdir -p "$JBUILD/stubs" "$JBUILD/classes" "$JBUILD/dex"
+javac -nowarn -source 11 -target 11 -cp "$ANDROID_JAR" -d "$JBUILD/stubs" $(find "$HERE/java/stubs" -name '*.java')
+javac -nowarn -source 11 -target 11 -cp "$ANDROID_JAR:$JBUILD/stubs" -d "$JBUILD/classes" $(find "$HERE/java/src" -name '*.java')
+"$D8" --min-api 24 --lib "$ANDROID_JAR" --classpath "$JBUILD/stubs" --output "$JBUILD/dex" $(find "$JBUILD/classes" -name '*.class')
+NEXT_DEX="smali_classes$(( $(ls -d "$WORK"/smali_classes* | wc -l) + 2 ))"
+java -cp "$LIB/*" com.android.tools.smali.baksmali.Main d -o "$WORK/$NEXT_DEX" "$JBUILD/dex/classes.dex"
+python3 "$HERE/navui.py" "$WORK"
+
+echo "== Slimming"
+python3 "$HERE/slim.py" "$WORK"
 
 echo "== Building"
 UNSIGNED="$OUT/unsigned-$ABI.apk"
