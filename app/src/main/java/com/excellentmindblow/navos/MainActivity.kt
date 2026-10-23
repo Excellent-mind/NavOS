@@ -770,6 +770,10 @@ class MainActivity : AppCompatActivity() {
             )
         recentPlaces = RecentPlaces(prefs)
         tripHabits = TripHabits(prefs)
+        // Toll fares for the route cards; re-render once the table is read.
+        com.excellentmindblow.navos.routing.TollFares.load(this) {
+            mainHandler.post { if (navMode == NavMode.PREVIEW) updateRoutePreviewSummary() }
+        }
         searchPicks = SearchPicks(prefs)
         MapDisplayPrefs.load(prefs)
         // Language (English / Malay) before any text is made.
@@ -3623,8 +3627,18 @@ class MainActivity : AppCompatActivity() {
                 routeLightCounts[i],
                 routeStrips[i],
                 routeTraffic[i]?.second,
+                tollEstimate(i),
             )
         }
+
+    /** What route [i]'s tolls cost: its plazas in the order they're passed (see [TollPricer]). */
+    private fun tollEstimate(i: Int): com.excellentmindblow.navos.routing.TollEstimate? {
+        val pricer = com.excellentmindblow.navos.routing.TollFares.pricer ?: return null
+        val strip = routeStrips[i] ?: return null
+        val names = strip.marks.filter { it.kind == TripStrip.Kind.TOLL }.map { it.name }
+        if (names.isEmpty()) return null
+        return pricer.price(names)
+    }
 
     /** The "All routes" screen: every route as a card, quickest first; tap one to pick it. */
     private fun renderRouteList() {

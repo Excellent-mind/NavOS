@@ -25,6 +25,10 @@ data class RouteChoice(
     val deltaSeconds: Double? = null,
     /** Other routes: the selected route's toll count, to say "No tolls" / "1 fewer toll". */
     val selectedTolls: Int? = null,
+    /** What the tolls cost (car), or null when not known. */
+    val toll: com.excellentmindblow.navos.routing.TollEstimate? = null,
+    /** Other routes: what the selected route's tolls cost, for "RM 4.20 less toll". */
+    val selectedToll: com.excellentmindblow.navos.routing.TollEstimate? = null,
 )
 
 /** One line about live traffic on a route. */
@@ -48,6 +52,7 @@ object RouteChoices {
         val lights: Int? = null,
         val strip: TripStrip.Strip? = null,
         val traffic: TrafficNote? = null,
+        val toll: com.excellentmindblow.navos.routing.TollEstimate? = null,
     )
 
     /**
@@ -77,6 +82,8 @@ object RouteChoices {
                 traffic = r.traffic,
                 deltaSeconds = if (sel == null || i == selected) null else r.durationSeconds - sel.durationSeconds,
                 selectedTolls = if (i == selected) null else sel?.tolls,
+                toll = r.toll,
+                selectedToll = if (i == selected) null else sel?.toll,
             )
         }
     }

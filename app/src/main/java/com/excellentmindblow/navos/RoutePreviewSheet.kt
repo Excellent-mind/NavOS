@@ -112,11 +112,14 @@ class RoutePreviewSheet(
         row.findViewById<View>(R.id.choiceFastest).visibility = if (choice.fastest) View.VISIBLE else View.GONE
 
         val tolls = row.findViewById<TextView>(R.id.choiceTolls)
+        val fare = choice.toll?.takeIf { it.totalSen > 0 }
         val tollText =
-            when (choice.tolls) {
-                null -> null
-                0 -> context.getString(R.string.no_tolls)
-                1 -> context.getString(R.string.one_toll)
+            when {
+                choice.tolls == null -> null
+                choice.tolls == 0 -> context.getString(R.string.no_tolls)
+                // The fare when it is known ("+" when a plaza couldn't be priced).
+                fare != null -> tr("Toll ", "Tol ") + com.excellentmindblow.navos.routing.TollPricer.format(fare.totalSen) + if (fare.unpriced > 0) "+" else ""
+                choice.tolls == 1 -> context.getString(R.string.one_toll)
                 else -> context.getString(R.string.n_tolls, choice.tolls)
             }
         tolls.text = tollText
@@ -189,7 +192,17 @@ class RoutePreviewSheet(
             } else {
                 tr("${selTolls - tolls} fewer toll" + if (selTolls - tolls > 1) "s" else "", "${selTolls - tolls} tol kurang")
             }
-        return listOfNotNull(time, tollText).joinToString(" · ")
+        // Cheaper tolls than the selected route (both fully priced).
+        val mine = choice.toll
+        val theirs = choice.selectedToll
+        val cheaper =
+            if (tollText == null && mine != null && theirs != null && mine.unpriced == 0 && theirs.unpriced == 0 && theirs.totalSen - mine.totalSen >= 50) {
+                val less = com.excellentmindblow.navos.routing.TollPricer.format(theirs.totalSen - mine.totalSen)
+                tr("$less less toll", "tol kurang $less")
+            } else {
+                null
+            }
+        return listOfNotNull(time, tollText ?: cheaper).joinToString(" · ")
     }
 
     // ---- The selected route's trip block -------------------------------------
