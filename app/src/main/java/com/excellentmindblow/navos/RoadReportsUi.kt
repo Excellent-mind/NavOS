@@ -143,10 +143,15 @@ class RoadReportsUi(
             return
         }
         val passed = current
-        current = null
-        if (passed != null && progress - passed.atM in PASSED_M..ASK_UNTIL_M) {
-            val id = passed.report.id
-            if (id !in mine && id !in voted) {
+        if (passed != null) {
+            val behind = progress - passed.atM
+            // Alongside it: keep the banner up until it is properly behind.
+            if (behind < PASSED_M) {
+                show(passed, progress)
+                return
+            }
+            current = null
+            if (behind <= ASK_UNTIL_M && passed.report.id !in mine && passed.report.id !in voted) {
                 askStillThere(passed.report)
                 return
             }

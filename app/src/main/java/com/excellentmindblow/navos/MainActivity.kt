@@ -188,7 +188,7 @@ private const val SHEET_BOUNCE_FLING_PX_S = 1500f
 // Below this tracked speed, a gesture shorter than FLICK_FALLBACK_MAX_MS is
 // judged by its average speed instead (see onHomeSheetDragTouch).
 private const val FLICK_FALLBACK_MIN_PX_S = 300f
-private const val FLICK_FALLBACK_MAX_MS = 300L
+private const val FLICK_FALLBACK_MAX_MS = 500L
 private const val SNAP_MAX_METERS = 35.0 // beyond this the fix isn't "on" the route
 private const val SNAP_LOOKAHEAD_SEGMENTS = 150
 private const val SNAP_LOOKBACK_SEGMENTS = 5
@@ -561,7 +561,7 @@ class MainActivity : AppCompatActivity() {
                 maybeFetchPois(location)
                 refreshPoiPinsAlongRoute()
                 checkCameraZone(location)
-                roadReportsUi.onProgress()
+                if (::roadReportsUi.isInitialized) roadReportsUi.onProgress()
                 val currentKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
                 lastSpeedKmh = currentKmh
                 updateSpeedLimit(location, currentKmh)
@@ -621,8 +621,8 @@ class MainActivity : AppCompatActivity() {
                 trafficLayer.start(route)
                 renderPoiPins() // stations on the new route only
                 loadActiveRoutePois(route)
-                runCatching { routeOfflineCache.save(route, mapStyleUrl()) }
-                roadReportsUi.start()
+                runCatching { routeOfflineCache.save(route, mapStyleUrl(), newDrive = false) }
+                if (::roadReportsUi.isInitialized) roadReportsUi.start()
                 renderedCalloutStep = -1
                 renderTurnCallouts(1)
                 nextTurnsRenderedIndex = -1
@@ -4161,7 +4161,7 @@ class MainActivity : AppCompatActivity() {
         tripPlaces.lastOrNull()?.let { tripHabits.record(it) }
         // Offline safety net: the map along the route, for tunnels / dead zones.
         runCatching { routeOfflineCache.save(route, mapStyleUrl()) }
-        roadReportsUi.start()
+        if (::roadReportsUi.isInitialized) roadReportsUi.start()
 
         navMode = NavMode.ACTIVE
         driveFollower.resetArrowHeading()
@@ -4618,7 +4618,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun endActiveNavigation() {
         navMode = NavMode.IDLE
-        roadReportsUi.stop()
+        if (::roadReportsUi.isInitialized) roadReportsUi.stop()
         arrivalCardShowing = false
         arrivalCard.animate().cancel()
         arrivalCard.visibility = View.GONE

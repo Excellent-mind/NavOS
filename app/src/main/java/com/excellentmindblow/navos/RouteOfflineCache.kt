@@ -28,13 +28,21 @@ class RouteOfflineCache(
     private val manager by lazy { OfflineManager.getInstance(app) }
     private val pixelRatio = context.resources.displayMetrics.density
 
-    /** Starts saving the map along [route] (main thread). */
+    private var lastSaveMs = 0L
+
+    /** Starts saving the map along [route] (main thread). A reroute soon
+     * after the last save is skipped: the new route mostly shares those
+     * tiles, and town reroutes come often (mobile data). */
     fun save(
         route: Route,
         styleUrl: String,
+        newDrive: Boolean = true,
     ) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!newDrive && now - lastSaveMs < MIN_RESAVE_MS) return
         val line = corridor(route.geometry)
         if (line.size < 2) return
+        lastSaveMs = now
         val definition =
             OfflineGeometryRegionDefinition(
                 styleUrl,
@@ -115,6 +123,7 @@ class RouteOfflineCache(
         const val MIN_ZOOM = 11.0
         const val MAX_ZOOM = 15.0
         const val MAX_KM = 200.0
+        private const val MIN_RESAVE_MS = 5 * 60_000L
         private const val LOG = "NavOSOffline"
         private val TAG_BYTES = "navos-route".toByteArray()
 
