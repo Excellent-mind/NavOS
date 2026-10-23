@@ -189,10 +189,32 @@ object PoiService {
         return parseTransit(overpass(query), lat, lon)
     }
 
+    /** Stations with a Park & Ride car park within [radiusM] of the route
+     * ([points], thinned to at most ~120), with their lines. Blocking. */
+    fun fetchParkAndRideAlong(
+        points: List<com.excellentmindblow.navos.routing.RoutePoint>,
+        radiusM: Int = 1500,
+    ): List<Poi> {
+        if (points.isEmpty()) return emptyList()
+        val step = (points.size / 120).coerceAtLeast(1)
+        val line = points.filterIndexed { i, _ -> i % step == 0 }.joinToString(",") { "%.5f,%.5f".format(java.util.Locale.ROOT, it.latitude, it.longitude) }
+        val query =
+            "[out:json][timeout:40];" +
+                "nwr[\"amenity\"=\"parking\"][\"park_and_ride\"~\"yes|train\"](around:$radiusM,$line)->.pk;.pk out center tags;" +
+                "(nwr[\"railway\"=\"station\"](around.pk:$PARK_AND_RIDE_M);" +
+                "nwr[\"public_transport\"=\"station\"][\"bus\"!=\"yes\"](around.pk:$PARK_AND_RIDE_M);)->.st;.st out center tags;" +
+                "(node(around.st:250)[\"public_transport\"=\"stop_position\"];node(around.st:250)[\"railway\"=\"stop\"];)->.stops;" +
+                ".stops out skel;" +
+                "rel(bn.stops)[\"route\"~\"^(subway|light_rail|monorail|train)$\"];out body;"
+        val first = points.first()
+        return parseTransit(overpass(query), first.latitude, first.longitude, limit = 40).filter { it.parkAndRide != null }
+    }
+
     internal fun parseTransit(
         body: String,
         originLat: Double,
         originLon: Double,
+        limit: Int = MAX_STATIONS,
     ): List<Poi> {
         val array = JSONObject(body).optJSONArray("elements") ?: return emptyList()
         class Station(
@@ -265,7 +287,7 @@ object PoiService {
         }
         return stations
             .sortedBy { near(originLat, originLon, it.lat, it.lon) }
-            .take(MAX_STATIONS)
+            .take(limit)
             .map { st ->
                 Poi(
                     id = st.id,

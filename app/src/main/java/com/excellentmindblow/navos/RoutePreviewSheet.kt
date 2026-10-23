@@ -51,6 +51,31 @@ class RoutePreviewSheet(
         hint.visibility = if (hintText.isBlank()) View.GONE else View.VISIBLE
     }
 
+    private val parkRide: View = root.findViewById(R.id.routeParkRide)
+
+    /** The Park & ride suggestion under the route cards, or none. Tap = drive to its car park. */
+    fun showParkRide(
+        plan: com.excellentmindblow.navos.poi.ParkAndRidePlanner.Plan?,
+        onTap: () -> Unit,
+    ) {
+        if (plan == null) {
+            parkRide.visibility = View.GONE
+            return
+        }
+        fun min(s: Double) = Math.round(s / 60.0).toInt().coerceAtLeast(1)
+        parkRide.findViewById<TextView>(R.id.routeParkRideTitle).text =
+            tr("Park & ride · about ${NavFormat.formatRouteMinutes(plan.totalS)}", "Park & ride · lebih kurang ${NavFormat.formatRouteMinutes(plan.totalS)}")
+        parkRide.findViewById<TextView>(R.id.routeParkRideSaving).text = tr("save ${min(plan.savedS)} min", "jimat ${min(plan.savedS)} min")
+        parkRide.findViewById<TextView>(R.id.routeParkRideSteps).text =
+            tr(
+                "Drive ${min(plan.driveS)} min · park at ${plan.from.name} · ${plan.line.badge} train ~${min(plan.trainS)} min to ${plan.to.name} · walk ${min(plan.walkS)} min",
+                "Pandu ${min(plan.driveS)} min · parking di ${plan.from.name} · tren ${plan.line.badge} ~${min(plan.trainS)} min ke ${plan.to.name} · jalan ${min(plan.walkS)} min",
+            )
+        parkRide.contentDescription = null
+        parkRide.setOnClickListener { onTap() }
+        parkRide.visibility = View.VISIBLE
+    }
+
     /** Every route, quickest first (the "All routes" screen). */
     fun renderAll(choices: List<RouteChoice>) {
         allList.removeAllViews()

@@ -106,6 +106,7 @@ import com.excellentmindblow.navos.search.PlaceTileStore
 import com.excellentmindblow.navos.search.IncomingLocation
 import com.excellentmindblow.navos.search.RecentPlaces
 import com.excellentmindblow.navos.search.SavedPlaces
+import com.excellentmindblow.navos.poi.ParkAndRidePlanner
 import com.excellentmindblow.navos.search.SearchPicks
 import com.excellentmindblow.navos.traffic.RoadReports
 import com.excellentmindblow.navos.search.TripHabits
@@ -215,6 +216,9 @@ private const val KEY_SHOW_FUEL = "show_fuel_pins"
 private const val KEY_SHOW_EV = "show_ev_pins"
 private const val KEY_SHOW_PARKING = "show_parking_pins"
 private const val KEY_SHOW_TRANSIT = "show_transit_pins"
+
+/** Park & ride is only worth looking at for trips at least this long. */
+private const val PARK_RIDE_MIN_TRIP_M = 8_000.0
 private const val FUEL_COLOR = "#E8710A"
 private const val EV_COLOR = "#12A150"
 
@@ -3441,6 +3445,23 @@ class MainActivity : AppCompatActivity() {
                 if (routeListShowing) renderRouteList()
             }
         }
+        // Park & ride: stations near the destination, then Park & Ride car parks along the way.
+        val first = routes.firstOrNull()
+        if (first != null && first.distanceMeters >= PARK_RIDE_MIN_TRIP_M) {
+            lightsExecutor.execute {
+                val dest = first.geometry.lastOrNull() ?: return@execute
+                val alight = runCatching { PoiService.fetchTransit(dest.latitude, dest.longitude) }.getOrNull()?.filter { it.lines.isNotEmpty() }
+                if (alight.isNullOrEmpty()) return@execute
+                val board = runCatching { PoiService.fetchParkAndRideAlong(first.geometry) }.getOrNull()
+                if (board.isNullOrEmpty()) return@execute
+                mainHandler.post {
+                    if (token != previewToken || navMode != NavMode.PREVIEW) return@post
+                    parkRideBoard = board
+                    parkRideAlight = alight
+                    updateRoutePreviewSummary()
+                }
+            }
+        }
     }
 
     /** Traffic lights on each previewed route, once looked up. */
@@ -3451,6 +3472,11 @@ class MainActivity : AppCompatActivity() {
 
     /** Live traffic on each previewed route: slow / jammed stretches and the one-line note. */
     private val routeTraffic = HashMap<Int, Pair<List<TripStrip.Traffic>, TrafficNote?>>()
+
+    /** Park & ride candidates for this preview: stations with Park & Ride along
+     * the way, and stations near the destination (see [ParkAndRidePlanner]). */
+    private var parkRideBoard: List<Poi> = emptyList()
+    private var parkRideAlight: List<Poi> = emptyList()
 
     /** Road reports on each previewed route (accident, police, ...). */
     private val routeReports = HashMap<Int, List<RoadReports.OnRoute>>()
@@ -3761,6 +3787,8 @@ class MainActivity : AppCompatActivity() {
                     routeLeaveAdvice.clear()
                     routeTraffic.clear()
                     routeReports.clear()
+                    parkRideBoard = emptyList()
+                    parkRideAlight = emptyList()
                     routeStrips.clear()
                     routeLightCounts.clear()
                     destinationName = destination.name
@@ -4261,6 +4289,23 @@ class MainActivity : AppCompatActivity() {
             destinationAddress = destinationAddress,
             hintText = hint,
         )
+        val plan =
+            if (parkRideBoard.isEmpty() || parkRideAlight.isEmpty() || selected.geometry.size < 2) {
+                null
+            } else {
+                ParkAndRidePlanner.best(
+                    RouteTrack(selected.geometry),
+                    selected.durationSeconds + (routeTraffic[selectedRouteIndex]?.second?.delaySeconds ?: 0.0),
+                    selected.geometry.last(),
+                    parkRideBoard,
+                    parkRideAlight,
+                )
+            }
+        routePreviewSheet.showParkRide(plan) {
+            val park = plan?.from?.parkAndRide ?: return@showParkRide
+            // Drive to the car park; the train part is up to the driver from there.
+            onDestinationSelected(GeocodeResult(tr("Park & Ride ${plan.from.name}", "Park & Ride ${plan.from.name}"), park.latitude, park.longitude))
+        }
         if (routeListShowing) renderRouteList()
         renderTripStopsPanel()
     }
@@ -4369,6 +4414,8 @@ class MainActivity : AppCompatActivity() {
         routeLeaveAdvice.clear()
         routeTraffic.clear()
         routeReports.clear()
+        parkRideBoard = emptyList()
+        parkRideAlight = emptyList()
         routeStrips.clear()
         routeLightCounts.clear()
         hideRouteChooser()
