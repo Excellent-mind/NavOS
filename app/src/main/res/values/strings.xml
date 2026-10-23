@@ -84,4 +84,5 @@
     <string name="side_right">Destination is on your right</string>
     <string name="side_left">Destination is on your left</string>
     <string name="side_ahead">Destination is straight ahead</string>
+    <string name="settings_footer">NavOS %1$s · Powered by Excellent Mindblow</string>
 </resources>

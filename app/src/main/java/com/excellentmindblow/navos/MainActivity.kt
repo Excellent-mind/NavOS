@@ -48,7 +48,6 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
-import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -312,7 +311,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var searchScreen: SearchScreen
     private lateinit var prefs: SharedPreferences
     private lateinit var savedPlaces: SavedPlaces
-    private lateinit var settingsDialogs: SettingsDialogs
+    private lateinit var settingsScreen: SettingsScreen
     private lateinit var recentPlaces: RecentPlaces
     private lateinit var nextTurnStrip: View
     private lateinit var laneContainer: LinearLayout
@@ -638,11 +637,11 @@ class MainActivity : AppCompatActivity() {
         // before super.onCreate so the first inflate already uses it.
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         savedPlaces = SavedPlaces(prefs)
-        settingsDialogs =
-            SettingsDialogs(
+        settingsScreen =
+            SettingsScreen(
                 this,
                 prefs,
-                object : SettingsDialogs.Host {
+                object : SettingsScreen.Host {
                     override fun currentMapStyleMode() = mapStyleMode()
 
                     override fun onMapStyleModeChosen(mode: String) = this@MainActivity.onMapStyleModeChosen(mode)
@@ -659,6 +658,14 @@ class MainActivity : AppCompatActivity() {
                         kind: PoiKind,
                         shown: Boolean,
                     ) = this@MainActivity.setPoiKindShown(kind, shown)
+
+                    override fun isVoiceOn() = prefs.getBoolean(KEY_VOICE_ENABLED, true)
+
+                    override fun setVoiceOn(on: Boolean) = setVoiceGuidance(on)
+
+                    override fun onHelp() = openHelp()
+
+                    override fun onAbout() = showAbout()
                 },
             )
         recentPlaces = RecentPlaces(prefs)
@@ -844,7 +851,6 @@ class MainActivity : AppCompatActivity() {
         setUpRouteControls()
         setUpSettings()
         setUpSavedPlaces()
-        setUpSettingsExtras()
         setUpImeInsetHandling()
         setUpPressFeedback()
     }
@@ -1091,20 +1097,14 @@ class MainActivity : AppCompatActivity() {
     private fun setUpSettings() {
         Units.load(prefs)
         RoutePrefs.load(prefs)
-        findViewById<View>(R.id.navPrefsRow).setOnClickListener { settingsDialogs.showNavPreferences() }
-        findViewById<Switch>(R.id.voiceGuidanceSwitch).apply {
-            isChecked = prefs.getBoolean(KEY_VOICE_ENABLED, true)
-            setOnCheckedChangeListener { _, isChecked -> setVoiceGuidance(isChecked) }
-        }
-
-        findViewById<View>(R.id.navMapDisplayRow).setOnClickListener { settingsDialogs.showMapDisplay() }
+        settingsScreen.build(findViewById(R.id.homeSettingsList))
     }
 
     /** Voice guidance on/off - from the Settings switch or the drive screen's mute button. */
     private fun setVoiceGuidance(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_VOICE_ENABLED, enabled).apply()
         navigationService?.setVoiceEnabled(enabled)
-        findViewById<Switch>(R.id.voiceGuidanceSwitch)?.let { if (it.isChecked != enabled) it.isChecked = enabled }
+        if (::settingsScreen.isInitialized) settingsScreen.syncVoice(enabled)
         if (::muteButton.isInitialized) styleMuteButton()
     }
 
@@ -1208,32 +1208,30 @@ class MainActivity : AppCompatActivity() {
         applyMapStyle(loadedMap, mapStyleUrl(), isRestyle = true)
     }
 
-    /** Placeholder settings-body rows (help/about) - there's no account/
-     * backend system yet, so these are simple, honest actions rather than
-     * fake screens. */
-    private fun setUpSettingsExtras() {
-        findViewById<TextView>(R.id.helpFeedbackRow).setOnClickListener {
-            val intent =
-                Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:excellentmindblow@gmail.com")).apply {
-                    putExtra(Intent.EXTRA_SUBJECT, "NavOS feedback")
-                }
-            try {
-                startActivity(intent)
-            } catch (e: Exception) {
-                Toast.makeText(this, "No email app found", Toast.LENGTH_SHORT).show()
+    /** Help & feedback: an email to the team (there's no account / backend yet). */
+    private fun openHelp() {
+        val intent =
+            Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:excellentmindblow@gmail.com")).apply {
+                putExtra(Intent.EXTRA_SUBJECT, "NavOS feedback")
             }
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "No email app found", Toast.LENGTH_SHORT).show()
         }
+    }
 
-        findViewById<TextView>(R.id.aboutRow).setOnClickListener {
-            MaterialAlertDialogBuilder(this)
-                .setTitle("NavOS")
-                .setMessage(
-                    "Version ${BuildConfig.VERSION_NAME}\nPowered by Excellent Mindblow\n\n" +
-                        "Map data \u00A9 OpenStreetMap contributors\nMap tiles by OpenFreeMap \u00A9 OpenMapTiles",
-                )
-                .setPositiveButton("OK", null)
-                .show()
-        }
+    private fun showAbout() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("NavOS")
+            .setMessage(
+                "Version ${BuildConfig.VERSION_NAME}\nPowered by Excellent Mindblow\n\n" +
+                    "Map data \u00A9 OpenStreetMap contributors\nMap tiles by OpenFreeMap \u00A9 OpenMapTiles\n" +
+                    "Places: Overture Maps Foundation (Meta, Foursquare, Microsoft, AllThePlaces)\n" +
+                    "Search: Photon by komoot; backup Photon by OpenRoad\n" +
+                    "Icons: Lucide (ISC)",
+            ).setPositiveButton("OK", null)
+            .show()
     }
 
     private fun setUpSearch() {

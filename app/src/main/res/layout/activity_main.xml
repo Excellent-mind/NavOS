@@ -1277,126 +1277,25 @@
 
             <!-- Settings body - replaces the old side drawer entirely.
                  Shown only while the sheet is expanded in settings mode. -->
-            <LinearLayout
+            <ScrollView
                 android:id="@+id/homeSettingsBody"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:orientation="vertical"
+                android:layout_marginTop="4dp"
+                android:clipToPadding="false"
+                android:fillViewport="false"
+                android:overScrollMode="never"
+                android:paddingBottom="12dp"
+                android:scrollbars="none"
                 android:visibility="gone">
 
+                <!-- Filled by SettingsScreen (grouped cards, Signal style). -->
                 <LinearLayout
+                    android:id="@+id/homeSettingsList"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Voice guidance"
-                        android:textColor="@color/navos_text"
-                        android:textSize="16sp" />
-
-                    <Switch
-                        android:id="@+id/voiceGuidanceSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:checked="true" />
-
-                </LinearLayout>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="12dp"
-                    android:layout_marginBottom="8dp"
-                    android:background="@color/navos_rule" />
-
-                <TextView
-                    android:id="@+id/navMapDisplayRow"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="?attr/selectableItemBackground"
-                    android:gravity="center_vertical"
-                    android:minHeight="48dp"
-                    android:paddingTop="10dp"
-                    android:paddingBottom="10dp"
-                    android:text="Map display"
-                    android:textColor="@color/navos_text"
-                    android:textSize="15sp" />
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginBottom="8dp"
-                    android:background="@color/navos_rule" />
-
-                <TextView
-                    android:id="@+id/navPrefsRow"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="?attr/selectableItemBackground"
-                    android:gravity="center_vertical"
-                    android:minHeight="48dp"
-                    android:paddingTop="10dp"
-                    android:paddingBottom="10dp"
-                    android:text="Navigation preferences"
-                    android:textColor="@color/navos_text"
-                    android:textSize="15sp" />
-
-                <TextView
-                    android:id="@+id/helpFeedbackRow"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="?attr/selectableItemBackground"
-                    android:gravity="center_vertical"
-                    android:minHeight="48dp"
-                    android:paddingTop="10dp"
-                    android:paddingBottom="10dp"
-                    android:text="Help &amp; feedback"
-                    android:textColor="@color/navos_text"
-                    android:textSize="15sp" />
-
-                <TextView
-                    android:id="@+id/aboutRow"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="?attr/selectableItemBackground"
-                    android:gravity="center_vertical"
-                    android:minHeight="48dp"
-                    android:paddingTop="10dp"
-                    android:paddingBottom="10dp"
-                    android:text="About"
-                    android:textColor="@color/navos_text"
-                    android:textSize="15sp" />
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginBottom="16dp"
-                    android:background="@color/navos_rule" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="NavOS"
-                    android:textColor="@color/navos_text"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="Powered by Excellent Mindblow"
-                    android:textColor="@color/navos_hint"
-                    android:textSize="12sp" />
-
-            </LinearLayout>
+                    android:orientation="vertical" />
+            </ScrollView>
 
         </LinearLayout>
 
