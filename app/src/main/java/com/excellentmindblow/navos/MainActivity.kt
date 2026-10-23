@@ -861,6 +861,8 @@ class MainActivity : AppCompatActivity() {
         setUpSavedPlaces()
         setUpImeInsetHandling()
         setUpPressFeedback()
+        // Just switched language from Settings (that re-creates the screen): stay there.
+        if (Lang.takeReopenSettings(prefs)) setHomeSheetState(HomeSheetState.SETTINGS)
     }
 
     /** Every button-like control shrinks slightly while pressed (see

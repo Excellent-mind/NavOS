@@ -8,7 +8,7 @@
     <string name="shortcut_home">Rumah</string>
     <string name="shortcut_work">Kerja</string>
     <string name="shortcut_set">Tetapkan</string>
-    <string name="shortcut_set_detail">Tekan untuk tambah alamat</string>
+    <string name="shortcut_set_detail">Tambah alamat</string>
     <string name="chip_petrol">Minyak</string>
     <string name="chip_ev">Cas EV</string>
     <string name="recent">Terkini</string>

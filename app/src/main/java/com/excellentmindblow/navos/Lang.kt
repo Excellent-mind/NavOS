@@ -15,6 +15,7 @@ object Lang {
     const val AUTO = "auto"
     const val EN = "en"
     const val MS = "ms"
+    private const val KEY_REOPEN_SETTINGS = "lang_reopen_settings"
 
     @Volatile
     var malay: Boolean = false
@@ -37,19 +38,29 @@ object Lang {
     ) {
         prefs.edit().putString(KEY, value).apply()
         load(prefs)
-        applyToApp(prefs)
+        // The language switch re-creates the screen: come back to Settings.
+        if (applyToApp(prefs)) prefs.edit().putBoolean(KEY_REOPEN_SETTINGS, true).apply()
+    }
+
+    /** True once, right after a language switch re-created the screen. */
+    fun takeReopenSettings(prefs: SharedPreferences): Boolean {
+        if (!prefs.getBoolean(KEY_REOPEN_SETTINGS, false)) return false
+        prefs.edit().putBoolean(KEY_REOPEN_SETTINGS, false).apply()
+        return true
     }
 
     /** Makes Android's own text (layouts, strings.xml) follow the choice too.
      * Re-creates the open screens when the language actually changes. */
-    fun applyToApp(prefs: SharedPreferences) {
+    fun applyToApp(prefs: SharedPreferences): Boolean {
         val wanted =
             when (choice(prefs)) {
                 MS -> LocaleListCompat.forLanguageTags("ms")
                 EN -> LocaleListCompat.forLanguageTags("en")
                 else -> LocaleListCompat.getEmptyLocaleList()
             }
-        if (AppCompatDelegate.getApplicationLocales() != wanted) AppCompatDelegate.setApplicationLocales(wanted)
+        if (AppCompatDelegate.getApplicationLocales() == wanted) return false
+        AppCompatDelegate.setApplicationLocales(wanted)
+        return true
     }
 }
 
