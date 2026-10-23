@@ -24,10 +24,10 @@ class DeadReckoningTest {
     }
 
     @Test
-    fun stopsAtTheEndOfTheRouteAndAfterTwoMinutes() {
+    fun stopsShortOfTheEndOfTheRouteAndAfterTwoMinutes() {
         val dr = DeadReckoning(track)
         dr.start(progressM = 4900.0, speedMs = 30.0, timeMs = 0L)
-        assertEquals(track.length, dr.estimate(60_000L)!!.progressM, 1.0)
+        assertEquals(track.length - DeadReckoning.END_MARGIN_M, dr.estimate(60_000L)!!.progressM, 1.0)
         assertNull(dr.estimate(((DeadReckoning.MAX_S + 1) * 1000).toLong()))
         assertTrue(!dr.active)
     }

@@ -175,7 +175,8 @@ expect shown startNavigationButton "route preview with Go now"
 tap_id startNavigationButton && sleep 4 && shot 15a-traffic-question
 answer_traffic_question; sleep 2; shot 15-driving
 expect shown etaClockText "drive bar shows ETA"
-for lat in 3.1395 3.1400 3.1405; do adb emu geo fix 101.6875 "$lat" >/dev/null 2>&1; sleep 1; done
+# Small, realistic steps (~20 m every 1.5 s): never near the end of a short route.
+for lat in 3.1392 3.1394 3.1396; do adb emu geo fix 101.6870 "$lat" >/dev/null 2>&1; sleep 1.5; done
 shot 16-driving-after-moves
 
 # Main-thread stack samples during the drive (SIGQUIT writes all thread

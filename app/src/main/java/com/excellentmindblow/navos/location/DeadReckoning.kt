@@ -12,8 +12,9 @@ import kotlin.math.pow
  *
  * From the last real fix it carries on along the route line at the last
  * speed, slowly easing off ([DECAY_PER_S] per second, since traffic in a
- * tunnel often slows), for at most [MAX_S] seconds or to the end of the
- * route. Pure, so it is unit tested.
+ * tunnel often slows), for at most [MAX_S] seconds. It stops [END_MARGIN_M]
+ * short of the end of the route: only a real fix may say "you have arrived".
+ * Pure, so it is unit tested.
  */
 class DeadReckoning(
     private val track: RouteTrack,
@@ -50,7 +51,7 @@ class DeadReckoning(
         // Distance = integral of v0 * r^t dt = v0 * (r^t - 1) / ln r.
         val r = DECAY_PER_S
         val travelled = startSpeedMs * (r.pow(t) - 1.0) / ln(r)
-        val progress = (startProgressM + travelled).coerceAtMost(track.length)
+        val progress = (startProgressM + travelled).coerceAtMost(maxOf(startProgressM, track.length - END_MARGIN_M))
         val speed = startSpeedMs * r.pow(t)
         return Estimate(track.pointAt(progress), track.bearingAt(progress, 20.0), progress, speed, t)
     }
@@ -72,5 +73,8 @@ class DeadReckoning(
 
         const val DECAY_PER_S = 0.99
         const val MAX_S = 120.0
+
+        /** Never estimated closer than this to the destination. */
+        const val END_MARGIN_M = 50.0
     }
 }

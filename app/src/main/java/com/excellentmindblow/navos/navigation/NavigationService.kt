@@ -426,7 +426,9 @@ class NavigationService : Service() {
         listener.onNavState(state)
         updateNotification(state)
 
-        if (state.isArrival && state.distanceToNextTurnMeters <= MIN_ARRIVAL_METERS) {
+        // Only a real fix ends the drive, never a tunnel estimate.
+        val realFix = lastLocation?.provider != ESTIMATE_PROVIDER
+        if (realFix && state.isArrival && state.distanceToNextTurnMeters <= MIN_ARRIVAL_METERS) {
             stopNavigationInternal(announceToListener = true)
             return
         }
