@@ -375,7 +375,7 @@ class NavigationService : Service() {
         if (locationTracker != null) return
         val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
         val tracker =
-            LiveLocationTracker(locationManager, minDistanceM = 0f) { location ->
+            LiveLocationTracker(locationManager, minDistanceM = 0f, navigating = true) { location ->
                 // A real fix: any tunnel estimate gives way to it.
                 lastRealFixMs = SystemClock.elapsedRealtime()
                 deadReckoning?.stop()

@@ -25,18 +25,26 @@ class LiveLocationTracker(
     private val minDistanceM: Float = MIN_DISTANCE_M,
     /** Injectable so JVM unit tests can exercise retry behavior without Android's main Looper. */
     private val callbackLooper: Looper? = Looper.getMainLooper(),
+    /** A drive (never parks the GPS) or the idle map. */
+    navigating: Boolean = false,
     private val onLocation: (Location) -> Unit,
 ) {
     private val listeners = ArrayList<LocationListener>()
     private val fusion = LocationFusion()
+
+    /** Battery: slows the updates down while the phone stands still (see [PowerPolicy]). */
+    private val power = PowerPolicy(navigating)
+    private var mode = PowerPolicy.Mode.FULL
 
     companion object {
         private const val MIN_INTERVAL_MS = 500L
         const val MIN_DISTANCE_M = 1f
     }
 
-    /** Every enabled source, best first. */
-    private fun providers(): List<String> {
+    /** Every enabled source, best first (satellite GPS left out when parked). */
+    private fun providers(): List<String> = allProviders().filter { mode.useGps || it != LocationManager.GPS_PROVIDER }
+
+    private fun allProviders(): List<String> {
         val out = ArrayList<String>()
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
@@ -54,7 +62,9 @@ class LiveLocationTracker(
         return out
     }
 
-    fun start() {
+    fun start() = register(deliverLastKnown = true)
+
+    private fun register(deliverLastKnown: Boolean) {
         // Non-empty listeners means registration succeeded. Keep it empty on all
         // early failures so callers can retry after enabling location or granting permission.
         if (listeners.isNotEmpty()) return
@@ -65,12 +75,14 @@ class LiveLocationTracker(
             var lastKnown: Location? = null
             for (provider in sources) {
                 val l = LocationListener { location -> deliver(location) }
-                locationManager.requestLocationUpdates(provider, MIN_INTERVAL_MS, minDistanceM, l, callbackLooper)
+                val interval = maxOf(MIN_INTERVAL_MS, mode.intervalMs)
+                val distance = maxOf(minDistanceM, mode.minDistanceM)
+                locationManager.requestLocationUpdates(provider, interval, distance, l, callbackLooper)
                 listeners += l
                 val known = locationManager.getLastKnownLocation(provider)
                 if (known != null && (lastKnown == null || known.time > lastKnown.time)) lastKnown = known
             }
-            lastKnown?.let { deliver(it) }
+            if (deliverLastKnown) lastKnown?.let { deliver(it) }
         } catch (_: SecurityException) {
             // Permission revoked during registration: clean up and stay restartable.
             stop()
@@ -103,6 +115,13 @@ class LiveLocationTracker(
                 source = source,
             )
         val out = fusion.accept(fix) ?: return
+        val wanted = power.onFix(out.latitude, out.longitude, out.speedMs, android.os.SystemClock.elapsedRealtime())
+        if (wanted != mode && listeners.isNotEmpty()) {
+            // Re-register at the new rate (the fusion keeps its state).
+            mode = wanted
+            stop()
+            register(deliverLastKnown = false)
+        }
         onLocation(
             Location(raw).apply {
                 latitude = out.latitude
