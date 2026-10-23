@@ -1,0 +1,38 @@
+package com.excellentmindblow.navos.poi
+
+import com.excellentmindblow.navos.navigation.GeoUtils
+import com.excellentmindblow.navos.navigation.RouteTrack
+import com.excellentmindblow.navos.routing.RoutePoint
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+class PoiAlongRouteTest {
+    private val start = RoutePoint(3.15, 101.70)
+    private val track = RouteTrack((0..100).map { GeoUtils.offset(start, 0.0, it * 100.0) }) // 10 km north
+
+    private fun station(
+        alongM: Double,
+        sideM: Double,
+    ) = GeoUtils.offset(GeoUtils.offset(start, 0.0, alongM), 90.0, sideM)
+
+    @Test
+    fun stationBesideTheRouteAheadIsShownWithDistances() {
+        val s = PoiAlongRoute.spot(track, station(5000.0, 150.0), hereM = 2000.0)
+        assertNotNull(s)
+        assertEquals(3000.0, s!!.aheadM, 15.0)
+        assertEquals(150.0, s.offRouteM, 5.0)
+    }
+
+    @Test
+    fun stationOffTheCorridorIsNot() {
+        assertNull(PoiAlongRoute.spot(track, station(5000.0, 900.0), hereM = 2000.0))
+    }
+
+    @Test
+    fun stationBehindIsDroppedButOneJustPassedStays() {
+        assertNull(PoiAlongRoute.spot(track, station(1000.0, 50.0), hereM = 2000.0))
+        assertNotNull(PoiAlongRoute.spot(track, station(1900.0, 50.0), hereM = 2000.0))
+    }
+}

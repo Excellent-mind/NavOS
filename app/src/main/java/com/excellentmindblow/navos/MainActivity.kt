@@ -79,6 +79,7 @@ import com.excellentmindblow.navos.navigation.SpeedLimitTracker
 import com.excellentmindblow.navos.poi.FuelBrand
 import com.excellentmindblow.navos.poi.Poi
 import com.excellentmindblow.navos.poi.PoiCache
+import com.excellentmindblow.navos.poi.PoiAlongRoute
 import com.excellentmindblow.navos.poi.PoiKind
 import com.excellentmindblow.navos.poi.PoiService
 import com.excellentmindblow.navos.routing.LaneInfo
@@ -211,6 +212,8 @@ private const val EV_COLOR = "#12A150"
 /** Look stations up again once the driver has moved this far from the
  * last lookup (keeps the 5 km ring roughly centred on them)... */
 private const val POI_REFETCH_DISTANCE_M = 2000f
+private const val POI_LOOK_AHEAD_M = 4000.0
+private const val POI_PIN_REFRESH_M = 200.0
 
 /** ...but never more often than this - Overpass is a free shared server,
  * and a failed lookup also waits this long before retrying. */
@@ -499,6 +502,7 @@ class MainActivity : AppCompatActivity() {
                 // Arrow + camera are animated together by driveFollower.
                 updateNavCamera(location)
                 maybeFetchPois(location)
+                refreshPoiPinsAlongRoute()
                 checkCameraZone(location)
                 val currentKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
                 lastSpeedKmh = currentKmh
@@ -550,6 +554,7 @@ class MainActivity : AppCompatActivity() {
                 renderRoutePois()
                 updateRouteSigns(route)
                 trafficLayer.start(route)
+                renderPoiPins() // stations on the new route only
                 loadActiveRoutePois(route)
                 renderedCalloutStep = -1
                 renderTurnCallouts(1)
@@ -2013,15 +2018,36 @@ class MainActivity : AppCompatActivity() {
         style(evToggleButton, showEvPins, R.color.sig_ev)
     }
 
-    /** Draws the current station list - only during an active drive, and
-     * only the kinds the driver hasn't toggled off. */
+    /** Where [poi] sits on the current drive (ahead, off the line), or null
+     * when there is no drive or it isn't on the way (see [PoiAlongRoute]). */
+    private fun poiSpot(poi: Poi): PoiAlongRoute.Spot? {
+        if (navMode != NavMode.ACTIVE) return null
+        val route = activeRoute ?: return null
+        if (route.geometry.size < 2) return null
+        val track = routeTrack?.takeIf { it.source === route.geometry } ?: RouteTrack(route.geometry).also { routeTrack = it }
+        return PoiAlongRoute.spot(track, RoutePoint(poi.latitude, poi.longitude), driveFollower.progressMeters, snapSegmentIndex - 5)
+    }
+
+    private var lastPoiPinProgress = Double.NaN
+
+    /** The car moved on a stretch: drop the stations now behind it. */
+    private fun refreshPoiPinsAlongRoute() {
+        val here = driveFollower.progressMeters
+        if (here.isNaN() || (!lastPoiPinProgress.isNaN() && kotlin.math.abs(here - lastPoiPinProgress) < POI_PIN_REFRESH_M)) return
+        renderPoiPins()
+    }
+
+    /** Petrol / EV pins: only during a drive, and only the stations on the
+     * way - near the route line ahead - so the driver can decide to fuel up
+     * or carry on. Kinds toggled off stay hidden. */
     private fun renderPoiPins() {
         val src = poiSource ?: return
+        lastPoiPinProgress = driveFollower.progressMeters
         val features =
-            if (navMode == NavMode.PREVIEW) {
+            if (navMode != NavMode.ACTIVE) {
                 emptyList()
             } else {
-                nearbyPois.filter { isPoiKindShown(it.kind) }.map { poi ->
+                nearbyPois.filter { isPoiKindShown(it.kind) && poiSpot(it) != null }.map { poi ->
                     Feature.fromGeometry(Point.fromLngLat(poi.longitude, poi.latitude)).also {
                         it.addStringProperty(
                             POI_ICON_PROPERTY,
@@ -2048,6 +2074,15 @@ class MainActivity : AppCompatActivity() {
         poiFetchInFlight = true
         lastPoiFetchAtMs = now
         val fetchAt = Location(location)
+        // Search around a point up the road, so the stations ahead show
+        // (about 9 km of the route), not the ones behind.
+        val track = routeTrack?.takeIf { t -> activeRoute?.geometry === t.source }
+        val here = driveFollower.progressMeters
+        val center = if (track != null && !here.isNaN()) track.pointAt(here + POI_LOOK_AHEAD_M) else null
+        if (center != null) {
+            fetchAt.latitude = center.latitude
+            fetchAt.longitude = center.longitude
+        }
         poiExecutor.execute {
             val pois =
                 try {
@@ -2061,7 +2096,7 @@ class MainActivity : AppCompatActivity() {
             mainHandler.post {
                 poiFetchInFlight = false
                 if (isDestroyed || navMode != NavMode.ACTIVE || pois == null) return@post
-                lastPoiFetchLocation = fetchAt
+                lastPoiFetchLocation = location
                 nearbyPois = pois
                 val selected = selectedPoi
                 if (selected != null && pois.none { it.id == selected.id }) hidePoiCard()
@@ -2122,8 +2157,17 @@ class MainActivity : AppCompatActivity() {
 
         val kindLabel = if (isFuel) tr("Petrol station", "Stesen minyak") else tr("EV charging", "Cas EV")
         val here = lastKnownLocation
+        val spot = poiSpot(poi)
         poiMeta.text =
-            if (here != null) {
+            if (spot != null) {
+                val ahead = NavFormat.formatDistance(spot.aheadM.coerceAtLeast(0.0).toFloat())
+                val off = NavFormat.formatDistance(spot.offRouteM.toFloat())
+                if (spot.aheadM < 0) {
+                    tr("$kindLabel · just passed", "$kindLabel · baru lepas")
+                } else {
+                    tr("$kindLabel · $ahead ahead · $off off route", "$kindLabel · $ahead di depan · $off dari laluan")
+                }
+            } else if (here != null) {
                 val meters = GeocodingService.distanceMeters(here.latitude, here.longitude, poi.latitude, poi.longitude)
                 tr("$kindLabel · ${NavFormat.formatDistance(meters)} away", "$kindLabel · ${NavFormat.formatDistance(meters)} dari sini")
             } else {
@@ -2305,7 +2349,7 @@ class MainActivity : AppCompatActivity() {
             .filter { it.kind == PoiKind.FUEL }
             .sortedBy { if (here == null) 0f else GeocodingService.distanceMeters(here.latitude, here.longitude, it.latitude, it.longitude) }
             .take(MAX_PETROL_RESULTS)
-            .map { GeocodeResult(it.name, it.latitude, it.longitude, it.name, "", category = getString(R.string.chip_petrol)) }
+            .map { GeocodeResult(it.name, it.latitude, it.longitude, it.name, "", category = "Petrol") }
     }
 
     private fun savedPlaceLabel(key: String): String? = savedPlaces.get(key)?.label

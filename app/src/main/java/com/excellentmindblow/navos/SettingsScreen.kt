@@ -139,8 +139,8 @@ class SettingsScreen(
                     MapDisplayPrefs.save(prefs)
                     host.applyMapDisplayLayers()
                 },
-                switchRow(tr("Petrol stations", "Stesen minyak"), null, host.isPoiKindShown(PoiKind.FUEL)) { host.setPoiKindShown(PoiKind.FUEL, it) },
-                switchRow(tr("EV charging", "Cas EV"), null, host.isPoiKindShown(PoiKind.EV)) { host.setPoiKindShown(PoiKind.EV, it) },
+                switchRow(tr("Petrol stations", "Stesen minyak"), tr("Near your route while driving", "Dekat laluan semasa memandu"), host.isPoiKindShown(PoiKind.FUEL)) { host.setPoiKindShown(PoiKind.FUEL, it) },
+                switchRow(tr("EV charging", "Cas EV"), tr("Near your route while driving", "Dekat laluan semasa memandu"), host.isPoiKindShown(PoiKind.EV)) { host.setPoiKindShown(PoiKind.EV, it) },
             ),
         )
 
