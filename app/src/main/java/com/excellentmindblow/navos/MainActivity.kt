@@ -323,6 +323,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var settingsScreen: SettingsScreen
     private lateinit var recentPlaces: RecentPlaces
 
+    private val routeOfflineCache by lazy { RouteOfflineCache(this) }
+
     /** Learns regular trips (time of day) to suggest the likely one on Home. */
     private lateinit var tripHabits: TripHabits
     private lateinit var nextTurnStrip: View
@@ -586,6 +588,7 @@ class MainActivity : AppCompatActivity() {
                 trafficLayer.start(route)
                 renderPoiPins() // stations on the new route only
                 loadActiveRoutePois(route)
+                runCatching { routeOfflineCache.save(route, mapStyleUrl()) }
                 renderedCalloutStep = -1
                 renderTurnCallouts(1)
                 nextTurnsRenderedIndex = -1
@@ -4081,6 +4084,8 @@ class MainActivity : AppCompatActivity() {
         val route = routeOptions.getOrNull(selectedRouteIndex) ?: return
         driveStartedAtMs = SystemClock.elapsedRealtime()
         tripPlaces.lastOrNull()?.let { tripHabits.record(it) }
+        // Offline safety net: the map along the route, for tunnels / dead zones.
+        runCatching { routeOfflineCache.save(route, mapStyleUrl()) }
 
         navMode = NavMode.ACTIVE
         driveFollower.resetArrowHeading()
