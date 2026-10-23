@@ -160,6 +160,7 @@ private const val TILE_PREFETCH_MOVE_M = 5_000f
 // and ~50 m when stopped, which felt like hugging the road).
 private const val NAV_ZOOM = 17.9 // cruising zoom (higher number = camera closer to the ground)
 private const val NAV_TOP_PADDING_FRACTION = 0.46 // puts the arrow ~73% down the screen
+private const val NAV_ARROW_MIN_FRACTION = 0.35 // an open drive sheet lifts the arrow no higher than this
 
 // Turn callouts on the route line (arrow + road name at every corner).
 private const val MAX_TURN_CALLOUTS = 12
@@ -3715,8 +3716,43 @@ class MainActivity : AppCompatActivity() {
      * arrow sits in the lower part of the view (Waze-style look-ahead). */
     private fun applyNavPadding(on: Boolean) {
         val m = map ?: return
+        navPaddingOn = on
         val top = if (on) (mapView.height * NAV_TOP_PADDING_FRACTION).toInt() else 0
         m.setPadding(0, top, 0, 0)
+        navSheetRaisePx = -1 // re-apply below
+        updateNavCameraForSheet(if (on) currentNavSheetRaise() else 0)
+    }
+
+    private var navPaddingOn = false
+    private var navSheetRaisePx = -1
+
+    /**
+     * Smart drive camera: when the drive sheet opens over the map, the car
+     * arrow moves up by the same amount, frame by frame with the sheet, so
+     * it stays in view just above the sheet's edge (and goes back down when
+     * it closes). Both paddings move: the view keeps its look-ahead shape
+     * instead of the arrow being squashed toward the top.
+     */
+    private fun updateNavCameraForSheet(raisePx: Int) {
+        if (raisePx == navSheetRaisePx) return
+        navSheetRaisePx = raisePx
+        if (!navPaddingOn || mapView.height == 0) {
+            driveFollower.setPadding(0.0, 0.0)
+            return
+        }
+        val base = mapView.height * NAV_TOP_PADDING_FRACTION
+        // Never push the arrow above ~35% of the screen (a very tall sheet).
+        val maxRaise = ((base + mapView.height) / 2 - mapView.height * NAV_ARROW_MIN_FRACTION).coerceAtLeast(0.0)
+        val raise = raisePx.toDouble().coerceIn(0.0, maxRaise)
+        driveFollower.setPadding((base - raise).coerceAtLeast(0.0), raise)
+    }
+
+    /** How far the drive sheet stands above its closed height right now (px). */
+    private fun currentNavSheetRaise(): Int {
+        if (bottomNavBar.visibility != View.VISIBLE || navBarRow.height == 0) return 0
+        val parentHeight = (bottomNavBar.parent as View).height
+        val collapsedHeight = bottomNavBar.paddingTop + bottomNavBar.paddingBottom + dp(24) + navBarRow.height
+        return ((parentHeight - collapsedHeight) - bottomNavBar.top).coerceAtLeast(0)
     }
 
     private fun showDestinationMarker(latLng: LatLng) {
@@ -4186,6 +4222,7 @@ class MainActivity : AppCompatActivity() {
         val floating = listOf(speedBadge, speedLimitSign, poiToggleColumn, recenterButton, poiCard)
         if (bottomNavBar.visibility != View.VISIBLE || navBarRow.height == 0) {
             floating.forEach { if (it.translationY != 0f) it.translationY = 0f }
+            if (navMode == NavMode.ACTIVE) updateNavCameraForSheet(0)
             return
         }
         val parentHeight = (bottomNavBar.parent as View).height
@@ -4193,6 +4230,8 @@ class MainActivity : AppCompatActivity() {
         val extra = ((parentHeight - collapsedHeight) - bottomNavBar.top).coerceAtLeast(0)
         val ty = -extra.toFloat()
         floating.forEach { if (it.translationY != ty) it.translationY = ty }
+        // Same frame, same amount: the camera lifts the arrow with the sheet.
+        if (navMode == NavMode.ACTIVE) updateNavCameraForSheet(extra)
     }
 
     private fun setNavSheetExpanded(expanded: Boolean) {

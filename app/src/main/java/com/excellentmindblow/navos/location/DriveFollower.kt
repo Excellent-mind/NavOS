@@ -55,6 +55,28 @@ class DriveFollower(
      * under it points (deg, 0 = north). */
     fun hasPosition(): Boolean = !lat.isNaN()
 
+    // Padding (px) the follow camera centres the car in: the drive
+    // look-ahead at the top, the opened drive sheet at the bottom. Part of
+    // every camera frame, so it moves with the car instead of fighting it.
+    private var padTop = 0.0
+    private var padBottom = 0.0
+
+    /**
+     * Moves where the car sits on screen. Called every frame while the drive
+     * sheet opens or closes, so the arrow rides up / down with the sheet's
+     * own animation (same timing, interruptible, nothing to drift out of
+     * sync). Parked, with no fix animation running, it draws the frame itself.
+     */
+    fun setPadding(
+        top: Double,
+        bottom: Double,
+    ) {
+        if (top == padTop && bottom == padBottom) return
+        padTop = top
+        padBottom = bottom
+        if (animator == null) render()
+    }
+
     val arrowLat: Double get() = lat
     val arrowLng: Double get() = lng
     /** The arrow's distance from the start of the route, as drawn this frame; NaN off the route. */
@@ -438,6 +460,7 @@ class DriveFollower(
                     .zoom(tZoom)
                     .tilt(tTilt)
                     .bearing(tBearing)
+                    .padding(0.0, padTop, 0.0, padBottom)
                     .build(),
             ),
         )
