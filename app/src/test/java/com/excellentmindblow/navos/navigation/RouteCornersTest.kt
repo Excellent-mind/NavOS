@@ -54,6 +54,16 @@ class RouteCornersTest {
     }
 
     @Test
+    fun gentleRoadCurveIsACorner() {
+        // 40 degrees spread evenly over 200 m (2 degrees every 10 m), like a
+        // sweeping town road - too gentle to see over a few metres.
+        val legs = arrayOf(0.0 to 200.0) + (1..20).map { (-it * 2.0) to 10.0 } + arrayOf(-40.0 to 200.0)
+        val c = RouteCorners.find(path(*legs))
+        assertEquals(1, c.size)
+        assertEquals(-40.0, c[0].turnDeg, 8.0)
+    }
+
+    @Test
     fun sBendIsTwoCorners() {
         val c = RouteCorners.find(path(0.0 to 150.0, 45.0 to 100.0, 0.0 to 150.0))
         assertEquals(2, c.size)

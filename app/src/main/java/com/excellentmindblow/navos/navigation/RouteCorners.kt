@@ -17,17 +17,19 @@ data class RouteCorner(
  * The line is sampled every [STEP_M]; at each sample the heading over the
  * [ARM_M] before it is compared with the heading over the [ARM_M] after it.
  * Samples turning at least [MIN_SAMPLE_TURN_DEG] the same way, with no more
- * than [GAP_M] of straighter road between them, form one corner; a corner is kept when its whole turn is at least
- * [MIN_CORNER_TURN_DEG]. Pure, so it is unit tested.
+ * than [GAP_M] of straighter road between them, form one corner; a corner
+ * is kept when its whole turn is at least [MIN_CORNER_TURN_DEG]. The 30 m
+ * arms catch gentle road curves (40 degrees over 200 m) as well as sharp
+ * junction turns. Pure, so it is unit tested.
  */
 object RouteCorners {
     const val STEP_M = 5.0
-    const val ARM_M = 15.0
-    const val MIN_SAMPLE_TURN_DEG = 7.0
+    const val ARM_M = 30.0
+    const val MIN_SAMPLE_TURN_DEG = 4.5
     const val MIN_CORNER_TURN_DEG = 20.0
 
     /** A curve may flatten for this long and still be one corner. */
-    const val GAP_M = 20.0
+    const val GAP_M = 30.0
 
     /** Extra line drawn before and after the bend itself. */
     const val LEAD_M = 10.0

@@ -8,6 +8,7 @@ import android.graphics.PointF
 import android.provider.Settings
 import android.os.SystemClock
 import android.util.AttributeSet
+import android.util.Log
 import android.view.View
 import androidx.core.content.ContextCompat
 import com.excellentmindblow.navos.navigation.ChevronPulse
@@ -128,7 +129,13 @@ class RouteArrowsView
             }
             // Keep the pulse running only while a chevron is on screen.
             if (drewAny && animate) postInvalidateOnAnimation()
+            if (now - lastLogMs > 3_000) {
+                lastLogMs = now
+                Log.i("NavOSArrows", "at ${here.toInt()} m: ${corners.count { it.endM >= here - 2.0 && it.startM <= here + VIEW_AHEAD_M }} corners ahead, drawn=$drewAny, ${"%.2f".format(pxPerM)} px/m")
+            }
         }
+
+        private var lastLogMs = 0L
 
         private val tip = PointF()
         private val left = PointF()
