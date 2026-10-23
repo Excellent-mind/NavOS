@@ -1049,7 +1049,8 @@ class MainActivity : AppCompatActivity() {
      * Also pads the mid-drive search bar (topBar) the same way. */
     private fun applySheetInsets() {
         val ownedByDrag = dragging || settlingDrag
-        val fullHeight = homeSheetState == HomeSheetState.SEARCH && !ownedByDrag
+        // Search and Settings open to full height, stopping below the status bar.
+        val fullHeight = (homeSheetState == HomeSheetState.SEARCH || homeSheetState == HomeSheetState.SETTINGS) && !ownedByDrag
         val params = homeSheet.layoutParams as? ViewGroup.MarginLayoutParams
         // While a drag/snap owns the sheet it sets the height itself, every
         // frame - leave height and margin alone so nothing pops.

@@ -16,7 +16,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import com.excellentmindblow.navos.poi.PoiKind
 import com.excellentmindblow.navos.routing.RoutePrefs
-import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.switchmaterial.SwitchMaterial
 
 /**
  * The Settings page in the home sheet, Signal style: grouped cards with
@@ -64,7 +64,7 @@ class SettingsScreen(
         fun onAbout()
     }
 
-    private var voiceSwitch: MaterialSwitch? = null
+    private var voiceSwitch: SwitchMaterial? = null
 
     /** Fills [container] (a vertical LinearLayout) with the settings page. */
     fun build(container: LinearLayout) {
@@ -203,17 +203,18 @@ class SettingsScreen(
             }
         row.addView(labels(label, hint), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val sw =
-            MaterialSwitch(context).apply {
+            SwitchMaterial(context).apply {
                 tag = SWITCH_TAG
-                // No "ON/OFF" text in the track: some themes turn showText on,
-                // and SwitchCompat then crashes measuring a null label.
+                // No "ON/OFF" text in the track: SwitchCompat crashes measuring
+                // a null label if a style turns showText on.
                 showText = false
                 textOn = ""
                 textOff = ""
                 isChecked = checked
+                // Signal colours: ink track with a light thumb when on, quiet grey when off.
+                useMaterialThemeColors = false
                 thumbTintList = states(color(R.color.sig_on_ink), color(R.color.sig_sheet))
-                trackTintList = states(color(R.color.sig_ink), color(R.color.sig_outline))
-                trackDecorationTintList = states(color(R.color.sig_ink), color(R.color.sig_text_quiet))
+                trackTintList = states(color(R.color.sig_ink), color(R.color.sig_text_quiet))
                 // The row is the touch target and the accessibility node.
                 isClickable = false
                 isFocusable = false

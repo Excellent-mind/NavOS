@@ -1280,7 +1280,8 @@
             <ScrollView
                 android:id="@+id/homeSettingsBody"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="0dp"
+                android:layout_weight="1"
                 android:layout_marginTop="4dp"
                 android:clipToPadding="false"
                 android:fillViewport="false"
