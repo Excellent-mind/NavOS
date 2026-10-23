@@ -28,6 +28,22 @@ object Phrases {
         return if (ms) "Lagi ${spokenDistance(meters, true)}, $then" else "In ${spokenDistance(meters, false)}, $then"
     }
 
+    /** "Turn left, then keep right" - two maneuvers close together. */
+    fun then(
+        first: String,
+        second: String,
+        ms: Boolean = Lang.malay,
+    ): String {
+        val b = second.replaceFirstChar { it.lowercase() }
+        return if (ms) "$first, lepas tu $b" else "$first, then $b"
+    }
+
+    /** "Turn left, then your destination is ahead". */
+    fun thenArrive(
+        first: String,
+        ms: Boolean = Lang.malay,
+    ): String = if (ms) "$first, lepas tu sampai destinasi" else "$first, then your destination is ahead"
+
     fun arrived(ms: Boolean = Lang.malay): String = if (ms) "Dah sampai destinasi" else "You have arrived at your destination"
 
     fun stopName(

@@ -94,6 +94,9 @@ class NavigationEngine(
         // Fixed-distance fallback for when speed isn't known (first fix,
         // or a GPS provider that doesn't report it).
         private const val ANNOUNCE_FAR_METERS = 300.0
+
+        /** The next turn is this close after the upcoming one: say both together. */
+        const val CHAIN_METERS = 150.0
         private const val ANNOUNCE_NEAR_METERS = 80.0
 
         // Speed-aware timing: announce by how many seconds out the turn is,
@@ -323,7 +326,29 @@ class NavigationEngine(
         }
 
         if (!offRoute) {
-            announceIfNeeded(idx, distToTurn, steps[idx].instruction, isArrival, speedMetersPerSecond)
+            announceIfNeeded(idx, distToTurn, chained(steps, idx, isArrival), isArrival, speedMetersPerSecond)
+        }
+    }
+
+    /** The upcoming instruction, with the one after it when that comes right
+     * after ("Turn left, then keep right") - two turns close together are
+     * easy to miss one at a time. */
+    private fun chained(
+        steps: List<RouteStep>,
+        idx: Int,
+        isArrival: Boolean,
+    ): String {
+        val here = steps[idx].instruction
+        if (isArrival) return here
+        val next = steps.getOrNull(idx + 1) ?: return here
+        // A step's distance is the stretch after its maneuver, up to the next one.
+        if (steps[idx].distanceMeters > CHAIN_METERS) return here
+        return when {
+            next.maneuverType == "arrive" -> Phrases.thenArrive(here)
+            next.maneuverType == "depart" -> here
+            (next.maneuverType == "new name" || next.maneuverType == "continue") &&
+                (next.modifier == null || next.modifier == "straight") -> here
+            else -> Phrases.then(here, Phrases.instruction(next.maneuverType, next.modifier, "", next.roundaboutExit))
         }
     }
 
