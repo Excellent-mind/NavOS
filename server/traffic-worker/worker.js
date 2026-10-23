@@ -4,19 +4,30 @@
 //   Anonymous speeds a phone measured on road pieces it just drove. No account,
 //   no location trace: only road-piece ids and speeds, timestamped by the server.
 // POST /v1/flow   {"segs": ["<osmNodeA>-<osmNodeB>", ...]}
-//   -> {"f": {"<seg>": [avgKmh, drivers], ...}} for pieces with at least
-//   MIN_DRIVERS different drivers in the last WINDOW_S seconds.
+//   -> {"f": {"<seg>": [medianKmh, senders], ...}} for pieces measured by at
+//   least MIN_SENDERS different senders in the last WINDOW_S seconds.
 // GET  /v1/health
 //
-// A drive counts once per road piece (primary key seg+sess), so one phone
-// can't paint a road red on its own. Rows older than a day are deleted hourly.
+// Against fake jams (the code is public, so anyone can call this):
+// - A road piece needs MIN_SENDERS different *senders*, not drives. A sender is
+//   a one-way code of the caller's IP address, keyed with a secret (IP_SALT)
+//   that changes every day: the address itself is never stored, and codes from
+//   different days can't be linked. Making up drive ids doesn't add senders.
+// - Each sender may start at most MAX_DRIVES drives and send at most
+//   MAX_PIECES road pieces per WINDOW_S (HTTP 429 beyond that).
+// - The median speed is reported, so one odd value can't swing it; speeds
+//   over MAX_KMH are dropped.
+// Rows older than a day are deleted hourly.
 
-const MIN_DRIVERS = 3;
+const MIN_SENDERS = 3;
 const WINDOW_S = 600;
 const KEEP_S = 86400;
 const MAX_BODY = 32768;
 const MAX_PROBES = 150;
 const MAX_FLOW_SEGS = 1500;
+const MAX_KMH = 160;
+const MAX_DRIVES = 20; // generous: phones on one mobile network often share an IP address
+const MAX_PIECES = 3000;
 const SEG = /^\d{1,12}-\d{1,12}$/;
 const SESS = /^[A-Za-z0-9]{16,64}$/;
 
@@ -32,20 +43,52 @@ async function readBody(req) {
   return JSON.parse(text);
 }
 
+/** One-way, day-keyed code of the caller's IP address (16 hex chars). */
+async function senderOf(req, env) {
+  const ip = req.headers.get("cf-connecting-ip") || "unknown";
+  const day = Math.floor(now() / 86400);
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(`${env.IP_SALT}:${day}`), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(ip)));
+  return [...mac.slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 async function probe(req, env) {
   const b = await readBody(req);
   if (typeof b.s !== "string" || !SESS.test(b.s) || !Array.isArray(b.p) || b.p.length > MAX_PROBES) return json({ error: "bad request" }, 400);
   const t = now();
-  const stmt = env.DB.prepare("INSERT OR REPLACE INTO probes (seg, sess, kmh, t) VALUES (?, ?, ?, ?)");
+  const sender = await senderOf(req, env);
+
+  // Quota for this sender in the current window.
+  const w = Math.floor(t / WINDOW_S);
+  const q = await env.DB.prepare("SELECT pieces, drives FROM quota WHERE sender = ? AND w = ?").bind(sender, w).first();
+  const seen = await env.DB.prepare("SELECT 1 FROM probes WHERE sess = ? AND sender = ? LIMIT 1").bind(b.s, sender).first();
+  const newDrive = !seen;
+  if (q && ((newDrive && q.drives >= MAX_DRIVES) || q.pieces >= MAX_PIECES)) return json({ error: "slow down" }, 429);
+
+  const stmt = env.DB.prepare("INSERT OR REPLACE INTO probes (seg, sess, sender, kmh, t) VALUES (?, ?, ?, ?, ?)");
   const rows = [];
   for (const item of b.p) {
     if (!Array.isArray(item) || item.length !== 2) continue;
     const [seg, kmh] = item;
-    if (typeof seg !== "string" || !SEG.test(seg) || typeof kmh !== "number" || !(kmh >= 0 && kmh <= 200)) continue;
-    rows.push(stmt.bind(seg, b.s, Math.round(kmh * 10) / 10, t));
+    if (typeof seg !== "string" || !SEG.test(seg) || typeof kmh !== "number" || !(kmh >= 0 && kmh <= MAX_KMH)) continue;
+    rows.push(stmt.bind(seg, b.s, sender, Math.round(kmh * 10) / 10, t));
   }
-  if (rows.length) await env.DB.batch(rows);
-  return json({ ok: rows.length });
+  rows.push(
+    env.DB.prepare(
+      "INSERT INTO quota (sender, w, pieces, drives) VALUES (?, ?, ?, ?) " +
+        "ON CONFLICT (sender, w) DO UPDATE SET pieces = pieces + excluded.pieces, drives = drives + excluded.drives",
+    ).bind(sender, w, rows.length, newDrive ? 1 : 0),
+  );
+  await env.DB.batch(rows);
+  return json({ ok: rows.length - 1 });
+}
+
+function median(xs) {
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
 async function flow(req, env) {
@@ -57,10 +100,18 @@ async function flow(req, env) {
   for (let i = 0; i < segs.length; i += 90) {
     const chunk = segs.slice(i, i + 90);
     const marks = chunk.map(() => "?").join(",");
+    // One speed per sender per piece (their latest), then the median of those.
     const res = await env.DB.prepare(
-      `SELECT seg, AVG(kmh) AS kmh, COUNT(*) AS n FROM probes WHERE seg IN (${marks}) AND t > ? GROUP BY seg HAVING n >= ${MIN_DRIVERS}`,
+      `SELECT seg, sender, kmh FROM probes WHERE seg IN (${marks}) AND t > ? ORDER BY t`,
     ).bind(...chunk, since).all();
-    for (const r of res.results) f[r.seg] = [Math.round(r.kmh * 10) / 10, r.n];
+    const bySeg = new Map();
+    for (const r of res.results) {
+      if (!bySeg.has(r.seg)) bySeg.set(r.seg, new Map());
+      bySeg.get(r.seg).set(r.sender, r.kmh);
+    }
+    for (const [seg, senders] of bySeg) {
+      if (senders.size >= MIN_SENDERS) f[seg] = [Math.round(median(senders.values()) * 10) / 10, senders.size];
+    }
   }
   return json({ f });
 }
@@ -78,6 +129,9 @@ export default {
     return json({ error: "not found" }, 404);
   },
   async scheduled(event, env) {
-    await env.DB.prepare("DELETE FROM probes WHERE t < ?").bind(now() - KEEP_S).run();
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM probes WHERE t < ?").bind(now() - KEEP_S),
+      env.DB.prepare("DELETE FROM quota WHERE w < ?").bind(Math.floor((now() - KEEP_S) / WINDOW_S)),
+    ]);
   },
 };
