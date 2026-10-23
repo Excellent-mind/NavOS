@@ -76,7 +76,10 @@ class TripHabits(
         get() = prefs.getBoolean(KEY_ENABLED, true)
         set(value) {
             prefs.edit().putBoolean(KEY_ENABLED, value).apply()
-            if (!value) clear()
+            if (!value) {
+                clear()
+                prefs.edit().remove(SearchPicks.KEY).apply() // search learns from the same switch
+            }
         }
 
     /** The likely trip right now from [here], or null when nothing stands out. */

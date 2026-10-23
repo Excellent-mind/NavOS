@@ -106,6 +106,7 @@ import com.excellentmindblow.navos.search.PlaceTileStore
 import com.excellentmindblow.navos.search.IncomingLocation
 import com.excellentmindblow.navos.search.RecentPlaces
 import com.excellentmindblow.navos.search.SavedPlaces
+import com.excellentmindblow.navos.search.SearchPicks
 import com.excellentmindblow.navos.search.TripHabits
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
@@ -327,6 +328,9 @@ class MainActivity : AppCompatActivity() {
 
     /** Learns regular trips (time of day) to suggest the likely one on Home. */
     private lateinit var tripHabits: TripHabits
+
+    /** Places picked from search, so search puts them first next time. */
+    private lateinit var searchPicks: SearchPicks
     private lateinit var nextTurnStrip: View
     private lateinit var laneContainer: LinearLayout
     private lateinit var permissionDeniedOverlay: View
@@ -713,6 +717,7 @@ class MainActivity : AppCompatActivity() {
             )
         recentPlaces = RecentPlaces(prefs)
         tripHabits = TripHabits(prefs)
+        searchPicks = SearchPicks(prefs)
         MapDisplayPrefs.load(prefs)
         // Language (English / Malay) before any text is made.
         Lang.load(prefs)
@@ -2647,10 +2652,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showSearchResults(results: List<GeocodeResult>) {
+    private fun showSearchResults(found: List<GeocodeResult>) {
+        val query = activeSearchInput?.text?.toString().orEmpty()
+        val results = searchPicks.boost(found, query) // your usual places first
         currentResults = results
         val list = activeSearchResultsList ?: return
-        val query = activeSearchInput?.text?.toString().orEmpty()
         // The home search runs through the filters; Saved / Recent make way
         // for results and come back once there are none (empty box).
         val shown = if (list === homeSearchResultsList) searchScreen.filter(results, query) else results
@@ -2746,6 +2752,7 @@ class MainActivity : AppCompatActivity() {
         searchBackButton.visibility = View.GONE
 
         recentPlaces.save(result)
+        searchPicks.record(result)
         maybeSaveAsPendingPlace(result)
         homeScreen.render()
         destinationName = result.name
@@ -3740,6 +3747,7 @@ class MainActivity : AppCompatActivity() {
         val target = addStopTarget
         exitSearchFromNav() // puts the preview card / drive bar back, clears addStopTarget
         recentPlaces.save(result)
+        searchPicks.record(result)
         when (target) {
             AddStopTarget.PREVIEW -> {
                 val pick = tripPoint(result)
