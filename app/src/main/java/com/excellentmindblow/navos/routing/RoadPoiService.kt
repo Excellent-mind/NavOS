@@ -138,6 +138,7 @@ object RoadPoiService {
                 statements.append("node[\"highway\"=\"traffic_signals\"]($sig);")
                 statements.append("node[\"crossing\"=\"traffic_signals\"]($sig);")
                 statements.append("nwr[\"highway\"~\"^(services|rest_area)$\"]($rest);")
+                statements.append("nwr[\"amenity\"~\"^(fuel|charging_station)$\"]($rest);")
             }
         }
         if (statements.isEmpty()) return emptyMap()
@@ -176,9 +177,12 @@ object RoadPoiService {
                     highway == "traffic_signals" || tags.optString("crossing") == "traffic_signals" -> "signal"
                     highway == "services" -> "services"
                     highway == "rest_area" -> "rest_area"
+                    tags.optString("amenity") == "fuel" -> "fuel"
+                    tags.optString("amenity") == "charging_station" -> "charging"
                     else -> continue
                 }
-            out.add(RoadPoi(kind = kind, latitude = lat, longitude = lon, name = tags.optString("name").ifBlank { tags.optString("operator") }))
+            val name = tags.optString("name").ifBlank { tags.optString("brand") }.ifBlank { tags.optString("operator") }
+            out.add(RoadPoi(kind = kind, latitude = lat, longitude = lon, name = name))
         }
         return out
     }

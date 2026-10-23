@@ -225,6 +225,7 @@ sleep 8; shot 22-signs-place
 # a place card with Go first.
 tap_id poiGoButton >/dev/null 2>&1 && sleep 8
 sleep 20; shot 23-signs-route-preview
+sleep 20; shot 23b-trip-strip
 tap_id startNavigationButton && sleep 10 && shot 24-signs-start
 for fix in "101.71189 3.23137" "101.71060 3.23318" "101.70905 3.23411"; do
   adb emu geo fix $fix >/dev/null 2>&1; sleep 2

@@ -89,6 +89,9 @@ import com.excellentmindblow.navos.navigation.RouteCorners
 import com.excellentmindblow.navos.signs.SignOverlayView
 import com.excellentmindblow.navos.signs.SignPlanner
 import com.excellentmindblow.navos.traffic.TrafficPrefs
+import com.excellentmindblow.navos.traffic.TrafficFlow
+import com.excellentmindblow.navos.traffic.TrafficClient
+import com.excellentmindblow.navos.navigation.TripStrip
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.routing.RoutePrefs
@@ -3048,7 +3051,20 @@ class MainActivity : AppCompatActivity() {
             mainHandler.post {
                 if (token != previewToken || navMode != NavMode.PREVIEW) return@post
                 routePoisByIndex.putAll(found)
+                rebuildRouteStrips()
                 renderRoutePois()
+                updateRoutePreviewSummary()
+                if (routeListShowing) renderRouteList()
+            }
+        }
+        // Live traffic on each route (quick): colours its strip, "Jam on ... +6 min".
+        extrasExecutor.execute {
+            val notes = HashMap<Int, Pair<List<TripStrip.Traffic>, TrafficNote?>>()
+            routes.forEachIndexed { i, r -> previewTraffic(r)?.let { notes[i] = it } }
+            mainHandler.post {
+                if (token != previewToken || navMode != NavMode.PREVIEW) return@post
+                routeTraffic.putAll(notes)
+                rebuildRouteStrips()
                 updateRoutePreviewSummary()
                 if (routeListShowing) renderRouteList()
             }
@@ -3064,11 +3080,13 @@ class MainActivity : AppCompatActivity() {
                     emptyMap()
                 }
             Log.i("NavOSSigns", "preview extras: " + extras.mapValues { it.value.groupingBy { p -> p.kind }.eachCount() })
-            val lightCounts = extras.mapValues { (i, list) -> SignPlanner.trafficLights(routes[i], list).size }
+            val lights = extras.mapValues { (i, list) -> SignPlanner.trafficLights(routes[i], list) }
             mainHandler.post {
                 if (token != previewToken || navMode != NavMode.PREVIEW) return@post
                 routeExtrasByIndex.putAll(extras)
-                routeLightCounts.putAll(lightCounts)
+                routeLightCounts.putAll(lights.mapValues { it.value.size })
+                routeLightsM.putAll(lights)
+                rebuildRouteStrips()
                 updateRoutePreviewSummary()
                 if (routeListShowing) renderRouteList()
             }
@@ -3077,6 +3095,69 @@ class MainActivity : AppCompatActivity() {
 
     /** Traffic lights on each previewed route, once looked up. */
     private val routeLightCounts = HashMap<Int, Int>()
+
+    /** Where each previewed route's traffic lights are (metres along). */
+    private val routeLightsM = HashMap<Int, List<Double>>()
+
+    /** Live traffic on each previewed route: slow / jammed stretches and the one-line note. */
+    private val routeTraffic = HashMap<Int, Pair<List<TripStrip.Traffic>, TrafficNote?>>()
+
+    /** Each previewed route's whole trip on one line (see [TripStrip]). */
+    private val routeStrips = HashMap<Int, TripStrip.Strip>()
+
+    /** Builds the strips from what has been looked up so far (tolls / R&Rs / lights / traffic arrive separately). */
+    private fun rebuildRouteStrips() {
+        routeOptions.forEachIndexed { i, route ->
+            val pois = routePoisByIndex[i]
+            val extras = routeExtrasByIndex[i]
+            if (pois == null && extras == null) return@forEachIndexed
+            val track = RouteTrack(route.geometry)
+            TripStrip
+                .build(
+                    route,
+                    pois.orEmpty(),
+                    extras.orEmpty(),
+                    routeLightsM[i].orEmpty(),
+                    routeTraffic[i]?.first.orEmpty(),
+                ) { onExpresswayAt(route, track, it) }
+                ?.let { routeStrips[i] = it }
+        }
+    }
+
+    /** Live traffic along [route] for the preview: its slow / jammed stretches and a
+     * one-line note with the delay. Blocking (network); null when there is none. */
+    private fun previewTraffic(route: Route): Pair<List<TripStrip.Traffic>, TrafficNote?>? {
+        val nodes = route.nodes ?: return null
+        val free = route.freeFlowMs ?: return null
+        val live = runCatching { TrafficClient.flow(TrafficFlow.piecesAhead(nodes, 0)) }.getOrNull() ?: return null
+        if (live.isEmpty()) return null
+        val track = RouteTrack(route.geometry)
+        val runs = TrafficFlow.runs(nodes, free, live)
+        if (runs.isEmpty()) return null
+        val spans = runs.map { TripStrip.Traffic(track.distanceAt(it.from), track.distanceAt(it.to), it.level == TrafficFlow.Level.JAM) }
+        // Extra time against normal speed, over the slow / jammed pieces.
+        var delayS = 0.0
+        for (run in runs) {
+            for (k in run.from until run.to) {
+                val kmh = live["${nodes[k]}-${nodes[k + 1]}"] ?: continue
+                val len = track.distanceAt(k + 1) - track.distanceAt(k)
+                if (kmh > 1 && free[k] > 0) delayS += len / (kmh / 3.6) - len / free[k]
+            }
+        }
+        val worst = runs.firstOrNull { it.level == TrafficFlow.Level.JAM } ?: runs.first()
+        val jam = worst.level == TrafficFlow.Level.JAM
+        val at = track.distanceAt(worst.from)
+        val road =
+            route.steps
+                .lastOrNull { s -> GeoUtils.snapToPolyline(s.point, route.geometry)?.let { track.progressOf(it) <= at + 1 } == true }
+                ?.roadName
+                ?.takeIf { it.isNotBlank() }
+        val minutes = Math.round(delayS / 60.0).toInt()
+        val what = if (jam) tr("Jam", "Jem") else tr("Slow traffic", "Trafik perlahan")
+        val where = road?.let { tr(" on $it", " di $it") }.orEmpty()
+        val note = TrafficNote(what + where + if (minutes >= 1) " · +$minutes min" else "", jam)
+        return spans to note
+    }
 
     private fun loadActiveRoutePois(
         route: Route,
@@ -3138,6 +3219,8 @@ class MainActivity : AppCompatActivity() {
                 NavFormat.viaRoadName(r),
                 routePoisByIndex[i]?.count { it.kind == "toll" },
                 routeLightCounts[i],
+                routeStrips[i],
+                routeTraffic[i]?.second,
             )
         }
 
@@ -3299,6 +3382,9 @@ class MainActivity : AppCompatActivity() {
                     previewToken++
                     routePoisByIndex.clear()
                     routeExtrasByIndex.clear()
+                    routeLightsM.clear()
+                    routeTraffic.clear()
+                    routeStrips.clear()
                     routeLightCounts.clear()
                     destinationName = destination.name
                     destinationAddress = destination.address
@@ -3893,6 +3979,9 @@ class MainActivity : AppCompatActivity() {
         previewToken++
         routePoisByIndex.clear()
         routeExtrasByIndex.clear()
+        routeLightsM.clear()
+        routeTraffic.clear()
+        routeStrips.clear()
         routeLightCounts.clear()
         hideRouteChooser()
         renderRoutePois()

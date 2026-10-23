@@ -1,6 +1,7 @@
 package com.excellentmindblow.navos
 
 import com.excellentmindblow.navos.navigation.GeoUtils
+import com.excellentmindblow.navos.navigation.TripStrip
 import com.excellentmindblow.navos.routing.RoutePoint
 
 /** One route card in the preview. */
@@ -16,6 +17,20 @@ data class RouteChoice(
     val selected: Boolean,
     /** Traffic lights (one per junction) on the route, or null while looked up. */
     val lights: Int? = null,
+    /** The whole trip on one line, once tolls / R&Rs / lights are known. */
+    val strip: TripStrip.Strip? = null,
+    /** Live traffic on the route ("Jam on ... · +6 min"), when there is some. */
+    val traffic: TrafficNote? = null,
+    /** Other routes: how much longer (+) or shorter (-) than the selected one, seconds. */
+    val deltaSeconds: Double? = null,
+    /** Other routes: the selected route's toll count, to say "No tolls" / "1 fewer toll". */
+    val selectedTolls: Int? = null,
+)
+
+/** One line about live traffic on a route. */
+data class TrafficNote(
+    val text: String,
+    val jam: Boolean,
 )
 
 /** Which route cards the preview shows, and where each route's time bubble sits. */
@@ -29,6 +44,8 @@ object RouteChoices {
         val via: String?,
         val tolls: Int?,
         val lights: Int? = null,
+        val strip: TripStrip.Strip? = null,
+        val traffic: TrafficNote? = null,
     )
 
     /**
@@ -46,9 +63,19 @@ object RouteChoices {
         if (selected in routes.indices && selected !in picked) {
             picked = (picked.dropLast(1) + selected).sortedBy { routes[it].durationSeconds }
         }
+        val sel = routes.getOrNull(selected)
         return picked.map { i ->
             val r = routes[i]
-            RouteChoice(i, r.durationSeconds, r.distanceMeters, r.via, r.tolls, fastest = routes.size > 1 && i == fastest, selected = i == selected, lights = r.lights)
+            RouteChoice(
+                i, r.durationSeconds, r.distanceMeters, r.via, r.tolls,
+                fastest = routes.size > 1 && i == fastest,
+                selected = i == selected,
+                lights = r.lights,
+                strip = r.strip,
+                traffic = r.traffic,
+                deltaSeconds = if (sel == null || i == selected) null else r.durationSeconds - sel.durationSeconds,
+                selectedTolls = if (i == selected) null else sel?.tolls,
+            )
         }
     }
 
