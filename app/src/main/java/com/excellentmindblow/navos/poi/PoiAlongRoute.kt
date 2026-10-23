@@ -62,4 +62,24 @@ object PoiAlongRoute {
         val rel = ((toPoi - road) % 360.0 + 360.0) % 360.0 // 0..360, clockwise from the road's direction
         return rel > 180.0
     }
+
+    /** Stations closer together than this along the route count as the same stop (both sides of an R&R). */
+    const val SAME_STOP_M = 300.0
+
+    /** What comes after a station at [stationAheadM]: the next one ([nextAheadM]), or none known up to [knownUpToM]. */
+    data class Next(
+        val nextAheadM: Double?,
+        val knownUpToM: Double,
+    )
+
+    /**
+     * The next station of the same kind after the one at [stationAheadM],
+     * among [othersAheadM] (all distances ahead of the car). Stations are only
+     * known up to [knownUpToM] ahead, so "none" means none up to there.
+     */
+    fun nextAfter(
+        stationAheadM: Double,
+        othersAheadM: List<Double>,
+        knownUpToM: Double,
+    ): Next = Next(othersAheadM.filter { it > stationAheadM + SAME_STOP_M }.minOrNull(), knownUpToM)
 }

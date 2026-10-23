@@ -739,23 +739,27 @@
 
         </LinearLayout>
 
-        <!-- Petrol station / EV charger details, shown when a pin is tapped
-             during a drive. Sits above the drive bar. clickable so taps on
-             the card don't fall through to the map (which would close it). -->
+        <!-- Petrol station / EV charger (and dropped pin) card. During a drive it
+             answers "fuel up here or carry on?": how far ahead, which side, the
+             next station on the route, what it has, and Stop here (keeps the
+             destination). clickable so taps don't fall through to the map. -->
         <LinearLayout
             android:id="@+id/poiCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
-            android:layout_marginStart="10dp"
-            android:layout_marginEnd="10dp"
-            android:layout_marginBottom="140dp"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
+            android:layout_marginBottom="132dp"
             android:background="@drawable/bg_poi_card"
             android:clickable="true"
             android:elevation="12dp"
             android:focusable="true"
             android:orientation="vertical"
-            android:padding="16dp"
+            android:paddingStart="20dp"
+            android:paddingTop="20dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="16dp"
             android:visibility="gone">
 
             <LinearLayout
@@ -766,14 +770,14 @@
 
                 <FrameLayout
                     android:id="@+id/poiLogo"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
                     android:background="@drawable/bg_poi_logo">
 
                     <ImageView
                         android:id="@+id/poiLogoIcon"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
+                        android:layout_width="26dp"
+                        android:layout_height="26dp"
                         android:layout_gravity="center"
                         android:contentDescription="@null"
                         android:src="@drawable/ic_fuel" />
@@ -793,17 +797,15 @@
                         android:layout_height="wrap_content"
                         android:ellipsize="end"
                         android:maxLines="2"
-                        android:textColor="@color/navos_text"
-                        android:textSize="17sp"
-                        android:textStyle="bold" />
+                        android:textAppearance="@style/TextAppearance.Signal.Body"
+                        android:textSize="19sp" />
 
                     <TextView
                         android:id="@+id/poiMeta"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:textColor="@color/navos_text_tertiary"
-                        android:textSize="13sp" />
+                        android:textAppearance="@style/TextAppearance.Signal.Secondary" />
 
                 </LinearLayout>
 
@@ -812,53 +814,205 @@
                     android:layout_width="44dp"
                     android:layout_height="44dp"
                     android:layout_marginStart="8dp"
-                    android:background="@drawable/bg_circle_navy"
-                    android:backgroundTint="@color/navos_line"
+                    android:background="@drawable/bg_sig_icon_circle"
                     android:contentDescription="@string/close"
-                    android:padding="8dp"
+                    android:padding="12dp"
+                    android:scaleType="fitCenter"
                     android:src="@drawable/ic_close"
-                    app:tint="@color/navos_text" />
+                    app:tint="@color/sig_text" />
 
+            </LinearLayout>
+
+            <!-- On the drive: "3.2 km  ahead / about 3 min" -->
+            <LinearLayout
+                android:id="@+id/poiAheadRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:gravity="bottom"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/poiAheadValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.Signal.Number"
+                    android:textSize="44sp" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_marginBottom="4dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/poiAheadLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Signal.Body"
+                        android:textSize="16sp" />
+
+                    <TextView
+                        android:id="@+id/poiAheadTime"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Signal.Secondary" />
+
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- "On your side · 150 m off route" -->
+            <TextView
+                android:id="@+id/poiSide"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:drawablePadding="8dp"
+                android:gravity="center_vertical"
+                android:textAppearance="@style/TextAppearance.Signal"
+                android:textSize="15sp"
+                android:visibility="gone" />
+
+            <!-- The next station on the route, or "last one" warning -->
+            <LinearLayout
+                android:id="@+id/poiNext"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:background="@drawable/bg_sig_field"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingTop="12dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="12dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/poiNextIcon"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_fuel"
+                    app:tint="@color/sig_text_quiet" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/poiNextLabel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Signal.Caption" />
+
+                    <TextView
+                        android:id="@+id/poiNextValue"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Signal.Body"
+                        android:textSize="16sp" />
+
+                </LinearLayout>
             </LinearLayout>
 
             <TextView
                 android:id="@+id/poiSpec"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="12dp"
                 android:lineSpacingExtra="2dp"
-                android:textColor="@color/navos_text"
-                android:textSize="13sp"
+                android:textAppearance="@style/TextAppearance.Signal"
+                android:textSize="14sp"
                 android:visibility="gone" />
 
             <com.google.android.material.chip.ChipGroup
                 android:id="@+id/poiChips"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp" />
+                android:layout_marginTop="12dp"
+                app:chipSpacingHorizontal="8dp"
+                app:chipSpacingVertical="8dp" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:id="@+id/poiFootnote"
-                android:text="@string/facilities_note"
-                android:textColor="@color/navos_text_tertiary"
-                android:textSize="11sp" />
-
-            <TextView
+            <!-- Primary: "Stop here / then on to X" while driving, else "Go here" -->
+            <LinearLayout
                 android:id="@+id/poiGoButton"
                 android:layout_width="match_parent"
-                android:layout_height="50dp"
-                android:layout_marginTop="12dp"
-                android:background="@drawable/bg_pill_blue"
+                android:layout_height="64dp"
+                android:layout_marginTop="16dp"
+                android:background="@drawable/bg_sig_card"
+                android:backgroundTint="@color/sig_ink"
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center"
-                android:text="@string/go_here"
-                android:textColor="@color/white"
-                android:textSize="17sp"
-                android:textStyle="bold" />
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp">
+
+                <ImageView
+                    android:id="@+id/poiGoIcon"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_add"
+                    android:visibility="gone"
+                    app:tint="@color/sig_on_ink" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/poiGoTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/go_here"
+                        android:textAppearance="@style/TextAppearance.Signal.Body"
+                        android:textColor="@color/sig_on_ink"
+                        android:textSize="18sp" />
+
+                    <TextView
+                        android:id="@+id/poiGoSub"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textAppearance="@style/TextAppearance.Signal.Caption"
+                        android:textColor="@color/sig_on_ink_quiet"
+                        android:visibility="gone" />
+
+                </LinearLayout>
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/poiGoInsteadButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="4dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:textAppearance="@style/TextAppearance.Signal.Body"
+                android:textSize="15sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/poiFootnote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:text="@string/facilities_note"
+                android:textAppearance="@style/TextAppearance.Signal.Caption"
+                android:textSize="12sp" />
 
         </LinearLayout>
 

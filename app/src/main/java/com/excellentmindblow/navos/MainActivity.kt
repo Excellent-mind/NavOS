@@ -400,6 +400,19 @@ class MainActivity : AppCompatActivity() {
     private var droppedPinResult: GeocodeResult? = null
     private var pinSeq = 0
     private lateinit var poiFootnote: View
+    private lateinit var poiAheadRow: View
+    private lateinit var poiAheadValue: TextView
+    private lateinit var poiAheadLabel: TextView
+    private lateinit var poiAheadTime: TextView
+    private lateinit var poiSide: TextView
+    private lateinit var poiNext: View
+    private lateinit var poiNextIcon: ImageView
+    private lateinit var poiNextLabel: TextView
+    private lateinit var poiNextValue: TextView
+    private lateinit var poiGoIcon: View
+    private lateinit var poiGoTitle: TextView
+    private lateinit var poiGoSub: TextView
+    private lateinit var poiGoInsteadButton: TextView
     private var lastPoiFetchLocation: Location? = null
     private var lastPoiFetchAtMs = 0L
     private var poiFetchInFlight = false
@@ -1950,6 +1963,19 @@ class MainActivity : AppCompatActivity() {
         poiSpec = findViewById(R.id.poiSpec)
         poiChips = findViewById(R.id.poiChips)
         poiFootnote = findViewById(R.id.poiFootnote)
+        poiAheadRow = findViewById(R.id.poiAheadRow)
+        poiAheadValue = findViewById(R.id.poiAheadValue)
+        poiAheadLabel = findViewById(R.id.poiAheadLabel)
+        poiAheadTime = findViewById(R.id.poiAheadTime)
+        poiSide = findViewById(R.id.poiSide)
+        poiNext = findViewById(R.id.poiNext)
+        poiNextIcon = findViewById(R.id.poiNextIcon)
+        poiNextLabel = findViewById(R.id.poiNextLabel)
+        poiNextValue = findViewById(R.id.poiNextValue)
+        poiGoIcon = findViewById(R.id.poiGoIcon)
+        poiGoTitle = findViewById(R.id.poiGoTitle)
+        poiGoSub = findViewById(R.id.poiGoSub)
+        poiGoInsteadButton = findViewById(R.id.poiGoInsteadButton)
 
         showFuelPins = prefs.getBoolean(KEY_SHOW_FUEL, true)
         showEvPins = prefs.getBoolean(KEY_SHOW_EV, true)
@@ -1966,6 +1992,17 @@ class MainActivity : AppCompatActivity() {
                 onDestinationSelected(pin)
                 return@setOnClickListener
             }
+            val poi = selectedPoi ?: return@setOnClickListener
+            hidePoiCard()
+            if (navMode == NavMode.ACTIVE && navigationService != null) {
+                // Stop here: the station becomes a stop, the destination stays.
+                navigationService?.addStop(RouteStop(RoutePoint(poi.latitude, poi.longitude), poi.name, 0))
+                busy.set(BusyPill.Job.STOP, tr("Adding stop…", "Tambah hentian…"))
+            } else {
+                onDestinationSelected(GeocodeResult(poi.name, poi.latitude, poi.longitude))
+            }
+        }
+        poiGoInsteadButton.setOnClickListener {
             val poi = selectedPoi ?: return@setOnClickListener
             hidePoiCard()
             // Same path as picking a search result: ends this drive and
@@ -2172,6 +2209,7 @@ class MainActivity : AppCompatActivity() {
             droppedPinResult = null
             clearDestinationMarker()
         }
+        resetPoiCardExtras()
         poiLogoIcon.clearColorFilter()
         poiFootnote.visibility = View.VISIBLE
         selectedPoi = poi
@@ -2182,7 +2220,7 @@ class MainActivity : AppCompatActivity() {
             poiLogoIcon.setImageBitmap(MapIcons.brandBadge(this, brand, 40))
             poiLogoIcon.contentDescription = brand.displayName
         } else {
-            poiLogo.backgroundTintList = ColorStateList.valueOf(Color.parseColor(if (isFuel) FUEL_COLOR else EV_COLOR))
+            poiLogo.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, if (isFuel) R.color.sig_petrol else R.color.sig_ev))
             poiLogoIcon.setImageResource(if (isFuel) R.drawable.ic_fuel else R.drawable.ic_ev)
             poiLogoIcon.contentDescription = null
         }
@@ -2191,56 +2229,139 @@ class MainActivity : AppCompatActivity() {
         val kindLabel = if (isFuel) tr("Petrol station", "Stesen minyak") else tr("EV charging", "Cas EV")
         val here = lastKnownLocation
         val spot = poiSpot(poi)
-        poiMeta.text =
-            if (spot != null) {
-                val ahead = NavFormat.formatDistance(spot.aheadM.coerceAtLeast(0.0).toFloat())
-                val off = NavFormat.formatDistance(spot.offRouteM.toFloat())
-                if (spot.aheadM < 0) {
-                    tr("$kindLabel · just passed", "$kindLabel · baru lepas")
+        if (spot != null) {
+            poiMeta.text = kindLabel
+            showPoiOnTheWay(poi, spot)
+        } else {
+            poiMeta.text =
+                if (here != null) {
+                    val meters = GeocodingService.distanceMeters(here.latitude, here.longitude, poi.latitude, poi.longitude)
+                    tr("$kindLabel · ${NavFormat.formatDistance(meters)} away", "$kindLabel · ${NavFormat.formatDistance(meters)} dari sini")
                 } else {
-                    tr("$kindLabel · $ahead ahead · $off off route", "$kindLabel · $ahead di depan · $off dari laluan")
+                    kindLabel
                 }
-            } else if (here != null) {
-                val meters = GeocodingService.distanceMeters(here.latitude, here.longitude, poi.latitude, poi.longitude)
-                tr("$kindLabel · ${NavFormat.formatDistance(meters)} away", "$kindLabel · ${NavFormat.formatDistance(meters)} dari sini")
-            } else {
-                kindLabel
-            }
+        }
 
         val spec = Labels.spec(poi.spec)
         poiSpec.text = spec ?: ""
         poiSpec.visibility = if (spec.isNullOrBlank()) View.GONE else View.VISIBLE
 
+        // Only what the station has - a row of "not listed" is noise at a glance.
         poiChips.removeAllViews()
-        poi.facilities.forEach { facility ->
-            val chip =
-                Chip(this).apply {
-                    val label = Labels.show(facility.label)
-                    text = if (facility.listed) "\u2713 $label" else tr("$label: not listed", "$label: tiada maklumat")
-                    isClickable = false
-                    isCheckable = false
-                    isFocusable = false
-                    setEnsureMinTouchTargetSize(false)
-                    chipStrokeWidth = 0f
-                    chipBackgroundColor =
-                        ColorStateList.valueOf(
-                            ContextCompat.getColor(
-                                context,
-                                if (facility.listed) R.color.navos_chip_ok_bg else R.color.navos_chip_off_bg,
-                            ),
-                        )
-                    setTextColor(
-                        ContextCompat.getColor(
-                            context,
-                            if (facility.listed) R.color.navos_chip_ok_text else R.color.navos_chip_off_text,
-                        ),
-                    )
-                    textSize = 12.5f
-                }
-            poiChips.addView(chip)
+        poi.facilities.filter { it.listed }.forEach { facility ->
+            poiChips.addView(
+                TextView(this).apply {
+                    text = Labels.show(facility.label)
+                    setTextAppearance(R.style.TextAppearance_Signal_Label)
+                    textSize = 14f
+                    setTextColor(ContextCompat.getColor(context, R.color.sig_text))
+                    background = ContextCompat.getDrawable(context, R.drawable.bg_sig_chip)
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(14), 0, dp(14), 0)
+                    minHeight = dp(36)
+                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36))
+                },
+            )
         }
+        poiChips.visibility = if (poiChips.childCount == 0) View.GONE else View.VISIBLE
 
         Motion.reveal(poiCard, pivotFraction = 1f)
+    }
+
+    /** The parts of the card only a station on the drive has, hidden; "Go here" as the button. */
+    private fun resetPoiCardExtras() {
+        poiAheadRow.visibility = View.GONE
+        poiSide.visibility = View.GONE
+        poiNext.visibility = View.GONE
+        poiGoInsteadButton.visibility = View.GONE
+        poiGoIcon.visibility = View.GONE
+        poiGoSub.visibility = View.GONE
+        poiGoTitle.text = getString(R.string.go_here)
+        poiChips.visibility = View.VISIBLE
+    }
+
+    /** "Fuel up here or carry on?": how far ahead, which side, what comes next, Stop here. */
+    private fun showPoiOnTheWay(
+        poi: Poi,
+        spot: PoiAlongRoute.Spot,
+    ) {
+        val ahead = spot.aheadM.coerceAtLeast(0.0)
+        poiAheadRow.visibility = View.VISIBLE
+        if (spot.aheadM < 0) {
+            poiAheadValue.text = tr("Here", "Sini")
+            poiAheadLabel.text = tr("just passed", "baru lepas")
+            poiAheadTime.text = ""
+        } else {
+            poiAheadValue.text = NavFormat.formatDistance(ahead.toFloat())
+            poiAheadLabel.text = tr("ahead", "di depan")
+            val minutes = Math.round(ahead / averageSpeedAheadMs() / 60.0).toInt().coerceAtLeast(1)
+            poiAheadTime.text = tr("about $minutes min", "lebih kurang $minutes min")
+        }
+
+        val off = NavFormat.formatDistance(spot.offRouteM.toFloat())
+        poiSide.visibility = View.VISIBLE
+        if (spot.offRouteM <= PoiAlongRoute.ON_LINE_M) {
+            poiSide.text = tr("On your route", "Atas laluan anda")
+        } else {
+            poiSide.text =
+                android.text.SpannableStringBuilder().apply {
+                    append(tr("On your side", "Sebelah anda"), android.text.style.ForegroundColorSpan(ContextCompat.getColor(this@MainActivity, R.color.sig_success)), 0)
+                    append(tr(" · $off off route", " · $off dari laluan"), android.text.style.ForegroundColorSpan(ContextCompat.getColor(this@MainActivity, R.color.sig_text_quiet)), 0)
+                }
+        }
+        poiSide.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            ContextCompat.getDrawable(this, R.drawable.ic_check)?.mutate()?.apply { setTint(ContextCompat.getColor(this@MainActivity, R.color.sig_success)) },
+            null,
+            null,
+            null,
+        )
+
+        // What comes after this one on the route (stations are only known some way ahead).
+        val others = nearbyPois.filter { it.kind == poi.kind && it.id != poi.id }.mapNotNull { poiSpot(it)?.aheadM }
+        val next = PoiAlongRoute.nextAfter(ahead, others, POI_LOOK_AHEAD_M + PoiService.RADIUS_METERS)
+        val isFuel = poi.kind == PoiKind.FUEL
+        poiNext.visibility = View.VISIBLE
+        poiNextIcon.setImageResource(if (isFuel) R.drawable.ic_fuel else R.drawable.ic_ev)
+        val nextAt = next.nextAheadM
+        if (nextAt != null) {
+            poiNext.backgroundTintList = null
+            poiNextIcon.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.sig_text_quiet))
+            poiNextLabel.setTextColor(ContextCompat.getColor(this, R.color.sig_text_quiet))
+            poiNextValue.setTextColor(ContextCompat.getColor(this, R.color.sig_text))
+            poiNextLabel.text = if (isFuel) tr("Next petrol on your route", "Minyak seterusnya di laluan") else tr("Next charger on your route", "Cas EV seterusnya di laluan")
+            val nextPoi = nearbyPois.filter { it.kind == poi.kind }.firstOrNull { poiSpot(it)?.aheadM == nextAt }
+            val name = nextPoi?.let { FuelBrand.of(it.name)?.displayName ?: it.name }
+            val dist = NavFormat.formatDistance(nextAt.toFloat())
+            poiNextValue.text = if (name != null) "$name · $dist" else dist
+        } else {
+            val upTo = Math.round(next.knownUpToM / 1000.0).toInt()
+            poiNext.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.sig_caution_fill))
+            poiNextIcon.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.sig_caution_ink))
+            poiNextLabel.setTextColor(ContextCompat.getColor(this, R.color.sig_caution_ink))
+            poiNextValue.setTextColor(ContextCompat.getColor(this, R.color.sig_caution_ink))
+            poiNextValue.text = tr("Last one in the next $upTo km", "Yang terakhir dalam $upTo km")
+            poiNextLabel.text = if (isFuel) tr("No other petrol station on your route", "Tiada stesen minyak lain di laluan") else tr("No other charger on your route", "Tiada cas EV lain di laluan")
+        }
+
+        // Stop here (keeps the destination) is the main action mid-drive.
+        poiGoTitle.text = tr("Stop here", "Singgah sini")
+        poiGoIcon.visibility = View.VISIBLE
+        val dest = destinationName?.takeIf { it.isNotBlank() } ?: tripPlaces.lastOrNull()?.name
+        if (!dest.isNullOrBlank()) {
+            poiGoSub.text = tr("then on to $dest", "lepas tu terus ke $dest")
+            poiGoSub.visibility = View.VISIBLE
+        }
+        poiGoInsteadButton.text = tr("Go here instead", "Pergi sini saja")
+        poiGoInsteadButton.visibility = View.VISIBLE
+    }
+
+    /** Average speed of the rest of the drive (m/s), for "about N min" - 60 km/h when unknown. */
+    private fun averageSpeedAheadMs(): Double {
+        val st = lastNavState
+        if (st != null && st.durationRemainingSeconds > 30 && st.distanceRemainingMeters > 100) {
+            return (st.distanceRemainingMeters / st.durationRemainingSeconds).coerceIn(5.0, 35.0)
+        }
+        return 60 / 3.6
     }
 
     private fun hidePoiCard() {
@@ -2274,6 +2395,7 @@ class MainActivity : AppCompatActivity() {
         poiLogo.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#1EA3EA"))
         poiLogoIcon.setImageResource(R.drawable.ic_place_pin)
         poiLogoIcon.setColorFilter(Color.WHITE)
+        resetPoiCardExtras()
         poiName.text = tr("Dropped pin", "Pin diletak")
         updatePinMeta(latLng, null)
         poiSpec.visibility = View.GONE

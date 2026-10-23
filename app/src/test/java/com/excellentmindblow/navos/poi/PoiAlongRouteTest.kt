@@ -50,4 +50,11 @@ class PoiAlongRouteTest {
         assertNotNull(PoiAlongRoute.spot(track, station(5000.0, -550.0), hereM = 2000.0))
         assertNull(PoiAlongRoute.spot(track, station(5000.0, 550.0), hereM = 2000.0, onExpressway = { true }))
     }
+
+    @Test
+    fun nextStationAfterThisOne() {
+        val n = PoiAlongRoute.nextAfter(3000.0, listOf(1000.0, 3100.0, 8000.0, 6000.0), 9000.0)
+        assertEquals(6000.0, n.nextAheadM!!, 0.1) // 3100 is the same R&R, 1000 is before it
+        assertNull(PoiAlongRoute.nextAfter(3000.0, listOf(1000.0), 9000.0).nextAheadM)
+    }
 }
