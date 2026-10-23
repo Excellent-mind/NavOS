@@ -134,9 +134,9 @@ import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-// Same free, no-API-key, production-safe tile style used by the earlier
-// React Native build. https://openfreemap.org
-private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
+// OpenFreeMap's light-grey "positron" style (free, no API key), tinted to the
+// NavOS app design by MapTheme. https://openfreemap.org
+private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/positron"
 
 // OpenFreeMap's own dark basemap - one of their six default styles
 // (Positron/Bright/Liberty/Dark/Fiord/3D), same free no-API-key CDN as the
@@ -2725,7 +2725,7 @@ class MainActivity : AppCompatActivity() {
             )
         showDestinationMarker(latLng)
 
-        poiLogo.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#1EA3EA"))
+        poiLogo.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.sig_ink))
         poiLogoIcon.setImageResource(R.drawable.ic_place_pin)
         poiLogoIcon.setColorFilter(Color.WHITE)
         resetPoiCardExtras()
@@ -3063,6 +3063,7 @@ class MainActivity : AppCompatActivity() {
         if (::routeArrows.isInitialized) routeArrows.refreshColor()
         loadedMap.setStyle(Style.Builder().fromUri(styleUrl)) { style ->
             MapLabels.apply(style)
+            MapTheme.apply(style, night = appliedMapDark == true)
             val sources = MapLayers(this).install(style)
             altRouteSource = sources.altRoute
             routeSource = sources.route

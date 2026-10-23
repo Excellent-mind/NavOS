@@ -107,6 +107,6 @@ you may use, study, change and share it, but apps built from it must also be
 released as open source under the same license.
 
 Map data © OpenStreetMap contributors (ODbL). Places from Overture Maps
-Foundation. Icons: Lucide (ISC). Fonts: Saira and Atkinson Hyperlegible
+Foundation. Icons: Lucide (ISC). Fonts: Poppins, Saira and Atkinson Hyperlegible
 (SIL Open Font License). Toll fares are from the public Kalkulator Tol at
 llm.gov.my (Lembaga Lebuhraya Malaysia).

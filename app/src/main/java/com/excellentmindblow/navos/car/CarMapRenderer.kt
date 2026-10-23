@@ -39,7 +39,7 @@ import org.maplibre.geojson.Point
  */
 class CarMapRenderer(private val carContext: CarContext) : SurfaceCallback {
     private companion object {
-        const val STYLE_LIGHT = "https://tiles.openfreemap.org/styles/liberty"
+        const val STYLE_LIGHT = "https://tiles.openfreemap.org/styles/positron"
         const val STYLE_DARK = "https://tiles.openfreemap.org/styles/fiord"
         const val ROUTE_SRC = "car-route-src"
         const val ROUTE_LAYER = "car-route-layer"
@@ -186,6 +186,7 @@ class CarMapRenderer(private val carContext: CarContext) : SurfaceCallback {
         val url = if (carContext.isDarkMode) STYLE_DARK else STYLE_LIGHT
         m.setStyle(Style.Builder().fromUri(url)) { st ->
             com.excellentmindblow.navos.MapLabels.apply(st)
+            com.excellentmindblow.navos.MapTheme.apply(st, night = carContext.isDarkMode)
             style = st
             ContextCompat.getDrawable(carContext, R.drawable.ic_destination_pin)
                 ?.toBitmap()
@@ -194,7 +195,7 @@ class CarMapRenderer(private val carContext: CarContext) : SurfaceCallback {
             st.addSource(GeoJsonSource(ROUTE_SRC))
             st.addLayer(
                 LineLayer(ROUTE_LAYER, ROUTE_SRC).withProperties(
-                    PropertyFactory.lineColor("#1CB0F6"),
+                    PropertyFactory.lineColor("#1278D8"),
                     PropertyFactory.lineWidth(9f),
                     PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
@@ -213,7 +214,7 @@ class CarMapRenderer(private val carContext: CarContext) : SurfaceCallback {
             st.addLayer(
                 CircleLayer(PUCK_LAYER, PUCK_SRC).withProperties(
                     PropertyFactory.circleRadius(10f),
-                    PropertyFactory.circleColor("#1CB0F6"),
+                    PropertyFactory.circleColor("#1278D8"),
                     PropertyFactory.circleStrokeColor("#FFFFFF"),
                     PropertyFactory.circleStrokeWidth(3f),
                 ),

@@ -10,7 +10,7 @@ on:
   # Manual dispatch only works once this file is on the default branch, so
   # it also runs on pushes to the polish branch it was added on.
   push:
-    branches: [ccr-ce953277-r3uhzr]
+    branches: [ccr-ce953277-r3uhzr, ccr-9fc25e0b-1gkzmw]
 
 jobs:
   ui-check:

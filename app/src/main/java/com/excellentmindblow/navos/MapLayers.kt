@@ -112,7 +112,7 @@ class MapLayers(
             }
         }
 
-        // 3D buildings - the liberty style's vector tiles already carry
+        // 3D buildings - OpenFreeMap's vector tiles already carry
         // building height data (OpenMapTiles schema: source-layer
         // "building", render_height/render_min_height in metres), the
         // style just never had a layer drawing them as extrusions. Only

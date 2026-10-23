@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="navos_navy">#14284B</color>
-    <color name="navos_blue">#1CB0F6</color>
+    <color name="navos_blue">#1278D8</color>
     <color name="white">#FFFFFF</color>
 
     <!-- Semantic UI colours. Light values are the original look; the
@@ -9,7 +9,7 @@
     <color name="navos_surface">#FFFFFF</color>
     <color name="navos_surface_variant">#F0F2F6</color>
     <color name="navos_surface_alt">#F2F4F7</color>
-    <color name="navos_text">#14284B</color>
+    <color name="navos_text">#1B2433</color>
     <color name="navos_text_secondary">#5F6B7A</color>
     <color name="navos_text_tertiary">#7A869A</color>
     <color name="navos_hint">#80142A4B</color>
@@ -17,42 +17,43 @@
     <color name="navos_line">#E3E7EC</color>
     <color name="navos_rule">#E0E0E0</color>
     <color name="navos_handle">#CBD1DA</color>
-    <color name="navos_button_fill">#14284B</color>
+    <color name="navos_button_fill">#1278D8</color>
     <color name="navos_overlay_surface">#99FFFFFF</color>
     <color name="navos_chip_ok_bg">#EAF7EF</color>
     <color name="navos_chip_ok_text">#1F9D55</color>
     <color name="navos_chip_off_bg">#F1F3F6</color>
     <color name="navos_chip_off_text">#9AA4B5</color>
-    <color name="navos_toggle_selected">#E3F4FE</color>
+    <color name="navos_toggle_selected">#E4F0FC</color>
 
-    <!-- Signal design language (black and white from the app icon). Screens
-         move onto these one at a time; night values in values-night. -->
-    <color name="sig_ink">#0A0A0A</color>
+    <!-- Signal tokens, in the NavOS app design: sig_ink is the one bright
+         blue (buttons, selection, the puck) with sig_on_ink on it; sig_text is
+         the dark navy text. Night values (the design's navy) in values-night. -->
+    <color name="sig_ink">#1278D8</color>
     <color name="sig_on_ink">#FFFFFF</color>
-    <color name="sig_on_ink_quiet">#BDBDBD</color>
-    <color name="sig_text">#0A0A0A</color>
-    <color name="sig_text_quiet">#5C5C5C</color>
+    <color name="sig_on_ink_quiet">#CFE3F8</color>
+    <color name="sig_text">#1B2433</color>
+    <color name="sig_text_quiet">#6E7A8F</color>
     <color name="sig_sheet">#FFFFFF</color>
-    <color name="sig_field">#F2F2F2</color>
-    <color name="sig_outline">#E0E0E0</color>
-    <color name="sig_handle">#CFCFCF</color>
+    <color name="sig_field">#F0F3F8</color>
+    <color name="sig_outline">#DCE3EE</color>
+    <color name="sig_handle">#D5DCE6</color>
     <color name="sig_caution">#F2A900</color>
     <color name="sig_limit">#D7263D</color>
     <color name="sig_success">#1F7A45</color>
     <color name="sig_petrol">#C25E00</color>
     <color name="sig_ev">#1F8A4C</color>
-    <color name="sig_divider">#EDEDED</color>
-    <color name="sig_dash">#BDBDBD</color>
-    <color name="sig_clear_fill">#E6E6E6</color>
+    <color name="sig_divider">#EDF1F6</color>
+    <color name="sig_dash">#C5CEDB</color>
+    <color name="sig_clear_fill">#E4E9F0</color>
 
     <!-- Signal driving screen -->
-    <color name="sig_route">#111111</color>
+    <color name="sig_route">#1278D8</color>
     <color name="sig_route_casing">#FFFFFF</color>
-    <color name="sig_route_alt">#A3A3A3</color>
-    <color name="sig_route_passed">#8C8C8C</color>
-    <color name="sig_turn_fill">#0A0A0A</color>
+    <color name="sig_route_alt">#A9C7EA</color>
+    <color name="sig_route_passed">#B8C2D0</color>
+    <color name="sig_turn_fill">#1278D8</color>
     <color name="sig_turn_stroke">#FFFFFF</color>
-    <color name="sig_lane_fill">#1E1E1E</color>
+    <color name="sig_lane_fill">#0E63B5</color>
     <color name="sig_float">#FFFFFF</color>
     <color name="sig_float_stroke">#00000000</color>
     <color name="sig_end_fill">#FCE8EB</color>

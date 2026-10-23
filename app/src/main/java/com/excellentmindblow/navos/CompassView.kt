@@ -46,13 +46,13 @@ class CompassView
             }
         private val ring =
             Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.parseColor("#14284B")
+                color = Color.parseColor("#1B2433")
                 style = Paint.Style.STROKE
                 strokeWidth = 1.5f * density
             }
         private val north = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#E5484D") }
         private val south = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#9AA5B1") }
-        private val hub = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#14284B") }
+        private val hub = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#1B2433") }
         private val northPath = Path()
         private val southPath = Path()
 
@@ -70,7 +70,7 @@ class CompassView
 
             canvas.drawCircle(cx, cy, radius, shadow)
             canvas.drawCircle(cx, cy, radius, fill)
-            ring.color = Color.parseColor(if (headingMode) "#1CB0F6" else "#14284B")
+            ring.color = Color.parseColor(if (headingMode) "#1278D8" else "#1B2433")
             ring.strokeWidth = (if (headingMode) 3f else 1.5f) * density
             canvas.drawCircle(cx, cy, radius, ring)
 
