@@ -1020,7 +1020,7 @@ class MainActivity : AppCompatActivity() {
                 val track = routeTrack?.takeIf { it.source === route.geometry } ?: RouteTrack(route.geometry).also { routeTrack = it }
                 signOverlay.setRoute(track, signs)
                 routeArrows.setRoute(track, corners)
-                lastNavState?.let { showTripSummary(it.durationRemainingSeconds, it.distanceRemainingMeters, etaClockText, etaDetailText) }
+                lastNavState?.let { showTripSummary(it.durationRemainingSeconds + trafficLayer.delayAheadSeconds, it.distanceRemainingMeters, etaClockText, etaDetailText) }
             }
         }
     }
@@ -3135,15 +3135,8 @@ class MainActivity : AppCompatActivity() {
         val runs = TrafficFlow.runs(nodes, free, live)
         if (runs.isEmpty()) return null
         val spans = runs.map { TripStrip.Traffic(track.distanceAt(it.from), track.distanceAt(it.to), it.level == TrafficFlow.Level.JAM) }
-        // Extra time against normal speed, over the slow / jammed pieces.
-        var delayS = 0.0
-        for (run in runs) {
-            for (k in run.from until run.to) {
-                val kmh = live["${nodes[k]}-${nodes[k + 1]}"] ?: continue
-                val len = track.distanceAt(k + 1) - track.distanceAt(k)
-                if (kmh > 1 && free[k] > 0) delayS += len / (kmh / 3.6) - len / free[k]
-            }
-        }
+        val cum = DoubleArray(route.geometry.size) { track.distanceAt(it) }
+        val delayS = TrafficFlow.delaySeconds(nodes, free, cum, live)
         val worst = runs.firstOrNull { it.level == TrafficFlow.Level.JAM } ?: runs.first()
         val jam = worst.level == TrafficFlow.Level.JAM
         val at = track.distanceAt(worst.from)
@@ -3155,7 +3148,7 @@ class MainActivity : AppCompatActivity() {
         val minutes = Math.round(delayS / 60.0).toInt()
         val what = if (jam) tr("Jam", "Jem") else tr("Slow traffic", "Trafik perlahan")
         val where = road?.let { tr(" on $it", " di $it") }.orEmpty()
-        val note = TrafficNote(what + where + if (minutes >= 1) " · +$minutes min" else "", jam)
+        val note = TrafficNote(what + where + if (minutes >= 1) " · +$minutes min" else "", jam, delayS)
         return spans to note
     }
 
@@ -3214,7 +3207,8 @@ class MainActivity : AppCompatActivity() {
     private fun routeChoiceInputs(): List<RouteChoices.Input> =
         routeOptions.mapIndexed { i, r ->
             RouteChoices.Input(
-                r.durationSeconds,
+                // Live traffic counts: "fastest" is fastest today, not on a free road.
+                r.durationSeconds + (routeTraffic[i]?.second?.delaySeconds ?: 0.0),
                 r.distanceMeters,
                 NavFormat.viaRoadName(r),
                 routePoisByIndex[i]?.count { it.kind == "toll" },
@@ -4551,7 +4545,7 @@ class MainActivity : AppCompatActivity() {
         // instruction that no longer applies.
         turnStreetText.text = if (state.offRoute) tr("Recalculating…", "Cari laluan baru…") else state.instruction
 
-        showTripSummary(state.durationRemainingSeconds, state.distanceRemainingMeters, etaClockText, etaDetailText)
+        showTripSummary(state.durationRemainingSeconds + trafficLayer.delayAheadSeconds, state.distanceRemainingMeters, etaClockText, etaDetailText)
         updateNextStopLine(state)
 
         if (state.currentStepIndex != renderedCalloutStep) {

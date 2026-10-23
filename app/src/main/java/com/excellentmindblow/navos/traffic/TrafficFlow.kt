@@ -61,6 +61,28 @@ object TrafficFlow {
         return out
     }
 
+    /**
+     * Extra time (seconds) the slow / jammed pieces from point [fromIndex] on
+     * cost against their normal speed. [cumM]: distance of each route point
+     * from the start.
+     */
+    fun delaySeconds(
+        nodes: LongArray,
+        freeFlowMs: DoubleArray,
+        cumM: DoubleArray,
+        live: Map<String, Double>,
+        fromIndex: Int = 0,
+    ): Double {
+        var delay = 0.0
+        for (i in fromIndex.coerceAtLeast(0) until nodes.size - 1) {
+            val kmh = live["${nodes[i]}-${nodes[i + 1]}"] ?: continue
+            if (levelOf(kmh, freeFlowMs[i]) == null || kmh <= 1.0) continue
+            val len = cumM[i + 1] - cumM[i]
+            delay += len / (kmh / 3.6) - len / freeFlowMs[i]
+        }
+        return delay.coerceAtLeast(0.0)
+    }
+
     /** Road pieces of the route from point [fromIndex], up to [maxPieces], to ask the server about. */
     fun piecesAhead(
         nodes: LongArray,

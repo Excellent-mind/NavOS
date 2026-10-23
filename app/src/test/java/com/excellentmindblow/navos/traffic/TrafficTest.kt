@@ -70,4 +70,13 @@ class TrafficTest {
         )
         assertEquals(listOf("19-20", "20-21"), TrafficFlow.piecesAhead(nodes, 18))
     }
+
+    @Test
+    fun delayIsTheExtraTimeOnSlowPiecesOnly() {
+        val ff = DoubleArray(20) { 25.0 } // 90 km/h
+        // Two 100 m pieces at 18 km/h (jam): 20 s each instead of 4 s; one fine piece ignored.
+        val live = mapOf("5-6" to 18.0, "6-7" to 18.0, "9-10" to 85.0)
+        assertEquals(32.0, TrafficFlow.delaySeconds(nodes, ff, cum, live), 0.5)
+        assertEquals(0.0, TrafficFlow.delaySeconds(nodes, ff, cum, live, fromIndex = 7), 0.001)
+    }
 }

@@ -215,6 +215,7 @@ class NavigationService : Service() {
         hasStoppedSelf = false
         activeRoute = route
         stopsPassed = 0
+        smartEta.reset()
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         (trafficReporter ?: TrafficReporter(prefs).also { trafficReporter = it }).setRoute(route, sameDrive = false)
@@ -254,6 +255,7 @@ class NavigationService : Service() {
      * like MainActivity's old in-place reroute did. */
     fun rerouteTo(route: Route) {
         activeRoute = route
+        smartEta.rebase()
         trafficReporter?.setRoute(route, sameDrive = true)
         // The last state belongs to the OLD route's step numbering; keeping it
         // would make remainingStops() mis-judge which stops are still ahead
@@ -422,7 +424,17 @@ class NavigationService : Service() {
         )
     }
 
-    private fun handleState(state: NavigationState) {
+    /** Learns this drive's pace so the ETA isn't just the server's free-road time. */
+    private val smartEta = SmartEta()
+
+    private fun handleState(raw: NavigationState) {
+        smartEta.observe(raw.durationRemainingSeconds, SystemClock.elapsedRealtime())
+        val f = if (raw.durationRemainingSeconds > 0) smartEta.adjust(raw.durationRemainingSeconds) / raw.durationRemainingSeconds else 1.0
+        val state =
+            raw.copy(
+                durationRemainingSeconds = raw.durationRemainingSeconds * f,
+                durationToNextStopSeconds = raw.durationToNextStopSeconds * f,
+            )
         lastState = state
         listener.onNavState(state)
         updateNotification(state)

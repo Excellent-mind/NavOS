@@ -31,6 +31,8 @@ data class RouteChoice(
 data class TrafficNote(
     val text: String,
     val jam: Boolean,
+    /** Extra time the slow / jammed stretches cost (seconds), already in the route's time. */
+    val delaySeconds: Double = 0.0,
 )
 
 /** Which route cards the preview shows, and where each route's time bubble sits. */

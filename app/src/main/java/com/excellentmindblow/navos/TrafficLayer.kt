@@ -1,6 +1,7 @@
 package com.excellentmindblow.navos
 
 import android.os.Handler
+import com.excellentmindblow.navos.navigation.GeoUtils
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.traffic.TrafficClient
 import com.excellentmindblow.navos.traffic.TrafficFlow
@@ -35,6 +36,18 @@ class TrafficLayer(
     private var runs: List<TrafficFlow.Run> = emptyList()
     private var drawnFrom = -1
     private var token = 0
+    private var cumM = DoubleArray(0)
+    private var live: Map<String, Double> = emptyMap()
+
+    /** Extra time the slow / jammed road still ahead costs (seconds), for the ETA. */
+    val delayAheadSeconds: Double
+        get() {
+            val r = route ?: return 0.0
+            val nodes = r.nodes ?: return 0.0
+            val free = r.freeFlowMs ?: return 0.0
+            if (live.isEmpty() || cumM.size != nodes.size) return 0.0
+            return TrafficFlow.delaySeconds(nodes, free, cumM, live, currentIndex())
+        }
 
     private val poll =
         object : Runnable {
@@ -48,6 +61,8 @@ class TrafficLayer(
         stop()
         if (newRoute.nodes == null || newRoute.freeFlowMs == null) return
         route = newRoute
+        cumM = DoubleArray(newRoute.geometry.size)
+        for (i in 1 until cumM.size) cumM[i] = cumM[i - 1] + GeoUtils.distanceMeters(newRoute.geometry[i - 1], newRoute.geometry[i])
         handler.post(poll)
     }
 
@@ -56,6 +71,7 @@ class TrafficLayer(
         token++
         route = null
         runs = emptyList()
+        live = emptyMap()
         draw(force = true)
     }
 
@@ -78,10 +94,11 @@ class TrafficLayer(
         if (pieces.isEmpty()) return
         val t = token
         io.execute {
-            val live = runCatching { TrafficClient.flow(pieces) }.getOrNull() ?: return@execute
-            val found = TrafficFlow.runs(nodes, free, live, from)
+            val got = runCatching { TrafficClient.flow(pieces) }.getOrNull() ?: return@execute
+            val found = TrafficFlow.runs(nodes, free, got, from)
             handler.post {
                 if (t != token || route !== r) return@post
+                live = got
                 runs = found
                 draw(force = true)
             }
