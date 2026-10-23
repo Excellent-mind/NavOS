@@ -99,6 +99,11 @@ adb root >/dev/null 2>&1; adb wait-for-device   # lets us pull ANR / stack trace
 sleep 60
 adb install -g app/build/outputs/apk/debug/app-debug.apk
 adb shell settings put secure location_mode 3
+# A slow runner makes Pixel Launcher freeze behind the app; its "isn't responding"
+# pop-ups then cover NavOS and swallow taps. Hide system error dialogs (the
+# check still sees our own crashes in logcat / anr).
+adb shell settings put global hide_error_dialogs 1 || true
+adb shell am force-stop com.google.android.apps.nexuslauncher || true
 adb emu geo fix 101.6869 3.1390   # Kuala Lumpur (lon lat)
 adb logcat -c
 adb shell screenrecord --time-limit 180 --bit-rate 4000000 /sdcard/run.mp4 &
