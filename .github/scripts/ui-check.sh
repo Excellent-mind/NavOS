@@ -167,7 +167,7 @@ sleep 3; shot 13-pin-card
 expect shown poiGoButton "long-press on the map shows the dropped-pin card"
 
 # Route preview, then start driving.
-tap_id poiGoButton && sleep 12 && shot 14-route-preview
+tap_id poiGoButton && sleep 0.9 && shot 13b-finding-route; sleep 11; shot 14-route-preview
 expect shown startNavigationButton "route preview with Go now"
 tap_id startNavigationButton && sleep 1.5 && shot 15a-traffic-notice
 sleep 4.5; shot 15-driving

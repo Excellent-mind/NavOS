@@ -253,12 +253,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var routeListOverlay: View
     private lateinit var routeListItems: LinearLayout
     private lateinit var recalcText: TextView
-    private var recalcShown = false
-    private var recalcPulse: ObjectAnimator? = null
-    private lateinit var recalcLogo: View
-    private lateinit var recalcNeedle: View
-    private var recalcNeedleSpin: ObjectAnimator? = null
-    private var recalcLogoPulse: ObjectAnimator? = null
+
+    /** The one "working on it" pill (recalculating, routes, stops). */
+    private lateinit var busy: BusyPill
     private lateinit var etaClockText: TextView
     private lateinit var etaDetailText: TextView
     private lateinit var navStopButton: View
@@ -531,6 +528,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onStopChangeFailed() {
+                busy.set(BusyPill.Job.STOP, null)
                 Toast.makeText(
                     this@MainActivity,
                     tr("Couldn't change the stops right now - check your GPS and connection", "Tak dapat tukar hentian sekarang - cek GPS dan internet anda"),
@@ -539,6 +537,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onRerouted(route: Route) {
+                busy.set(BusyPill.Job.STOP, null)
                 activeRoute = route
                 snapSegmentIndex = 0
                 routeOptions = listOf(route)
@@ -1404,8 +1403,7 @@ class MainActivity : AppCompatActivity() {
                 onShowAll = { setRouteListVisible(true) },
             )
         recalcText = findViewById(R.id.recalcText)
-        recalcLogo = findViewById(R.id.recalcLogo)
-        recalcNeedle = findViewById(R.id.recalcNeedle)
+        busy = BusyPill(recalcPill, recalcText, mainHandler)
         etaClockText = findViewById(R.id.etaClockText)
         etaDetailText = findViewById(R.id.etaDetailText)
         navStopButton = findViewById(R.id.stopNavigationButton)
@@ -3061,7 +3059,7 @@ class MainActivity : AppCompatActivity() {
         val destinationPoint = tripPoint(destination)
         val stops = places.dropLast(1).mapIndexed { i, p -> RouteStop(tripPoint(p), p.name, i + 1) }
         val seq = ++tripRequestSeq
-        if (isEdit) routePreviewHint.text = tr("Updating route...", "Kemas kini laluan...")
+        busy.set(BusyPill.Job.ROUTE, if (isEdit) tr("Updating route…", "Kemas kini laluan…") else tr("Finding route…", "Cari laluan…"))
 
         searchExecutor.execute {
             var routes: List<Route> = emptyList()
@@ -3075,6 +3073,7 @@ class MainActivity : AppCompatActivity() {
             mainHandler.post {
                 // A newer edit (or cancelling the trip) already superseded this one.
                 if (seq != tripRequestSeq) return@post
+                busy.set(BusyPill.Job.ROUTE, null)
                 if (couldNotAvoid && routes.isNotEmpty()) {
                     Toast.makeText(this, tr("The routing server can't avoid tolls or highways yet - showing normal routes", "Server laluan belum boleh elak tol atau highway - tunjuk laluan biasa"), Toast.LENGTH_LONG).show()
                 }
@@ -3121,6 +3120,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun clearTrip() {
         tripRequestSeq++ // a late route reply must not bring the trip back
+        busy.set(BusyPill.Job.ROUTE, null)
         tripPlaces = mutableListOf()
         tripRoutedPlaces = emptyList()
         passedStopNumbers.clear()
@@ -3384,7 +3384,7 @@ class MainActivity : AppCompatActivity() {
             }
             AddStopTarget.ACTIVE -> {
                 navigationService?.addStop(RouteStop(tripPoint(result), result.name, 0))
-                Toast.makeText(this, tr("Adding stop...", "Tambah hentian..."), Toast.LENGTH_SHORT).show()
+                busy.set(BusyPill.Job.STOP, tr("Adding stop…", "Tambah hentian…"))
             }
             AddStopTarget.NONE -> Unit
         }
@@ -3392,7 +3392,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun skipNextStopFromDrive() {
         navigationService?.skipNextStop()
-        Toast.makeText(this, tr("Skipping next stop...", "Langkau hentian..."), Toast.LENGTH_SHORT).show()
+        busy.set(BusyPill.Job.STOP, tr("Skipping stop…", "Langkau hentian…"))
     }
 
     /** The drive bar's extra buttons: only in the expanded bar, and "Skip next
@@ -4171,6 +4171,7 @@ class MainActivity : AppCompatActivity() {
         trafficLayer.stop()
         renderRoutePois()
         setRecalculating(false)
+        busy.set(BusyPill.Job.STOP, null)
         renderedCalloutStep = -1
         renderTurnCallouts(0)
         clearPassedRoute()
@@ -4233,74 +4234,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Slides the "Recalculating..." pill in (spinner + pulsing text) or out. */
     private fun setRecalculating(show: Boolean) {
-        if (show == recalcShown) return
-        recalcShown = show
-        val slide = 24f * resources.displayMetrics.density
-        recalcPill.animate().cancel()
-        if (show) {
-            recalcPill.visibility = View.VISIBLE
-            recalcPill.alpha = 0f
-            recalcPill.translationY = -slide
-            recalcPill.animate().alpha(1f).translationY(0f).setDuration(220L).setInterpolator(Motion.easeOut).start()
-            recalcPulse?.cancel()
-            recalcPulse =
-                ObjectAnimator.ofFloat(recalcText, View.ALPHA, 1f, 0.45f).apply {
-                    duration = 700L
-                    repeatMode = ValueAnimator.REVERSE
-                    repeatCount = ValueAnimator.INFINITE
-                    start()
-                }
-            // The logo's compass needle sweeps around the ring (pivot = ring
-            // centre, which sits at ~31% across / half way down the logo)
-            // while the whole logo breathes in and out.
-            val density = resources.displayMetrics.density
-            recalcNeedle.pivotX = 55f * density * 0.3086f
-            recalcNeedle.pivotY = 34f * density * 0.5f
-            recalcNeedleSpin?.cancel()
-            recalcNeedleSpin =
-                ObjectAnimator.ofFloat(recalcNeedle, View.ROTATION, 0f, 360f).apply {
-                    duration = 1300L
-                    interpolator = android.view.animation.AccelerateDecelerateInterpolator()
-                    repeatCount = ValueAnimator.INFINITE
-                    start()
-                }
-            recalcLogo.pivotX = 55f * density / 2f
-            recalcLogo.pivotY = 34f * density / 2f
-            recalcLogoPulse?.cancel()
-            recalcLogoPulse =
-                ObjectAnimator
-                    .ofPropertyValuesHolder(
-                        recalcLogo,
-                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.06f),
-                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.06f),
-                    ).apply {
-                        duration = 650L
-                        repeatMode = ValueAnimator.REVERSE
-                        repeatCount = ValueAnimator.INFINITE
-                        start()
-                    }
-        } else {
-            recalcPulse?.cancel()
-            recalcText.alpha = 1f
-            recalcPill
-                .animate()
-                .alpha(0f)
-                .translationY(-slide)
-                .setDuration(160L)
-                .setInterpolator(Motion.easeOut)
-                .withEndAction {
-                    if (!recalcShown) {
-                        recalcPill.visibility = View.GONE
-                        // Stop the logo animations only once the pill has faded out.
-                        recalcNeedleSpin?.cancel()
-                        recalcLogoPulse?.cancel()
-                        recalcNeedle.rotation = 0f
-                        recalcLogo.scaleX = 1f
-                        recalcLogo.scaleY = 1f
-                    }
-                }
-                .start()
-        }
+        busy.set(BusyPill.Job.RECALCULATING, if (show) getString(R.string.recalculating) else null)
     }
 
     private fun onNavigationState(state: NavigationState) {
