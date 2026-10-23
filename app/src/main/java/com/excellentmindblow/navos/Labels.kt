@@ -10,7 +10,7 @@ object Labels {
 
     /** EV charger details ("Plugs: CCS2 (50 kW)\nChargers: 2"). */
     fun spec(text: String?): String? =
-        if (text == null || !Lang.malay) text else text.replace("Plugs:", "Plag:").replace("Chargers:", "Pengecas:")
+        if (text == null || !Lang.malay) text else text.replace("Plugs:", "Plag:").replace("Chargers:", "Pengecas:").replace("Spaces:", "Petak:")
 
     private val MS =
         mapOf(
@@ -55,5 +55,10 @@ object Labels {
             "Air pump" to "Pam angin",
             "24 hours" to "24 jam",
             "Free to use" to "Percuma",
+            // Parking (poi/PoiService.fetchParking)
+            "Free" to "Percuma",
+            "Paid" to "Berbayar",
+            "Covered" to "Berbumbung",
+            "Disabled parking" to "Parking OKU",
         )
 }

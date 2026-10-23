@@ -110,4 +110,5 @@
     <string name="report_road">Report on the road</string>
     <string name="report_still_there">Still there</string>
     <string name="report_not_there">Not there</string>
+    <string name="chip_parking">Parking</string>
 </resources>

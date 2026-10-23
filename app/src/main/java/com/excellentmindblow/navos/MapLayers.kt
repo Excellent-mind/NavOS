@@ -55,6 +55,7 @@ internal const val ROUTE_TIME_SOURCE_ID = "navos-route-time-source"
 internal const val ROUTE_TIME_LAYER_ID = "navos-route-time-layer"
 internal const val FUEL_PIN_ICON_ID = "navos-icon-fuel-pin"
 internal const val EV_PIN_ICON_ID = "navos-icon-ev-pin"
+internal const val PARKING_PIN_ICON_ID = "navos-icon-parking-pin"
 
 /**
  * Adds NavOS's own sources and layers (3D buildings, route lines and
@@ -379,6 +380,7 @@ class MapLayers(
         registerMapIcon(style, FUEL_PIN_ICON_ID, R.drawable.ic_poi_fuel_pin)
         for (brand in FuelBrand.entries) style.addImage(brand.pinIconId, MapIcons.brandPin(context, brand))
         registerMapIcon(style, EV_PIN_ICON_ID, R.drawable.ic_poi_ev_pin)
+        registerMapIcon(style, PARKING_PIN_ICON_ID, R.drawable.ic_poi_parking_pin)
 
         val src = GeoJsonSource(POI_SOURCE_ID)
         style.addSource(src)

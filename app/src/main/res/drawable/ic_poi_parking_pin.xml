@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Blue map pin with a white P - car park. Same pin shape, size and white
+     rim as the petrol / EV pins; blue like Malaysian parking signs. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="38dp"
+    android:height="38dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#2457A6"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.2"
+        android:pathData="M12,1.5C7.86,1.5 4.5,4.86 4.5,9c0,5.6 7.5,13.5 7.5,13.5s7.5,-7.9 7.5,-13.5c0,-4.14 -3.36,-7.5 -7.5,-7.5z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M9.6,5.2h3.1a2.65,2.65 0,0 1,0 5.3h-1.4v2.8h-1.7z M11.3,6.7v2.3h1.3a1.15,1.15 0,0 0,0 -2.3z" />
+</vector>

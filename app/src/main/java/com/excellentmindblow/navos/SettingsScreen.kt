@@ -147,6 +147,7 @@ class SettingsScreen(
                 },
                 switchRow(tr("Petrol stations", "Stesen minyak"), tr("Near your route while driving", "Dekat laluan semasa memandu"), host.isPoiKindShown(PoiKind.FUEL)) { host.setPoiKindShown(PoiKind.FUEL, it) },
                 switchRow(tr("EV charging", "Cas EV"), tr("Near your route while driving", "Dekat laluan semasa memandu"), host.isPoiKindShown(PoiKind.EV)) { host.setPoiKindShown(PoiKind.EV, it) },
+                switchRow(tr("Parking", "Parking"), tr("Near your destination while driving", "Dekat destinasi semasa memandu"), host.isPoiKindShown(PoiKind.PARKING)) { host.setPoiKindShown(PoiKind.PARKING, it) },
             ),
         )
 

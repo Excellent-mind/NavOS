@@ -6,7 +6,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-enum class PoiKind { FUEL, EV }
+enum class PoiKind { FUEL, EV, PARKING }
 
 /** One facility chip on the station card. listed = OpenStreetMap says the
  * station has it; false means "not listed" (unknown), never "doesn't
@@ -49,6 +49,9 @@ object PoiService {
     private const val CHARGER_NEARBY_M = 100f
 
     private val FUEL_FACILITIES = listOf("Toilet", "Surau", "Shop", "ATM", "EV charging", "Car wash", "Air pump", "24 hours")
+    private val PARKING_FACILITIES = listOf("Free", "Paid", "Covered", "24 hours", "Disabled parking")
+    const val PARKING_RADIUS_M = 800
+    private const val MAX_PARKING = 25
     private val EV_FACILITIES = listOf("24 hours", "Toilet", "Surau", "Free to use")
 
     // OSM socket:* keys -> what drivers in Malaysia call the plug.
@@ -88,7 +91,59 @@ object PoiService {
                 "nwr[\"amenity\"=\"place_of_worship\"][\"religion\"=\"muslim\"](around:$rWide,$lat,$lon);" +
                 "nwr[\"amenity\"=\"toilets\"](around:$rWide,$lat,$lon);" +
                 ");out center tags;"
+        return buildPois(parseElements(overpass(query)), lat, lon)
+    }
 
+    /** Car parks open to the public within [radiusM] of [lat],[lon] (the
+     * destination), nearest first. Blocking; throws on network failure. */
+    fun fetchParking(
+        lat: Double,
+        lon: Double,
+        radiusM: Int = PARKING_RADIUS_M,
+    ): List<Poi> {
+        val query =
+            "[out:json][timeout:25];(" +
+                "nwr[\"amenity\"=\"parking\"][\"access\"!~\"^(private|no|permit)$\"](around:$radiusM,$lat,$lon);" +
+                ");out center tags;"
+        return parseParking(overpass(query), lat, lon)
+    }
+
+    internal fun parseParking(
+        body: String,
+        originLat: Double,
+        originLon: Double,
+    ): List<Poi> =
+        parseElements(body)
+            .filter { it.tag("amenity") == "parking" && it.tag("parking") != "street_side" }
+            .map { e ->
+                val kind = e.tag("parking")
+                val fee = e.tag("fee")?.lowercase()
+                val listed =
+                    mapOf(
+                        "Free" to (fee == "no"),
+                        "Paid" to (fee != null && fee != "no"),
+                        "Covered" to (kind == "multi-storey" || kind == "underground" || e.yes("covered")),
+                        "24 hours" to (e.tag("opening_hours") == "24/7"),
+                        "Disabled parking" to ((e.tag("capacity:disabled")?.toIntOrNull() ?: 0) > 0 || e.yes("capacity:disabled")),
+                    )
+                val spaces = e.tag("capacity")?.toIntOrNull()?.takeIf { it > 0 }
+                Poi(
+                    id = e.id,
+                    kind = PoiKind.PARKING,
+                    name = e.tag("name") ?: e.tag("operator") ?: "Parking",
+                    latitude = e.lat,
+                    longitude = e.lon,
+                    facilities = PARKING_FACILITIES.map { PoiFacility(it, listed[it] == true) },
+                    spec = spaces?.let { "Spaces: $it" },
+                )
+            }.sortedBy {
+                com.excellentmindblow.navos.navigation.GeoUtils.distanceMeters(
+                    com.excellentmindblow.navos.routing.RoutePoint(originLat, originLon),
+                    com.excellentmindblow.navos.routing.RoutePoint(it.latitude, it.longitude),
+                )
+            }.take(MAX_PARKING)
+
+    private fun overpass(query: String): String {
         val connection = URL(OVERPASS_URL).openConnection() as HttpURLConnection
         connection.requestMethod = "POST"
         connection.doOutput = true
@@ -104,8 +159,7 @@ object PoiService {
             if (connection.responseCode != HttpURLConnection.HTTP_OK) {
                 throw RuntimeException("Station lookup failed (${connection.responseCode})")
             }
-            val body = connection.inputStream.bufferedReader().use { it.readText() }
-            return buildPois(parseElements(body), lat, lon)
+            return connection.inputStream.bufferedReader().use { it.readText() }
         } finally {
             connection.disconnect()
         }

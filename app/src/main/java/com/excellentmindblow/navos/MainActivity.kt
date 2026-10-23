@@ -213,6 +213,7 @@ private const val MAX_PETROL_RESULTS = 10
 private const val POI_ID_PROPERTY = "poiId"
 private const val KEY_SHOW_FUEL = "show_fuel_pins"
 private const val KEY_SHOW_EV = "show_ev_pins"
+private const val KEY_SHOW_PARKING = "show_parking_pins"
 private const val FUEL_COLOR = "#E8710A"
 private const val EV_COLOR = "#12A150"
 
@@ -423,8 +424,9 @@ class MainActivity : AppCompatActivity() {
 
     // ---- Petrol / EV pins (active drive only) ----
     private lateinit var poiToggleColumn: View
-    private lateinit var fuelToggleButton: ImageButton
-    private lateinit var evToggleButton: ImageButton
+    private lateinit var navPetrolChip: TextView
+    private lateinit var navEvChip: TextView
+    private lateinit var navParkingChip: TextView
     private lateinit var poiCard: View
     private lateinit var poiLogo: View
     private lateinit var poiLogoIcon: ImageView
@@ -461,6 +463,11 @@ class MainActivity : AppCompatActivity() {
     private var poiFetchInFlight = false
     private var showFuelPins = true
     private var showEvPins = true
+    private var showParkingPins = true
+
+    /** Car parks near the destination of this drive (see [loadParking]). */
+    private var parkingPois: List<Poi> = emptyList()
+    private var parkingFor: RoutePoint? = null
 
     /** Set while waiting for the user to pick a destination to save under
      * "home" or "work" - cleared once that pick is saved. */
@@ -623,6 +630,8 @@ class MainActivity : AppCompatActivity() {
                 loadActiveRoutePois(route)
                 runCatching { routeOfflineCache.save(route, mapStyleUrl(), newDrive = false) }
                 if (::roadReportsUi.isInitialized) roadReportsUi.start()
+                loadParking(route)
+        loadParking(route)
                 renderedCalloutStep = -1
                 renderTurnCallouts(1)
                 nextTurnsRenderedIndex = -1
@@ -945,7 +954,7 @@ class MainActivity : AppCompatActivity() {
     private fun setUpPressFeedback() {
         listOf(
             R.id.searchBackButton, R.id.searchClearButton, R.id.compassButton, R.id.recenterButton,
-            R.id.evToggleButton, R.id.fuelToggleButton, R.id.routeBackButton, R.id.startNavigationButton,
+            R.id.navPetrolChip, R.id.navEvChip, R.id.navParkingChip, R.id.routeBackButton, R.id.startNavigationButton,
             R.id.previewAddStopButton, R.id.routeAllRoutes,
             R.id.bottomSearchButton, R.id.bottomAltRouteButton, R.id.stopNavigationButton, R.id.shareEtaButton,
             R.id.poiCloseButton, R.id.poiGoButton, R.id.homeSettingsButton, R.id.homeSheetBackButton,
@@ -2052,8 +2061,9 @@ class MainActivity : AppCompatActivity() {
     private fun setUpPoiControls() {
         poiToggleColumn = findViewById(R.id.poiToggleColumn)
         roadReportsUi = RoadReportsUi(this, roadReportsHost)
-        fuelToggleButton = findViewById(R.id.fuelToggleButton)
-        evToggleButton = findViewById(R.id.evToggleButton)
+        navPetrolChip = findViewById(R.id.navPetrolChip)
+        navEvChip = findViewById(R.id.navEvChip)
+        navParkingChip = findViewById(R.id.navParkingChip)
         poiCard = findViewById(R.id.poiCard)
         poiLogo = findViewById(R.id.poiLogo)
         poiLogoIcon = findViewById(R.id.poiLogoIcon)
@@ -2078,10 +2088,12 @@ class MainActivity : AppCompatActivity() {
 
         showFuelPins = prefs.getBoolean(KEY_SHOW_FUEL, true)
         showEvPins = prefs.getBoolean(KEY_SHOW_EV, true)
+        showParkingPins = prefs.getBoolean(KEY_SHOW_PARKING, true)
         stylePoiToggles()
 
-        fuelToggleButton.setOnClickListener { setPoiKindShown(PoiKind.FUEL, !showFuelPins) }
-        evToggleButton.setOnClickListener { setPoiKindShown(PoiKind.EV, !showEvPins) }
+        navPetrolChip.setOnClickListener { setPoiKindShown(PoiKind.FUEL, !showFuelPins) }
+        navEvChip.setOnClickListener { setPoiKindShown(PoiKind.EV, !showEvPins) }
+        navParkingChip.setOnClickListener { setPoiKindShown(PoiKind.PARKING, !showParkingPins) }
 
         findViewById<View>(R.id.poiCloseButton).setOnClickListener { hidePoiCard() }
         findViewById<View>(R.id.poiGoButton).setOnClickListener {
@@ -2093,6 +2105,10 @@ class MainActivity : AppCompatActivity() {
             }
             val poi = selectedPoi ?: return@setOnClickListener
             hidePoiCard()
+            if (poi.kind == PoiKind.PARKING) {
+                onDestinationSelected(GeocodeResult(poi.name, poi.latitude, poi.longitude))
+                return@setOnClickListener
+            }
             if (navMode == NavMode.ACTIVE && navigationService != null) {
                 // Stop here: the station becomes a stop, the destination stays.
                 navigationService?.addStop(RouteStop(RoutePoint(poi.latitude, poi.longitude), poi.name, 0))
@@ -2120,39 +2136,81 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
-    private fun isPoiKindShown(kind: PoiKind): Boolean = if (kind == PoiKind.FUEL) showFuelPins else showEvPins
+    private fun isPoiKindShown(kind: PoiKind): Boolean =
+        when (kind) {
+            PoiKind.FUEL -> showFuelPins
+            PoiKind.EV -> showEvPins
+            PoiKind.PARKING -> showParkingPins
+        }
 
     /** The petrol / EV toggles on the drive map and in Map display. */
     private fun setPoiKindShown(
         kind: PoiKind,
         shown: Boolean,
     ) {
-        if (kind == PoiKind.FUEL) {
-            showFuelPins = shown
-            prefs.edit().putBoolean(KEY_SHOW_FUEL, shown).apply()
-            onPoiTogglesChanged(if (shown) tr("Petrol stations shown", "Stesen minyak ditunjuk") else tr("Petrol stations hidden", "Stesen minyak disorok"))
-        } else {
-            showEvPins = shown
-            prefs.edit().putBoolean(KEY_SHOW_EV, shown).apply()
-            onPoiTogglesChanged(if (shown) tr("EV charging shown", "Cas EV ditunjuk") else tr("EV charging hidden", "Cas EV disorok"))
+        when (kind) {
+            PoiKind.FUEL -> {
+                showFuelPins = shown
+                prefs.edit().putBoolean(KEY_SHOW_FUEL, shown).apply()
+                onPoiTogglesChanged(if (shown) tr("Petrol stations shown", "Stesen minyak ditunjuk") else tr("Petrol stations hidden", "Stesen minyak disorok"))
+            }
+            PoiKind.EV -> {
+                showEvPins = shown
+                prefs.edit().putBoolean(KEY_SHOW_EV, shown).apply()
+                onPoiTogglesChanged(if (shown) tr("EV charging shown", "Cas EV ditunjuk") else tr("EV charging hidden", "Cas EV disorok"))
+            }
+            PoiKind.PARKING -> {
+                showParkingPins = shown
+                prefs.edit().putBoolean(KEY_SHOW_PARKING, shown).apply()
+                onPoiTogglesChanged(
+                    if (shown) tr("Parking near your destination shown", "Parking dekat destinasi ditunjuk") else tr("Parking hidden", "Parking disorok"),
+                )
+                if (shown) activeRoute?.let { loadParking(it) }
+            }
         }
     }
 
-    /** On = filled petrol orange / EV green with a white icon; off = the
-     * plain floating button with the icon in that colour. */
+    /** The drive sheet's place chips, like the Home ones: on = ink chip with
+     * the icon in the text colour; off = plain chip with the icon in its colour. */
     private fun stylePoiToggles() {
-        val offFill = ContextCompat.getColor(this, R.color.sig_float)
         fun style(
-            button: ImageButton,
+            chip: TextView,
             on: Boolean,
+            iconRes: Int,
             colorRes: Int,
         ) {
-            val color = ContextCompat.getColor(this, colorRes)
-            button.backgroundTintList = ColorStateList.valueOf(if (on) color else offFill)
-            button.imageTintList = ColorStateList.valueOf(if (on) Color.WHITE else color)
+            chip.isSelected = on
+            val icon = ContextCompat.getDrawable(this, iconRes)?.mutate() ?: return
+            icon.setBounds(0, 0, dp(18), dp(18))
+            icon.setTint(ContextCompat.getColor(this, if (on) R.color.sig_on_ink else colorRes))
+            chip.setCompoundDrawablesRelative(icon, null, null, null)
         }
-        style(fuelToggleButton, showFuelPins, R.color.sig_petrol)
-        style(evToggleButton, showEvPins, R.color.sig_ev)
+        style(navPetrolChip, showFuelPins, R.drawable.ic_fuel, R.color.sig_petrol)
+        style(navEvChip, showEvPins, R.drawable.ic_ev, R.color.sig_ev)
+        style(navParkingChip, showParkingPins, R.drawable.ic_parking, R.color.sig_flood)
+    }
+
+    /** Car parks within [PoiService.PARKING_RADIUS_M] of [route]'s destination,
+     * looked up once per destination (where you'll want one, not along the way). */
+    private fun loadParking(route: Route) {
+        if (!showParkingPins) return
+        val dest = route.geometry.lastOrNull() ?: return
+        val last = parkingFor
+        if (last != null && GeoUtils.distanceMeters(last, dest) < 100.0) return
+        parkingFor = dest
+        parkingPois = emptyList()
+        poiExecutor.execute {
+            val found = runCatching { PoiService.fetchParking(dest.latitude, dest.longitude) }.getOrNull()
+            mainHandler.post {
+                if (isDestroyed || navMode != NavMode.ACTIVE || parkingFor != dest) return@post
+                if (found == null) {
+                    parkingFor = null // try again on the next reroute / toggle
+                    return@post
+                }
+                parkingPois = found
+                renderPoiPins()
+            }
+        }
     }
 
     /** Where [poi] sits on the current drive (ahead, off the line), or null
@@ -2216,11 +2274,18 @@ class MainActivity : AppCompatActivity() {
             if (navMode != NavMode.ACTIVE) {
                 emptyList()
             } else {
-                nearbyPois.filter { isPoiKindShown(it.kind) && poiSpot(it) != null }.map { poi ->
+                (
+                    nearbyPois.filter { isPoiKindShown(it.kind) && poiSpot(it) != null } +
+                        parkingPois.takeIf { showParkingPins }.orEmpty()
+                ).map { poi ->
                     Feature.fromGeometry(Point.fromLngLat(poi.longitude, poi.latitude)).also {
                         it.addStringProperty(
                             POI_ICON_PROPERTY,
-                            if (poi.kind == PoiKind.FUEL) FuelBrand.of(poi.name)?.pinIconId ?: FUEL_PIN_ICON_ID else EV_PIN_ICON_ID,
+                            when (poi.kind) {
+                                PoiKind.FUEL -> FuelBrand.of(poi.name)?.pinIconId ?: FUEL_PIN_ICON_ID
+                                PoiKind.EV -> EV_PIN_ICON_ID
+                                PoiKind.PARKING -> PARKING_PIN_ICON_ID
+                            },
                         )
                         it.addStringProperty(POI_ID_PROPERTY, poi.id)
                     }
@@ -2289,7 +2354,7 @@ class MainActivity : AppCompatActivity() {
                 emptyList()
             }
         val id = hits.firstNotNullOfOrNull { feature -> feature.getStringProperty(POI_ID_PROPERTY) }
-        val poi = id?.let { poiId -> nearbyPois.firstOrNull { it.id == poiId } }
+        val poi = id?.let { poiId -> (nearbyPois + parkingPois).firstOrNull { it.id == poiId } }
         if (poi == null) {
             // A dropped pin is moved by the caller, not closed by an empty tap.
             if (poiCard.visibility == View.VISIBLE && droppedPin == null) {
@@ -2312,6 +2377,10 @@ class MainActivity : AppCompatActivity() {
         poiLogoIcon.clearColorFilter()
         poiFootnote.visibility = View.VISIBLE
         selectedPoi = poi
+        if (poi.kind == PoiKind.PARKING) {
+            showParkingCard(poi)
+            return
+        }
         val isFuel = poi.kind == PoiKind.FUEL
         val brand = if (isFuel) FuelBrand.of(poi.name) else null
         if (brand != null) {
@@ -2364,6 +2433,48 @@ class MainActivity : AppCompatActivity() {
         }
         poiChips.visibility = if (poiChips.childCount == 0) View.GONE else View.VISIBLE
 
+        Motion.reveal(poiCard, pivotFraction = 1f)
+    }
+
+    /** A car park near the destination: how far from it, what it has, "Park here". */
+    private fun showParkingCard(poi: Poi) {
+        poiLogo.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.sig_flood))
+        poiLogoIcon.setImageResource(R.drawable.ic_parking)
+        poiLogoIcon.contentDescription = null
+        poiName.text = if (poi.name == "Parking") tr("Parking", "Parking") else poi.name
+        val dest = parkingFor
+        val label = tr("Parking", "Parking")
+        poiMeta.text =
+            if (dest != null) {
+                val m = GeoUtils.distanceMeters(dest, RoutePoint(poi.latitude, poi.longitude))
+                val walk = Math.round(m / 80.0).toInt().coerceAtLeast(1) // ~80 m a minute on foot
+                tr("$label · ${NavFormat.formatDistance(m.toFloat())} from your destination ($walk min walk)", "$label · ${NavFormat.formatDistance(m.toFloat())} dari destinasi ($walk min jalan kaki)")
+            } else {
+                label
+            }
+        val spec = Labels.spec(poi.spec)
+        poiSpec.text = spec ?: ""
+        poiSpec.visibility = if (spec.isNullOrBlank()) View.GONE else View.VISIBLE
+        poiChips.removeAllViews()
+        poi.facilities.filter { it.listed }.forEach { facility ->
+            poiChips.addView(
+                TextView(this).apply {
+                    text = Labels.show(facility.label)
+                    setTextAppearance(R.style.TextAppearance_Signal_Label)
+                    textSize = 14f
+                    setTextColor(ContextCompat.getColor(context, R.color.sig_text))
+                    background = ContextCompat.getDrawable(context, R.drawable.bg_sig_chip)
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(14), 0, dp(14), 0)
+                    minHeight = dp(36)
+                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36))
+                },
+            )
+        }
+        poiChips.visibility = if (poiChips.childCount == 0) View.GONE else View.VISIBLE
+        poiFootnote.visibility = View.GONE
+        // Park here: the car park becomes where the drive ends.
+        poiGoTitle.text = tr("Park here", "Parking sini")
         Motion.reveal(poiCard, pivotFraction = 1f)
     }
 
@@ -3953,6 +4064,7 @@ class MainActivity : AppCompatActivity() {
                 .setInterpolator(Motion.easeOut),
         )
         navStopButton.visibility = if (expanded) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.navPoiChips).visibility = if (expanded) View.VISIBLE else View.GONE
         findViewById<View>(R.id.shareEtaButton).visibility = if (expanded) View.VISIBLE else View.GONE
         updateStopButtons()
     }
@@ -4620,6 +4732,8 @@ class MainActivity : AppCompatActivity() {
     private fun endActiveNavigation() {
         navMode = NavMode.IDLE
         if (::roadReportsUi.isInitialized) roadReportsUi.stop()
+        parkingPois = emptyList()
+        parkingFor = null
         arrivalCardShowing = false
         arrivalCard.animate().cancel()
         arrivalCard.visibility = View.GONE

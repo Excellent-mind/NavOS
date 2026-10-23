@@ -503,8 +503,8 @@
 
         </LinearLayout>
 
-        <!-- Right-hand drive controls: mute voice, petrol pins, EV pins. On =
-             filled (petrol orange / EV green), off = plain; set in code. -->
+        <!-- Right-hand drive controls: report, mute voice. (Petrol / EV /
+             parking pins are chips in the drive sheet.) -->
         <LinearLayout
             android:id="@+id/poiToggleColumn"
             android:layout_width="wrap_content"
@@ -533,7 +533,6 @@
                 android:id="@+id/muteButton"
                 android:layout_width="52dp"
                 android:layout_height="52dp"
-                android:layout_marginBottom="10dp"
                 android:background="@drawable/bg_sig_float"
                 android:contentDescription="@string/mute_voice"
                 android:elevation="4dp"
@@ -542,28 +541,7 @@
                 android:src="@drawable/ic_volume"
                 app:tint="@color/sig_text" />
 
-            <ImageButton
-                android:id="@+id/fuelToggleButton"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:layout_marginBottom="10dp"
-                android:background="@drawable/bg_sig_float"
-                android:contentDescription="@string/show_petrol"
-                android:elevation="4dp"
-                android:padding="14dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_fuel" />
 
-            <ImageButton
-                android:id="@+id/evToggleButton"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:background="@drawable/bg_sig_float"
-                android:contentDescription="@string/show_ev"
-                android:elevation="4dp"
-                android:padding="14dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_ev" />
 
         </LinearLayout>
 
@@ -791,6 +769,35 @@
                     android:scaleType="fitCenter"
                     android:src="@drawable/ic_close"
                     app:tint="@color/sig_end_ink" />
+
+            </LinearLayout>
+
+            <!-- Open sheet: which places to show on the map (petrol / EV on
+                 the way, parking at the destination). Selected = ink. -->
+            <LinearLayout
+                android:id="@+id/navPoiChips"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/navPetrolChip"
+                    style="@style/Widget.Signal.Chip"
+                    android:text="@string/chip_petrol" />
+
+                <TextView
+                    android:id="@+id/navEvChip"
+                    style="@style/Widget.Signal.Chip"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/chip_ev" />
+
+                <TextView
+                    android:id="@+id/navParkingChip"
+                    style="@style/Widget.Signal.Chip"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/chip_parking" />
 
             </LinearLayout>
 
