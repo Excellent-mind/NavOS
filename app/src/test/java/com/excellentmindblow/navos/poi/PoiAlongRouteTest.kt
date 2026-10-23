@@ -35,4 +35,19 @@ class PoiAlongRouteTest {
         assertNull(PoiAlongRoute.spot(track, station(1000.0, 50.0), hereM = 2000.0))
         assertNotNull(PoiAlongRoute.spot(track, station(1900.0, 50.0), hereM = 2000.0))
     }
+
+    @Test
+    fun onAnExpresswayOnlyTheRandROnYourSideCounts() {
+        val highway = { _: Double -> true }
+        // Driving north: west (270) is on the left, east (90) across the highway.
+        assertNotNull(PoiAlongRoute.spot(track, station(5000.0, -120.0), hereM = 2000.0, onExpressway = highway))
+        assertNull(PoiAlongRoute.spot(track, station(5000.0, 120.0), hereM = 2000.0, onExpressway = highway))
+    }
+
+    @Test
+    fun offTheExpresswayEitherSideAndAWiderCorridor() {
+        assertNotNull(PoiAlongRoute.spot(track, station(5000.0, 120.0), hereM = 2000.0))
+        assertNotNull(PoiAlongRoute.spot(track, station(5000.0, -550.0), hereM = 2000.0))
+        assertNull(PoiAlongRoute.spot(track, station(5000.0, 550.0), hereM = 2000.0, onExpressway = { true }))
+    }
 }

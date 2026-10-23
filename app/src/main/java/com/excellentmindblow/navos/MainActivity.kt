@@ -213,6 +213,7 @@ private const val EV_COLOR = "#12A150"
  * last lookup (keeps the 5 km ring roughly centred on them)... */
 private const val POI_REFETCH_DISTANCE_M = 2000f
 private const val POI_LOOK_AHEAD_M = 4000.0
+private val EXPRESSWAY_NAME = Regex("(?i)lebuhraya|expressway|highway")
 private const val POI_PIN_REFRESH_M = 200.0
 
 /** ...but never more often than this - Overpass is a free shared server,
@@ -2025,7 +2026,39 @@ class MainActivity : AppCompatActivity() {
         val route = activeRoute ?: return null
         if (route.geometry.size < 2) return null
         val track = routeTrack?.takeIf { it.source === route.geometry } ?: RouteTrack(route.geometry).also { routeTrack = it }
-        return PoiAlongRoute.spot(track, RoutePoint(poi.latitude, poi.longitude), driveFollower.progressMeters, snapSegmentIndex - 5)
+        return PoiAlongRoute.spot(track, RoutePoint(poi.latitude, poi.longitude), driveFollower.progressMeters, snapSegmentIndex - 5) {
+            onExpresswayAt(route, track, it)
+        }
+    }
+
+    // Which stretches of the active route are expressway: where each step
+    // starts along the route, and whether its road is one.
+    private var expresswayRoute: Route? = null
+    private var expresswayStarts = DoubleArray(0)
+    private var expresswayFlags = BooleanArray(0)
+
+    private fun onExpresswayAt(
+        route: Route,
+        track: RouteTrack,
+        progressM: Double,
+    ): Boolean {
+        if (expresswayRoute !== route) {
+            var seg = 0
+            val starts = ArrayList<Double>()
+            val flags = ArrayList<Boolean>()
+            for (step in route.steps) {
+                val snap = GeoUtils.snapToPolyline(step.point, route.geometry, seg) ?: continue
+                seg = snap.segmentIndex
+                starts += track.progressOf(snap)
+                flags += SignPlanner.isExpressway(step.ref) || EXPRESSWAY_NAME.containsMatchIn(step.roadName)
+            }
+            expresswayStarts = starts.toDoubleArray()
+            expresswayFlags = flags.toBooleanArray()
+            expresswayRoute = route
+        }
+        var i = expresswayStarts.indexOfLast { it <= progressM }
+        if (i < 0) i = 0
+        return expresswayFlags.getOrElse(i) { false }
     }
 
     private var lastPoiPinProgress = Double.NaN
