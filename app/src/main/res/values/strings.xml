@@ -107,4 +107,7 @@
     <string name="switch_route">Switch route</string>
     <string name="try_again">Try again</string>
     <string name="location_off_body">Turn on GPS in your phone\'s settings to see your position and navigate.</string>
+    <string name="report_road">Report on the road</string>
+    <string name="report_still_there">Still there</string>
+    <string name="report_not_there">Not there</string>
 </resources>

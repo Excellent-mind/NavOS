@@ -10,6 +10,7 @@ import android.graphics.Typeface
 import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
 import com.excellentmindblow.navos.poi.FuelBrand
+import com.excellentmindblow.navos.traffic.RoadReports
 
 /** Bitmaps drawn in code: the route chevron, numbered stop pins and petrol brand pins / badges. */
 object MapIcons {
@@ -109,6 +110,48 @@ object MapIcons {
         val r = size / 2f
         canvas.drawCircle(r, r, r, paint)
         drawMark(context, canvas, brand, r, r, size * 0.62f)
+        return bitmap
+    }
+
+    /** Fill and icon colour of a road report's badge (fixed, the same day and night on the map). */
+    fun reportColors(kind: RoadReports.Kind): Pair<Int, Int> =
+        when (kind) {
+            RoadReports.Kind.ACCIDENT -> 0xFFD7263D.toInt() to Color.WHITE
+            RoadReports.Kind.POLICE -> 0xFF0A0A0A.toInt() to Color.WHITE
+            RoadReports.Kind.FLOOD -> 0xFF2457A6.toInt() to Color.WHITE
+            RoadReports.Kind.HAZARD -> 0xFFF2A900.toInt() to 0xFF0A0A0A.toInt()
+        }
+
+    fun reportIcon(kind: RoadReports.Kind): Int =
+        when (kind) {
+            RoadReports.Kind.ACCIDENT -> R.drawable.ic_report_accident
+            RoadReports.Kind.POLICE -> R.drawable.ic_report_police
+            RoadReports.Kind.FLOOD -> R.drawable.ic_report_flood
+            RoadReports.Kind.HAZARD -> R.drawable.ic_report_hazard
+        }
+
+    /** A road report on the map / strip: a round badge with a white rim, [sizeDp] across. */
+    fun reportBadge(
+        context: Context,
+        kind: RoadReports.Kind,
+        sizeDp: Int = 34,
+    ): Bitmap {
+        val density = context.resources.displayMetrics.density
+        val size = (sizeDp * density).toInt()
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val (fill, ink) = reportColors(kind)
+        val r = size / 2f
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+        canvas.drawCircle(r, r, r, paint)
+        paint.color = fill
+        canvas.drawCircle(r, r, r - 2f * density, paint)
+        ContextCompat.getDrawable(context, reportIcon(kind))?.mutate()?.let {
+            val inset = (size * 0.24f).toInt()
+            it.setBounds(inset, inset, size - inset, size - inset)
+            it.setTint(ink)
+            it.draw(canvas)
+        }
         return bitmap
     }
 

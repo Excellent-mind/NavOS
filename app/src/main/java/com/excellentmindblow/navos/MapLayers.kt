@@ -45,6 +45,9 @@ internal const val CAMERA_ZONE_FILL_ID = "navos-camera-zone-fill"
 internal const val CAMERA_ZONE_LINE_ID = "navos-camera-zone-line"
 internal const val POI_ICON_TOLL = "navos-poi-toll"
 internal const val POI_ICON_CAMERA = "navos-poi-camera"
+
+/** Map image id of a road report's badge. */
+internal fun reportIconId(kind: com.excellentmindblow.navos.traffic.RoadReports.Kind) = "navos-report-${kind.code}"
 internal const val POI_SOURCE_ID = "navos-poi-source"
 internal const val POI_LAYER_ID = "navos-poi-layer"
 internal const val POI_ICON_PROPERTY = "poiIcon"
@@ -250,6 +253,9 @@ class MapLayers(
         // Same pin look as the petrol / EV pins (see installPoiLayer).
         registerMapIcon(style, POI_ICON_TOLL, R.drawable.ic_poi_toll_pin)
         registerMapIcon(style, POI_ICON_CAMERA, R.drawable.ic_poi_camera_pin)
+        for (kind in com.excellentmindblow.navos.traffic.RoadReports.Kind.entries) {
+            style.addImage(reportIconId(kind), MapIcons.reportBadge(context, kind))
+        }
         val poiSrc = GeoJsonSource(ROUTE_POI_SOURCE_ID)
         style.addSource(poiSrc)
         // 200 m alert zone around each speed camera (under the icons).

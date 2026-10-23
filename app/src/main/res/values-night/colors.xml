@@ -51,4 +51,6 @@
     <color name="sig_caution_ink">#FFD66B</color>
     <color name="sig_caution_sub">#E9DDB8</color>
     <color name="sig_success_fill">#12301F</color>
+    <!-- Flood reports (the one blue: water). -->
+    <color name="sig_flood">#6FA0F0</color>
 </resources>

@@ -107,6 +107,7 @@ import com.excellentmindblow.navos.search.IncomingLocation
 import com.excellentmindblow.navos.search.RecentPlaces
 import com.excellentmindblow.navos.search.SavedPlaces
 import com.excellentmindblow.navos.search.SearchPicks
+import com.excellentmindblow.navos.traffic.RoadReports
 import com.excellentmindblow.navos.search.TripHabits
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
@@ -326,6 +327,33 @@ class MainActivity : AppCompatActivity() {
 
     private val routeOfflineCache by lazy { RouteOfflineCache(this) }
 
+    /** Road reports from drivers: Report button, pins, alerts, "Still there?". */
+    private lateinit var roadReportsUi: RoadReportsUi
+
+    private val roadReportsHost =
+        object : RoadReportsUi.Host {
+            override fun track(): RouteTrack? {
+                if (navMode != NavMode.ACTIVE) return null
+                val geometry = activeRoute?.geometry?.takeIf { it.size >= 2 } ?: return null
+                return routeTrack?.takeIf { it.source === geometry } ?: RouteTrack(geometry).also { routeTrack = it }
+            }
+
+            override fun progressM(): Double = driveFollower.progressMeters
+
+            override fun here(): RoutePoint? = lastKnownLocation?.let { RoutePoint(it.latitude, it.longitude) }
+
+            override fun heading(): Double? = lastKnownLocation?.takeIf { it.hasBearing() }?.bearing?.toDouble() ?: smoothedBearing
+
+            override fun announce(
+                key: String,
+                text: String,
+            ) {
+                navigationService?.announce(key, text)
+            }
+
+            override fun redrawPins() = renderRoutePois()
+        }
+
     /** Learns regular trips (time of day) to suggest the likely one on Home. */
     private lateinit var tripHabits: TripHabits
 
@@ -533,6 +561,7 @@ class MainActivity : AppCompatActivity() {
                 maybeFetchPois(location)
                 refreshPoiPinsAlongRoute()
                 checkCameraZone(location)
+                roadReportsUi.onProgress()
                 val currentKmh = if (location.hasSpeed()) location.speed * 3.6 else 0.0
                 lastSpeedKmh = currentKmh
                 updateSpeedLimit(location, currentKmh)
@@ -593,6 +622,7 @@ class MainActivity : AppCompatActivity() {
                 renderPoiPins() // stations on the new route only
                 loadActiveRoutePois(route)
                 runCatching { routeOfflineCache.save(route, mapStyleUrl()) }
+                roadReportsUi.start()
                 renderedCalloutStep = -1
                 renderTurnCallouts(1)
                 nextTurnsRenderedIndex = -1
@@ -2021,6 +2051,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setUpPoiControls() {
         poiToggleColumn = findViewById(R.id.poiToggleColumn)
+        roadReportsUi = RoadReportsUi(this, roadReportsHost)
         fuelToggleButton = findViewById(R.id.fuelToggleButton)
         evToggleButton = findViewById(R.id.evToggleButton)
         poiCard = findViewById(R.id.poiCard)
@@ -2941,7 +2972,18 @@ class MainActivity : AppCompatActivity() {
                 f.addStringProperty("key", poiKey(poi))
                 f
             }
-        src.setGeoJson(FeatureCollection.fromFeatures(features))
+        val reports =
+            if (navMode == NavMode.ACTIVE && ::roadReportsUi.isInitialized) {
+                roadReportsUi.onRoute.map { r ->
+                    val f = Feature.fromGeometry(Point.fromLngLat(r.report.longitude, r.report.latitude))
+                    f.addStringProperty("icon", reportIconId(r.report.kind))
+                    f.addStringProperty("key", "report-${r.report.id}")
+                    f
+                }
+            } else {
+                emptyList()
+            }
+        src.setGeoJson(FeatureCollection.fromFeatures(features + reports))
         cameraZoneSource?.setGeoJson(FeatureCollection.fromFeatures(pois.filter { it.kind == "camera" }.map { zoneFeature(it) }))
     }
 
@@ -2959,6 +3001,11 @@ class MainActivity : AppCompatActivity() {
                 emptyList()
             }
         val key = hits.firstNotNullOfOrNull { it.getStringProperty("key") } ?: return false
+        if (key.startsWith("report-")) {
+            val r = roadReportsUi.reportById(key.removePrefix("report-").toIntOrNull() ?: -1) ?: return false
+            Toast.makeText(this, "${r.kind.label} · ${RoadReports.detail(r)}", Toast.LENGTH_LONG).show()
+            return true
+        }
         val poi = currentRoadPois().firstOrNull { poiKey(it) == key } ?: return false
         if (poi.kind == "toll") showTollInfo(poi) else showCameraInfo(poi)
         return true
@@ -3131,9 +3178,12 @@ class MainActivity : AppCompatActivity() {
             routes.forEachIndexed { i, r -> previewTraffic(r)?.let { notes[i] = it } }
             val leave = HashMap<Int, DepartureAdvisor.Advice>()
             routes.forEachIndexed { i, r -> leaveAdvice(r)?.let { leave[i] = it } }
+            val reports = HashMap<Int, List<RoadReports.OnRoute>>()
+            routes.forEachIndexed { i, r -> previewReports(r)?.let { reports[i] = it } }
             mainHandler.post {
                 if (token != previewToken || navMode != NavMode.PREVIEW) return@post
                 routeTraffic.putAll(notes)
+                routeReports.putAll(reports)
                 routeLeaveAdvice.putAll(leave)
                 rebuildRouteStrips()
                 updateRoutePreviewSummary()
@@ -3173,6 +3223,18 @@ class MainActivity : AppCompatActivity() {
     /** Live traffic on each previewed route: slow / jammed stretches and the one-line note. */
     private val routeTraffic = HashMap<Int, Pair<List<TripStrip.Traffic>, TrafficNote?>>()
 
+    /** Road reports on each previewed route (accident, police, ...). */
+    private val routeReports = HashMap<Int, List<RoadReports.OnRoute>>()
+
+    /** Live road reports on [route]. Blocking (network). */
+    private fun previewReports(route: Route): List<RoadReports.OnRoute>? {
+        if (route.geometry.size < 2) return null
+        val track = RouteTrack(route.geometry)
+        val box = RoadReports.boxAhead(track, 0.0) ?: return null
+        val found = runCatching { RoadReports.fetch(box) }.getOrNull() ?: return null
+        return RoadReports.onRoute(track, found).takeIf { it.isNotEmpty() }
+    }
+
     /** "Leave at 8:00 PM to save 12 min" for each previewed route, when worth saying. */
     private val routeLeaveAdvice = HashMap<Int, DepartureAdvisor.Advice>()
 
@@ -3206,7 +3268,9 @@ class MainActivity : AppCompatActivity() {
                     extras.orEmpty(),
                     routeLightsM[i].orEmpty(),
                     routeTraffic[i]?.first.orEmpty(),
-                ) { onExpresswayAt(route, track, it) }
+                    { onExpresswayAt(route, track, it) },
+                    routeReports[i].orEmpty(),
+                )
                 ?.let { routeStrips[i] = it }
         }
     }
@@ -3466,6 +3530,7 @@ class MainActivity : AppCompatActivity() {
                     routeLightsM.clear()
                     routeLeaveAdvice.clear()
                     routeTraffic.clear()
+                    routeReports.clear()
                     routeStrips.clear()
                     routeLightCounts.clear()
                     destinationName = destination.name
@@ -4071,6 +4136,7 @@ class MainActivity : AppCompatActivity() {
         routeLightsM.clear()
         routeLeaveAdvice.clear()
         routeTraffic.clear()
+        routeReports.clear()
         routeStrips.clear()
         routeLightCounts.clear()
         hideRouteChooser()
@@ -4094,6 +4160,7 @@ class MainActivity : AppCompatActivity() {
         tripPlaces.lastOrNull()?.let { tripHabits.record(it) }
         // Offline safety net: the map along the route, for tunnels / dead zones.
         runCatching { routeOfflineCache.save(route, mapStyleUrl()) }
+        roadReportsUi.start()
 
         navMode = NavMode.ACTIVE
         driveFollower.resetArrowHeading()
@@ -4550,6 +4617,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun endActiveNavigation() {
         navMode = NavMode.IDLE
+        roadReportsUi.stop()
         arrivalCardShowing = false
         arrivalCard.animate().cancel()
         arrivalCard.visibility = View.GONE

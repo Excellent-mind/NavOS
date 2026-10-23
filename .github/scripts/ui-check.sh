@@ -175,6 +175,7 @@ expect shown etaClockText "drive bar shows ETA"
 # Small, realistic steps (~20 m every 1.5 s): never near the end of a short route.
 for lat in 3.1392 3.1394 3.1396; do adb emu geo fix 101.6870 "$lat" >/dev/null 2>&1; sleep 1.5; done
 shot 16-driving-after-moves
+tap_id reportButton && sleep 1.5 && shot 16b-report-picker; adb shell input keyevent KEYCODE_BACK; sleep 1 # picker only - nothing is sent
 
 # Main-thread stack samples during the drive (SIGQUIT writes all thread
 # stacks to /data/anr), to see what the UI thread is busy with.

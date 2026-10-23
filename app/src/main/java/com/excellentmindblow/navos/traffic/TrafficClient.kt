@@ -79,7 +79,7 @@ object TrafficClient {
         return out
     }
 
-    private fun post(
+    internal fun post(
         path: String,
         body: JSONObject,
     ): JSONObject {

@@ -11,6 +11,7 @@ import android.view.View
 import androidx.core.content.ContextCompat
 import com.excellentmindblow.navos.navigation.TripStrip
 import com.excellentmindblow.navos.poi.FuelBrand
+import com.excellentmindblow.navos.traffic.RoadReports
 
 /**
  * Draws a [TripStrip.Strip]: the trip as one straight line from you (left) to
@@ -55,6 +56,7 @@ class TripStripView
         private val rect = RectF()
         private val icons = HashMap<Int, Drawable?>()
         private val badges = HashMap<FuelBrand, Bitmap>()
+        private val reportBadges = HashMap<RoadReports.Kind, Bitmap>()
 
         override fun onMeasure(
             widthMeasureSpec: Int,
@@ -141,6 +143,13 @@ class TripStripView
                 paint.alpha = 255
                 return
             }
+            if (m.kind == TripStrip.Kind.REPORT && m.report != null) {
+                val bmp = reportBadges.getOrPut(m.report) { MapIcons.reportBadge(context, m.report, MARKER_DP.toInt()) }
+                paint.alpha = alpha
+                canvas.drawBitmap(bmp, null, rect, paint)
+                paint.alpha = 255
+                return
+            }
             if (m.kind == TripStrip.Kind.RNR) {
                 icon(R.drawable.ic_rnr_badge)?.let {
                     it.setBounds(left.toInt(), top.toInt(), (left + size).toInt(), (top + size).toInt())
@@ -173,6 +182,7 @@ class TripStripView
 
         private fun describe(s: TripStrip.Strip): String =
             listOfNotNull(
+                s.count(TripStrip.Kind.REPORT).takeIf { it > 0 }?.let { tr("$it road reports", "$it laporan jalan") },
                 s.count(TripStrip.Kind.TOLL).takeIf { it > 0 }?.let { tr("$it tolls", "$it tol") },
                 s.count(TripStrip.Kind.CAMERA).takeIf { it > 0 }?.let { tr("$it speed cameras", "$it kamera laju") },
                 s.count(TripStrip.Kind.RNR).takeIf { it > 0 }?.let { tr("$it R&R", "$it R&R") },
@@ -185,6 +195,6 @@ class TripStripView
             const val LIGHTS = "lights"
             private const val MARKER_DP = 28f
             private const val DIM_ALPHA = 60
-            private val PRIORITY = listOf(TripStrip.Kind.TOLL, TripStrip.Kind.RNR, TripStrip.Kind.PETROL, TripStrip.Kind.EV, TripStrip.Kind.CAMERA)
+            private val PRIORITY = listOf(TripStrip.Kind.REPORT, TripStrip.Kind.TOLL, TripStrip.Kind.RNR, TripStrip.Kind.PETROL, TripStrip.Kind.EV, TripStrip.Kind.CAMERA)
         }
     }

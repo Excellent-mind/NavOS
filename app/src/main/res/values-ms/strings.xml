@@ -103,4 +103,7 @@
     <string name="switch_route">Tukar laluan</string>
     <string name="try_again">Cuba lagi</string>
     <string name="location_off_body">Hidupkan GPS di tetapan telefon untuk tunjuk kedudukan dan navigasi.</string>
+    <string name="report_road">Lapor jalan</string>
+    <string name="report_still_there">Masih ada</string>
+    <string name="report_not_there">Dah tak ada</string>
 </resources>

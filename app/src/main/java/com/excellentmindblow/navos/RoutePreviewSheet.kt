@@ -219,6 +219,7 @@ class RoutePreviewSheet(
         }
         val entries =
             listOf(
+                Triple(TripStrip.Kind.REPORT, strip.count(TripStrip.Kind.REPORT), R.drawable.ic_report_hazard),
                 Triple(TripStrip.Kind.TOLL, strip.count(TripStrip.Kind.TOLL), R.drawable.ic_toll),
                 Triple(TripStrip.Kind.CAMERA, strip.count(TripStrip.Kind.CAMERA), R.drawable.ic_alert_camera),
                 Triple(TripStripView.LIGHTS, strip.lightsM.size, 0),
@@ -311,6 +312,7 @@ class RoutePreviewSheet(
             TripStrip.Kind.PETROL -> tr("$n petrol", "$n minyak")
             TripStrip.Kind.RNR -> "$n R&R"
             TripStrip.Kind.EV -> tr("$n EV", "$n cas EV")
+            TripStrip.Kind.REPORT -> tr(if (n == 1) "1 report" else "$n reports", "$n laporan")
             else -> tr(if (n == 1) "1 light" else "$n lights", "$n lampu")
         }
 
@@ -321,6 +323,7 @@ class RoutePreviewSheet(
             TripStrip.Kind.PETROL -> tr("Petrol station", "Stesen minyak")
             TripStrip.Kind.RNR -> "R&R"
             TripStrip.Kind.EV -> tr("EV charging", "Cas EV")
+            TripStrip.Kind.REPORT -> tr("Road report", "Laporan jalan")
         }
 
     /** "Now 5:22 PM" with the time in the number font. */
