@@ -216,6 +216,7 @@ private const val EV_COLOR = "#12A150"
  * last lookup (keeps the 5 km ring roughly centred on them)... */
 private const val POI_REFETCH_DISTANCE_M = 2000f
 private const val POI_LOOK_AHEAD_M = 4000.0
+private const val FASTER_OFFER_MS = 15_000L
 private val EXPRESSWAY_NAME = Regex("(?i)lebuhraya|expressway|highway")
 private const val POI_PIN_REFRESH_M = 200.0
 
@@ -546,6 +547,13 @@ class MainActivity : AppCompatActivity() {
                 activeRoute?.let { renderStopMarkers(it.stops) }
                 val label = stop.name.ifBlank { tr("stop ${stop.number}", "hentian ${stop.number}") }
                 Toast.makeText(this@MainActivity, tr("Arrived at $label", "Dah sampai $label"), Toast.LENGTH_SHORT).show()
+            }
+
+            override fun onFasterRoute(
+                route: Route,
+                savedSeconds: Double,
+            ) {
+                if (navMode == NavMode.ACTIVE) showFasterRoute(route, savedSeconds)
             }
 
             override fun onStopChangeFailed() {
@@ -1253,6 +1261,49 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Toast.makeText(this, tr("No email app found", "Tiada app emel"), Toast.LENGTH_SHORT).show()
         }
+    }
+
+    // ---- Faster route offer ----------------------------------------------------
+
+    private var fasterOffer: Route? = null
+    private val fasterTimeout = Runnable { hideFasterRoute() }
+
+    /** "Faster route · saves 6 min · via ..." with Switch / Keep; keeps the current route after 15 s. */
+    private fun showFasterRoute(
+        route: Route,
+        savedSeconds: Double,
+    ) {
+        fasterOffer = route
+        val card = findViewById<View>(R.id.fasterCard)
+        val minutes = Math.round(savedSeconds / 60.0).toInt()
+        findViewById<TextView>(R.id.fasterTitle).text = tr("Faster route · saves $minutes min", "Laluan lebih cepat · jimat $minutes min")
+        val via = NavFormat.viaRoadName(route)
+        findViewById<TextView>(R.id.fasterDetail).apply {
+            text = via?.let { tr("via $it", "ikut $it") }.orEmpty()
+            visibility = if (via == null) View.GONE else View.VISIBLE
+        }
+        findViewById<TextView>(R.id.fasterKeep).apply {
+            text = tr("Keep", "Kekal")
+            setOnClickListener { hideFasterRoute() }
+        }
+        findViewById<TextView>(R.id.fasterSwitch).apply {
+            text = tr("Switch", "Tukar")
+            setOnClickListener {
+                val offer = fasterOffer
+                hideFasterRoute()
+                if (offer != null) navigationService?.acceptFasterRoute(offer)
+            }
+        }
+        Motion.reveal(card, pivotFraction = 0f)
+        mainHandler.removeCallbacks(fasterTimeout)
+        mainHandler.postDelayed(fasterTimeout, FASTER_OFFER_MS)
+    }
+
+    private fun hideFasterRoute() {
+        fasterOffer = null
+        mainHandler.removeCallbacks(fasterTimeout)
+        val card = findViewById<View>(R.id.fasterCard)
+        if (card.visibility == View.VISIBLE) Motion.dismiss(card)
     }
 
     /** First drive only: a short note that live traffic is on (no question, nothing to tap). */
@@ -4467,6 +4518,7 @@ class MainActivity : AppCompatActivity() {
         signOverlay.clear()
         routeArrows.clear()
         trafficLayer.stop()
+        hideFasterRoute()
         renderRoutePois()
         setRecalculating(false)
         busy.set(BusyPill.Job.STOP, null)

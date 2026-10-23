@@ -28,6 +28,8 @@ import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.routing.RouteStop
 import com.excellentmindblow.navos.routing.RoutingService
 import com.excellentmindblow.navos.routing.TripPlanner
+import com.excellentmindblow.navos.traffic.TrafficClient
+import com.excellentmindblow.navos.traffic.TrafficFlow
 import com.excellentmindblow.navos.traffic.TrafficReporter
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -86,6 +88,14 @@ class NavigationService : Service() {
         /** Adding or skipping a stop mid-drive could not be applied (no
          * signal, no GPS fix yet). The drive carries on as before. */
         fun onStopChangeFailed() {}
+
+        /** A faster way to the destination was found mid-drive ([savedSeconds]
+         * quicker, live traffic included). The UI offers it; [acceptFasterRoute]
+         * switches. */
+        fun onFasterRoute(
+            route: Route,
+            savedSeconds: Double,
+        ) {}
     }
 
     inner class LocalBinder : Binder() {
@@ -96,6 +106,13 @@ class NavigationService : Service() {
         /** How often to check for a GPS dropout, and the "provider" name of estimated fixes. */
         private const val ESTIMATE_TICK_MS = 1_000L
         const val ESTIMATE_PROVIDER = "navos-estimate"
+
+        /** First faster-route check this long into a drive, then every [FASTER_CHECK_MS]. */
+        private const val FASTER_FIRST_CHECK_MS = 120_000L
+        private const val FASTER_CHECK_MS = 240_000L
+
+        /** No faster-route checks once less than this is left (seconds). */
+        private const val FASTER_MIN_TRIP_S = 600.0
         private const val ESTIMATE_MAX_OFF_ROUTE_M = 60.0
 
         const val ACTION_STOP = "com.excellentmindblow.navos.action.STOP_NAVIGATION"
@@ -216,6 +233,8 @@ class NavigationService : Service() {
         activeRoute = route
         stopsPassed = 0
         smartEta.reset()
+        mainHandler.removeCallbacks(fasterCheck)
+        mainHandler.postDelayed(fasterCheck, FASTER_FIRST_CHECK_MS)
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         (trafficReporter ?: TrafficReporter(prefs).also { trafficReporter = it }).setRoute(route, sameDrive = false)
@@ -326,6 +345,8 @@ class NavigationService : Service() {
         trafficReporter = null
         rerouteExecutor?.shutdownNow()
         rerouteExecutor = null
+        fasterExecutor?.shutdownNow()
+        fasterExecutor = null
         voiceNarrator?.shutdown()
         voiceNarrator = null
         engine = null
@@ -427,7 +448,11 @@ class NavigationService : Service() {
     /** Learns this drive's pace so the ETA isn't just the server's free-road time. */
     private val smartEta = SmartEta()
 
+    /** The routing server's own remaining time (before [smartEta]), to compare routes like for like. */
+    private var lastRawRemainingS = 0.0
+
     private fun handleState(raw: NavigationState) {
+        lastRawRemainingS = raw.durationRemainingSeconds
         smartEta.observe(raw.durationRemainingSeconds, SystemClock.elapsedRealtime())
         val f = if (raw.durationRemainingSeconds > 0) smartEta.adjust(raw.durationRemainingSeconds) / raw.durationRemainingSeconds else 1.0
         val state =
@@ -511,6 +536,76 @@ class NavigationService : Service() {
                 }
             }
         }
+    }
+
+    // ---- Faster route: like Google Maps / Waze, look for a quicker way mid-drive ----
+
+    private var fasterExecutor: ExecutorService? = null
+
+    private val fasterCheck =
+        object : Runnable {
+            override fun run() {
+                if (activeRoute == null || hasStoppedSelf) return
+                checkForFasterRoute()
+                mainHandler.postDelayed(this, FASTER_CHECK_MS)
+            }
+        }
+
+    /** Asks for routes from here (with live traffic) and offers one that saves real time. */
+    private fun checkForFasterRoute() {
+        val route = activeRoute ?: return
+        val origin = lastLocation ?: return
+        val state = lastState ?: return
+        if (isRerouting || state.offRoute || lastRawRemainingS < FASTER_MIN_TRIP_S) return
+        val destination = route.geometry.lastOrNull() ?: return
+        val stopsAhead = remainingStops()
+        val rawRemaining = lastRawRemainingS
+        val here = RoutePoint(origin.latitude, origin.longitude)
+        val executor = fasterExecutor ?: Executors.newSingleThreadExecutor().also { fasterExecutor = it }
+        executor.execute {
+            val found =
+                try {
+                    RoutingService.calculateRoutes(here, stopsAhead, destination)
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            if (found.isEmpty()) return@execute
+            val seg = GeoUtils.snapToPolyline(here, route.geometry)?.segmentIndex ?: 0
+            val ahead = route.geometry.subList(seg.coerceAtMost(route.geometry.size - 2), route.geometry.size)
+            val currentTotal = rawRemaining + liveDelay(route, seg)
+            val candidates =
+                found.mapIndexed { i, r ->
+                    FasterRoute.Candidate(i, r.durationSeconds + liveDelay(r, 0), FasterRoute.sharedShare(r.geometry, ahead))
+                }
+            val pick = FasterRoute.pick(currentTotal, candidates) ?: return@execute
+            val better = found[pick.first.index]
+            mainHandler.post {
+                if (activeRoute !== route || hasStoppedSelf || isRerouting) return@post
+                val minutes = Math.round(pick.second / 60.0).toInt()
+                voiceNarrator?.speak("faster-${SystemClock.elapsedRealtime()}", Phrases.fasterRoute(minutes))
+                listener.onFasterRoute(better, pick.second)
+            }
+        }
+    }
+
+    /** Live-traffic delay on [route] from point [fromIndex] (seconds); 0 without data. Blocking. */
+    private fun liveDelay(
+        route: Route,
+        fromIndex: Int,
+    ): Double {
+        val nodes = route.nodes ?: return 0.0
+        val free = route.freeFlowMs ?: return 0.0
+        val live = runCatching { TrafficClient.flow(TrafficFlow.piecesAhead(nodes, fromIndex)) }.getOrNull() ?: return 0.0
+        if (live.isEmpty()) return 0.0
+        val cum = DoubleArray(route.geometry.size)
+        for (i in 1 until cum.size) cum[i] = cum[i - 1] + GeoUtils.distanceMeters(route.geometry[i - 1], route.geometry[i])
+        return TrafficFlow.delaySeconds(nodes, free, cum, live, fromIndex)
+    }
+
+    /** The driver took the offered faster route. */
+    fun acceptFasterRoute(route: Route) {
+        if (activeRoute == null || hasStoppedSelf) return
+        rerouteTo(route)
     }
 
     // ---- Multi-stop: change the stops of a drive that is already under way ----

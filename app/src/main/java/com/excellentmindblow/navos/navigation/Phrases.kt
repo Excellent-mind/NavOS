@@ -28,6 +28,12 @@ object Phrases {
         return if (ms) "Lagi ${spokenDistance(meters, true)}, $then" else "In ${spokenDistance(meters, false)}, $then"
     }
 
+    /** Spoken when a faster route is offered mid-drive. */
+    fun fasterRoute(
+        minutes: Int,
+        ms: Boolean = Lang.malay,
+    ): String = if (ms) "Jumpa laluan lebih cepat. Jimat $minutes minit." else "Faster route found. Saves $minutes minutes."
+
     /** "Turn left, then keep right" - two maneuvers close together. */
     fun then(
         first: String,
