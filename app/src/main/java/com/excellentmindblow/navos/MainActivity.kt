@@ -67,6 +67,7 @@ import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.excellentmindblow.navos.location.DriveFollower
+import com.excellentmindblow.navos.location.HeadingSensor
 import com.excellentmindblow.navos.location.LiveLocationTracker
 import com.excellentmindblow.navos.location.PuckIcon
 import com.excellentmindblow.navos.navigation.CameraZone
@@ -3736,6 +3737,7 @@ class MainActivity : AppCompatActivity() {
         // there's only ever one GPS subscription live at a time.
         locationTracker?.stop()
         locationTracker = null
+        headingSensor.stop()
         startAndBindNavigationService(route)
     }
 
@@ -4518,7 +4520,11 @@ class MainActivity : AppCompatActivity() {
             }
         locationTracker = tracker
         tracker.start()
+        headingSensor.start()
     }
+
+    /** The phone's compass, for the arrow while standing still (idle map only). */
+    private val headingSensor by lazy { HeadingSensor(this) }
 
     // Only fires for the Activity's own idle/free-roam tracker - while
     // NavMode.ACTIVE, that tracker is stopped (see beginActiveNavigation())
@@ -4546,7 +4552,9 @@ class MainActivity : AppCompatActivity() {
             if (location.hasBearing() && (!location.hasSpeed() || location.speed > 1f)) {
                 location.bearing.toDouble()
             } else {
-                Double.NaN // standing still: keep the arrow's last heading
+                // Standing still: GPS has no heading, so point where the phone points
+                // (compass), or keep the arrow's last heading if there's no compass.
+                headingSensor.headingDegrees(location.latitude, location.longitude)
             }
 
         if (!hasCenteredOnFirstFix) {
@@ -4584,6 +4592,14 @@ class MainActivity : AppCompatActivity() {
             bindService(Intent(this, NavigationService::class.java), navServiceConnection, Context.BIND_AUTO_CREATE)
             navServiceBound = true
         }
+        // onStop() paused the idle tracker; resume it (it was never restarted
+        // before, so the arrow froze after coming back to the app).
+        if (navMode != NavMode.ACTIVE) {
+            locationTracker?.let {
+                it.start()
+                headingSensor.start()
+            }
+        }
     }
 
     override fun onResume() {
@@ -4617,6 +4633,7 @@ class MainActivity : AppCompatActivity() {
         // tracking without active navigation).
         unbindNavigationService()
         locationTracker?.stop()
+        headingSensor.stop()
         super.onStop()
     }
 

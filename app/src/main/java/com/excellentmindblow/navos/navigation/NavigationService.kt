@@ -8,6 +8,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationManager
+import android.os.SystemClock
+import com.excellentmindblow.navos.location.DeadReckoning
 import android.os.Binder
 import android.os.Handler
 import android.os.IBinder
@@ -88,6 +90,11 @@ class NavigationService : Service() {
     }
 
     companion object {
+        /** How often to check for a GPS dropout, and the "provider" name of estimated fixes. */
+        private const val ESTIMATE_TICK_MS = 1_000L
+        const val ESTIMATE_PROVIDER = "navos-estimate"
+        private const val ESTIMATE_MAX_OFF_ROUTE_M = 60.0
+
         const val ACTION_STOP = "com.excellentmindblow.navos.action.STOP_NAVIGATION"
         private const val CHANNEL_ID = "navigation"
         private const val NOTIFICATION_ID = 7001
@@ -305,6 +312,7 @@ class NavigationService : Service() {
 
         locationTracker?.stop()
         locationTracker = null
+        deadReckoning = null
         rerouteExecutor?.shutdownNow()
         rerouteExecutor = null
         voiceNarrator?.shutdown()
@@ -336,16 +344,69 @@ class NavigationService : Service() {
         val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
         val tracker =
             LiveLocationTracker(locationManager, minDistanceM = 0f) { location ->
-                lastLocation = location
-                listener.onNavLocation(location)
-                engine?.onLocation(
-                    RoutePoint(location.latitude, location.longitude),
-                    if (location.hasSpeed()) location.speed.toDouble() else null,
-                    if (location.hasBearing()) location.bearing.toDouble() else null,
-                )
+                // A real fix: any tunnel estimate gives way to it.
+                lastRealFixMs = SystemClock.elapsedRealtime()
+                deadReckoning?.stop()
+                onFix(location)
             }
         locationTracker = tracker
         tracker.start()
+        mainHandler.removeCallbacks(estimateTick)
+        mainHandler.postDelayed(estimateTick, ESTIMATE_TICK_MS)
+    }
+
+    private fun onFix(location: Location) {
+        lastLocation = location
+        listener.onNavLocation(location)
+        engine?.onLocation(
+            RoutePoint(location.latitude, location.longitude),
+            if (location.hasSpeed()) location.speed.toDouble() else null,
+            if (location.hasBearing()) location.bearing.toDouble() else null,
+        )
+    }
+
+    // ---- Tunnels: keep moving along the route when GPS drops out -----------
+
+    private var deadReckoning: DeadReckoning? = null
+    private var lastRealFixMs = 0L
+
+    private val estimateTick =
+        object : Runnable {
+            override fun run() {
+                if (activeRoute == null) return
+                estimateIfSilent()
+                mainHandler.postDelayed(this, ESTIMATE_TICK_MS)
+            }
+        }
+
+    /** No fix for a few seconds while driving: carry on along the route at the last speed. */
+    private fun estimateIfSilent() {
+        val route = activeRoute ?: return
+        val last = lastLocation ?: return
+        val now = SystemClock.elapsedRealtime()
+        val dr = deadReckoning
+        if (dr == null || !dr.active) {
+            if (now - lastRealFixMs < DeadReckoning.SILENCE_MS) return
+            val speed = if (last.hasSpeed()) last.speed.toDouble() else 0.0
+            if (speed < DeadReckoning.MIN_SPEED_MS || route.geometry.size < 2) return
+            val track = RouteTrack(route.geometry)
+            val snap = GeoUtils.snapToPolyline(RoutePoint(last.latitude, last.longitude), route.geometry) ?: return
+            if (snap.distanceMeters > ESTIMATE_MAX_OFF_ROUTE_M) return
+            deadReckoning = DeadReckoning(track).also { it.start(track.progressOf(snap), speed, lastRealFixMs) }
+        }
+        val e = deadReckoning?.estimate(now) ?: return
+        onFix(
+            Location(ESTIMATE_PROVIDER).apply {
+                latitude = e.point.latitude
+                longitude = e.point.longitude
+                speed = e.speedMs.toFloat()
+                bearing = e.bearingDeg.toFloat()
+                // Grows the longer we go without a real fix.
+                accuracy = (15.0 + 2.0 * e.secondsSinceFix).toFloat()
+                time = System.currentTimeMillis()
+                elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+            },
+        )
     }
 
     private fun handleState(state: NavigationState) {
