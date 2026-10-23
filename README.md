@@ -98,3 +98,14 @@ crowdsourced incident reports. ETAs are "typical time, no live traffic".
 Location and navigation behavior should still be tested on a physical device
 before release, including GPS disabled/enabled transitions, permission
 revocation, screen-off navigation, network loss, and rerouting.
+
+## License
+
+NavOS is free software under the [GNU General Public License v3.0](LICENSE):
+you may use, study, change and share it, but apps built from it must also be
+released as open source under the same license.
+
+Map data © OpenStreetMap contributors (ODbL). Places from Overture Maps
+Foundation. Icons: Lucide (ISC). Fonts: Saira and Atkinson Hyperlegible
+(SIL Open Font License). Toll fares are from the public Kalkulator Tol at
+llm.gov.my (Lembaga Lebuhraya Malaysia).
