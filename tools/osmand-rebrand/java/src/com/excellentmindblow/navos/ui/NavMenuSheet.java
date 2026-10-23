@@ -72,7 +72,8 @@ public final class NavMenuSheet {
     }
 
     private void open() {
-        dialog = new BottomSheetDialog(activity);
+        // The app's shrunk Material copy only keeps (Context, int); 0 means its default sheet theme.
+        dialog = new BottomSheetDialog(activity, 0);
         ScrollView scroll = new ScrollView(activity);
         scroll.addView(buildContent());
         dialog.setContentView(scroll);
