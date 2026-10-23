@@ -212,7 +212,7 @@ class SettingsScreen(
                 textOff = ""
                 isChecked = checked
                 // Signal colours: ink track with a light thumb when on, quiet grey when off.
-                useMaterialThemeColors = false
+                setUseMaterialThemeColors(false)
                 thumbTintList = states(color(R.color.sig_on_ink), color(R.color.sig_sheet))
                 trackTintList = states(color(R.color.sig_ink), color(R.color.sig_text_quiet))
                 // The row is the touch target and the accessibility node.
