@@ -30,6 +30,7 @@ class TripStripView
             set(value) {
                 field = value
                 contentDescription = value?.let { describe(it) }
+                requestLayout() // markers or not changes the height
                 invalidate()
             }
 
@@ -62,7 +63,8 @@ class TripStripView
             widthMeasureSpec: Int,
             heightMeasureSpec: Int,
         ) {
-            val h = dp(if (mini) 6f else 60f).toInt()
+            // No markers: no empty row reserved above the line.
+            val h = dp(if (mini) 6f else if (hasMarks()) 60f else 32f).toInt()
             setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), resolveSize(h, heightMeasureSpec))
         }
 
@@ -74,7 +76,7 @@ class TripStripView
             val w = width - 2 * pad
             fun x(m: Double) = pad + (m / s.lengthM).toFloat().coerceIn(0f, 1f) * w
             val lineH = dp(if (mini) 4f else 8f)
-            val lineTop = if (mini) (height - lineH) / 2 else marker + dp(8f)
+            val lineTop = if (mini) (height - lineH) / 2 else (if (hasMarks()) marker else 0f) + dp(8f)
             val dimmed = highlight != null
 
             // The line, then slow / jammed stretches over it.
@@ -177,6 +179,8 @@ class TripStripView
                 it.draw(canvas)
             }
         }
+
+        private fun hasMarks() = strip?.marks?.isNotEmpty() == true
 
         private fun icon(res: Int): Drawable? = icons.getOrPut(res) { ContextCompat.getDrawable(context, res)?.mutate() }
 

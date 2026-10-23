@@ -48,6 +48,7 @@ class RoutePreviewSheet(
         allRoutes.text = context.getString(R.string.all_routes, totalRoutes)
         allRoutes.visibility = if (totalRoutes > shown.size) View.VISIBLE else View.GONE
         hint.text = hintText
+        hint.visibility = if (hintText.isBlank()) View.GONE else View.VISIBLE
     }
 
     /** Every route, quickest first (the "All routes" screen). */

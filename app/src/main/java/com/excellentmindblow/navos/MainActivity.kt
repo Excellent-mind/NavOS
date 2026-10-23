@@ -4010,7 +4010,8 @@ class MainActivity : AppCompatActivity() {
         val inputs = routeChoiceInputs()
         val arrival = SimpleDateFormat("h:mm a", Locale.US).format(Date(System.currentTimeMillis() + (selected.durationSeconds * 1000).toLong()))
         val stopCount = (tripPlaces.size - 1).coerceAtLeast(0)
-        val arrive = getString(R.string.route_hint_arrive, arrival)
+        // The selected card's strip already says "Arrive ..." (with traffic).
+        val arrive = if (routeStrips[selectedRouteIndex] == null) getString(R.string.route_hint_arrive, arrival) else null
         val leave =
             routeLeaveAdvice[selectedRouteIndex]?.let { a ->
                 val at = SimpleDateFormat("h:mm a", Locale.US).format(Date(System.currentTimeMillis() + a.offsetHours * 3_600_000L))
