@@ -30,6 +30,14 @@ painting a road red:
 Limit: someone with many IP addresses (a proxy pool) can still act as many
 senders. Signed-in contributors (live traffic step 2) close that gap.
 
+## Typical traffic ("Leave at ... to save ...")
+
+Every hour the cron folds the past hour's probes into `typical`: one row per
+road piece and time-of-week bucket (weekend*24 + hour, Malaysia time), a
+running average capped at 100 samples so older weeks fade. `POST /v1/typical`
+returns the usual speed for up to 4 buckets; the app compares leaving now with
+leaving in 1-3 hours. It needs weeks of drives before it has much to say.
+
 ## Setup
 
 - Secret: `IP_SALT` (random, 32+ bytes) - `wrangler secret put IP_SALT`.

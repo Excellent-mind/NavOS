@@ -47,7 +47,7 @@
         <item quantity="other">%d lights</item>
     </plurals>
     <string name="all_routes">All %d routes</string>
-    <string name="route_hint_arrive">Arrive %s · typical time, no live traffic</string>
+    <string name="route_hint_arrive">Arrive %s</string>
     <string name="route_hint_stops">%1$s · one route through every stop</string>
     <string name="route_card_description" translatable="false">%1$s, %2$s, %3$s</string>
 

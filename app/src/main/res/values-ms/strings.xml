@@ -44,7 +44,7 @@
         <item quantity="other">%d lampu</item>
     </plurals>
     <string name="all_routes">Semua %d laluan</string>
-    <string name="route_hint_arrive">Sampai %s · masa biasa, tanpa trafik semasa</string>
+    <string name="route_hint_arrive">Sampai %s</string>
     <string name="route_hint_stops">%1$s · satu laluan ikut semua hentian</string>
 
     <!-- Driving -->

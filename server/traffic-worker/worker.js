@@ -6,6 +6,10 @@
 // POST /v1/flow   {"segs": ["<osmNodeA>-<osmNodeB>", ...]}
 //   -> {"f": {"<seg>": [medianKmh, senders], ...}} for pieces measured by at
 //   least MIN_SENDERS different senders in the last WINDOW_S seconds.
+// POST /v1/typical {"segs": [...], "buckets": [b, ...]}
+//   -> {"t": {"<bucket>": {"<seg>": [kmh, samples]}}} the usual speed of each
+//   piece at that time of the week, learned from past probes. A bucket is
+//   weekend*24 + hour, Malaysia time (hour 0-23; weekend = Sat/Sun).
 // GET  /v1/health
 //
 // Against fake jams (the code is public, so anyone can call this):
@@ -28,6 +32,9 @@ const MAX_FLOW_SEGS = 1500;
 const MAX_KMH = 160;
 const MAX_DRIVES = 20; // generous: phones on one mobile network often share an IP address
 const MAX_PIECES = 3000;
+const MAX_BUCKETS = 4;
+const TYPICAL_MIN_SAMPLES = 3;
+const TYPICAL_MAX_WEIGHT = 100; // older weeks fade as new ones come in
 const SEG = /^\d{1,12}-\d{1,12}$/;
 const SESS = /^[A-Za-z0-9]{16,64}$/;
 
@@ -116,12 +123,56 @@ async function flow(req, env) {
   return json({ f });
 }
 
+async function typical(req, env) {
+  const b = await readBody(req);
+  if (!Array.isArray(b.segs) || !Array.isArray(b.buckets)) return json({ error: "bad request" }, 400);
+  const segs = [...new Set(b.segs.filter((s) => typeof s === "string" && SEG.test(s)))].slice(0, MAX_FLOW_SEGS);
+  const buckets = [...new Set(b.buckets.filter((x) => Number.isInteger(x) && x >= 0 && x < 48))].slice(0, MAX_BUCKETS);
+  const t = {};
+  for (const bucket of buckets) {
+    const f = {};
+    for (let i = 0; i < segs.length; i += 90) {
+      const chunk = segs.slice(i, i + 90);
+      const marks = chunk.map(() => "?").join(",");
+      const res = await env.DB.prepare(
+        `SELECT seg, kmh, n FROM typical WHERE bucket = ? AND n >= ${TYPICAL_MIN_SAMPLES} AND seg IN (${marks})`,
+      ).bind(bucket, ...chunk).all();
+      for (const r of res.results) f[r.seg] = [Math.round(r.kmh * 10) / 10, r.n];
+    }
+    t[bucket] = f;
+  }
+  return json({ t });
+}
+
+// Folds the probes since the last run into the typical speeds (one row per
+// piece and time-of-week bucket, a running average that slowly forgets).
+async function learnTypical(env) {
+  const last = await env.DB.prepare("SELECT v FROM meta WHERE k = 'typical_upto'").first();
+  const from = last ? Number(last.v) : now() - 3600;
+  const upto = now() - 60;
+  if (upto <= from) return;
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO typical (seg, bucket, kmh, n)
+       SELECT seg,
+              (CASE WHEN strftime('%w', t + 28800, 'unixepoch') IN ('0','6') THEN 24 ELSE 0 END) + CAST(strftime('%H', t + 28800, 'unixepoch') AS INTEGER) AS bucket,
+              AVG(kmh), COUNT(*)
+       FROM probes WHERE t > ? AND t <= ? GROUP BY seg, bucket
+       ON CONFLICT (seg, bucket) DO UPDATE SET
+         kmh = (typical.kmh * typical.n + excluded.kmh * excluded.n) / (typical.n + excluded.n),
+         n = MIN(typical.n + excluded.n, ${TYPICAL_MAX_WEIGHT})`,
+    ).bind(from, upto),
+    env.DB.prepare("INSERT INTO meta (k, v) VALUES ('typical_upto', ?) ON CONFLICT (k) DO UPDATE SET v = excluded.v").bind(String(upto)),
+  ]);
+}
+
 export default {
   async fetch(req, env) {
     const path = new URL(req.url).pathname;
     try {
       if (req.method === "POST" && path === "/v1/probe") return await probe(req, env);
       if (req.method === "POST" && path === "/v1/flow") return await flow(req, env);
+      if (req.method === "POST" && path === "/v1/typical") return await typical(req, env);
       if (req.method === "GET" && path === "/v1/health") return json({ ok: true });
     } catch (e) {
       return json({ error: "bad request" }, 400);
@@ -129,6 +180,7 @@ export default {
     return json({ error: "not found" }, 404);
   },
   async scheduled(event, env) {
+    await learnTypical(env);
     await env.DB.batch([
       env.DB.prepare("DELETE FROM probes WHERE t < ?").bind(now() - KEEP_S),
       env.DB.prepare("DELETE FROM quota WHERE w < ?").bind(Math.floor((now() - KEEP_S) / WINDOW_S)),

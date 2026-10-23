@@ -60,6 +60,25 @@ object TrafficClient {
         return out
     }
 
+    /** Usual speed (km/h) of [pieces] in each time-of-week bucket (see [DepartureAdvisor.bucketAt]). */
+    @Throws(IOException::class)
+    fun typical(
+        pieces: List<String>,
+        buckets: List<Int>,
+    ): Map<Int, Map<String, Double>> {
+        if (pieces.isEmpty() || buckets.isEmpty()) return emptyMap()
+        val body = post("/typical", JSONObject().put("segs", JSONArray(pieces)).put("buckets", JSONArray(buckets)))
+        val t = body.optJSONObject("t") ?: return emptyMap()
+        val out = HashMap<Int, Map<String, Double>>()
+        for (b in t.keys()) {
+            val f = t.optJSONObject(b) ?: continue
+            val m = HashMap<String, Double>()
+            for (k in f.keys()) f.optJSONArray(k)?.let { m[k] = it.optDouble(0) }
+            b.toIntOrNull()?.let { out[it] = m }
+        }
+        return out
+    }
+
     private fun post(
         path: String,
         body: JSONObject,

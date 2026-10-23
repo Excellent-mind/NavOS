@@ -90,6 +90,7 @@ import com.excellentmindblow.navos.signs.SignOverlayView
 import com.excellentmindblow.navos.signs.SignPlanner
 import com.excellentmindblow.navos.traffic.TrafficPrefs
 import com.excellentmindblow.navos.traffic.TrafficFlow
+import com.excellentmindblow.navos.traffic.DepartureAdvisor
 import com.excellentmindblow.navos.traffic.TrafficClient
 import com.excellentmindblow.navos.navigation.TripStrip
 import com.excellentmindblow.navos.routing.Route
@@ -3118,9 +3119,12 @@ class MainActivity : AppCompatActivity() {
         extrasExecutor.execute {
             val notes = HashMap<Int, Pair<List<TripStrip.Traffic>, TrafficNote?>>()
             routes.forEachIndexed { i, r -> previewTraffic(r)?.let { notes[i] = it } }
+            val leave = HashMap<Int, DepartureAdvisor.Advice>()
+            routes.forEachIndexed { i, r -> leaveAdvice(r)?.let { leave[i] = it } }
             mainHandler.post {
                 if (token != previewToken || navMode != NavMode.PREVIEW) return@post
                 routeTraffic.putAll(notes)
+                routeLeaveAdvice.putAll(leave)
                 rebuildRouteStrips()
                 updateRoutePreviewSummary()
                 if (routeListShowing) renderRouteList()
@@ -3158,6 +3162,22 @@ class MainActivity : AppCompatActivity() {
 
     /** Live traffic on each previewed route: slow / jammed stretches and the one-line note. */
     private val routeTraffic = HashMap<Int, Pair<List<TripStrip.Traffic>, TrafficNote?>>()
+
+    /** "Leave at 8:00 PM to save 12 min" for each previewed route, when worth saying. */
+    private val routeLeaveAdvice = HashMap<Int, DepartureAdvisor.Advice>()
+
+    /** Typical traffic on [route] leaving now vs in 1-3 hours. Blocking (network). */
+    private fun leaveAdvice(route: Route): DepartureAdvisor.Advice? {
+        val nodes = route.nodes ?: return null
+        val free = route.freeFlowMs ?: return null
+        val now = System.currentTimeMillis()
+        val buckets = DepartureAdvisor.OFFSETS_H.associateWith { DepartureAdvisor.bucketAt(now + it * 3_600_000L) }
+        val typical = runCatching { TrafficClient.typical(TrafficFlow.piecesAhead(nodes, 0), buckets.values.distinct()) }.getOrNull() ?: return null
+        val track = RouteTrack(route.geometry)
+        val cum = DoubleArray(route.geometry.size) { track.distanceAt(it) }
+        val delays = buckets.mapValues { (_, b) -> TrafficFlow.delaySeconds(nodes, free, cum, typical[b].orEmpty()) }
+        return DepartureAdvisor.advise(route.durationSeconds, delays)
+    }
 
     /** Each previewed route's whole trip on one line (see [TripStrip]). */
     private val routeStrips = HashMap<Int, TripStrip.Strip>()
@@ -3434,6 +3454,7 @@ class MainActivity : AppCompatActivity() {
                     routePoisByIndex.clear()
                     routeExtrasByIndex.clear()
                     routeLightsM.clear()
+                    routeLeaveAdvice.clear()
                     routeTraffic.clear()
                     routeStrips.clear()
                     routeLightCounts.clear()
@@ -3913,12 +3934,18 @@ class MainActivity : AppCompatActivity() {
         val arrival = SimpleDateFormat("h:mm a", Locale.US).format(Date(System.currentTimeMillis() + (selected.durationSeconds * 1000).toLong()))
         val stopCount = (tripPlaces.size - 1).coerceAtLeast(0)
         val arrive = getString(R.string.route_hint_arrive, arrival)
-        val hint =
-            if (stopCount > 0) {
-                getString(R.string.route_hint_stops, if (stopCount == 1) "1 stop" else "$stopCount stops") + "\n" + arrive
-            } else {
-                arrive
+        val leave =
+            routeLeaveAdvice[selectedRouteIndex]?.let { a ->
+                val at = SimpleDateFormat("h:mm a", Locale.US).format(Date(System.currentTimeMillis() + a.offsetHours * 3_600_000L))
+                val min = Math.round(a.savedSeconds / 60.0).toInt()
+                tr("Usually quicker later: leave at $at to save $min min", "Biasanya lebih cepat nanti: gerak pukul $at, jimat $min min")
             }
+        val hint =
+            listOfNotNull(
+                if (stopCount > 0) getString(R.string.route_hint_stops, if (stopCount == 1) "1 stop" else "$stopCount stops") else null,
+                arrive,
+                leave,
+            ).joinToString("\n")
         routePreviewSheet.render(
             shown = RouteChoices.order(inputs, selectedRouteIndex, RouteChoices.SHOWN),
             totalRoutes = routeOptions.size,
@@ -4031,6 +4058,7 @@ class MainActivity : AppCompatActivity() {
         routePoisByIndex.clear()
         routeExtrasByIndex.clear()
         routeLightsM.clear()
+        routeLeaveAdvice.clear()
         routeTraffic.clear()
         routeStrips.clear()
         routeLightCounts.clear()

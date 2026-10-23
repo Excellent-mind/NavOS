@@ -18,5 +18,19 @@ CREATE TABLE IF NOT EXISTS quota (
   PRIMARY KEY (sender, w)
 );
 
+-- Usual speed of each piece per time-of-week bucket (weekend*24 + hour, Malaysia time).
+CREATE TABLE IF NOT EXISTS typical (
+  seg TEXT NOT NULL,
+  bucket INTEGER NOT NULL,
+  kmh REAL NOT NULL,
+  n INTEGER NOT NULL,
+  PRIMARY KEY (seg, bucket)
+);
+
+CREATE TABLE IF NOT EXISTS meta (
+  k TEXT PRIMARY KEY,
+  v TEXT NOT NULL
+);
+
 -- Upgrading a database made before senders existed:
 --   ALTER TABLE probes ADD COLUMN sender TEXT;
