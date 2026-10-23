@@ -18,6 +18,7 @@ import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
+import com.excellentmindblow.navos.Lang
 import com.excellentmindblow.navos.MainActivity
 import com.excellentmindblow.navos.R
 import com.excellentmindblow.navos.Units
@@ -217,10 +218,12 @@ class NavigationService : Service() {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         (trafficReporter ?: TrafficReporter(prefs).also { trafficReporter = it }).setRoute(route, sameDrive = false)
         Units.load(prefs)
+        Lang.load(prefs)
 
         if (voiceNarrator == null) {
             voiceNarrator = VoiceNarrator(this).also { it.enabled = prefs.getBoolean(KEY_VOICE_ENABLED, true) }
         }
+        voiceNarrator?.applyLanguage()
         if (engine == null) {
             engine =
                 NavigationEngine(

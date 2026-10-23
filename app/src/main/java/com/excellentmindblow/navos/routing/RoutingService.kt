@@ -1,6 +1,7 @@
 package com.excellentmindblow.navos.routing
 
 import com.excellentmindblow.navos.navigation.GeoUtils
+import com.excellentmindblow.navos.navigation.Phrases
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -88,17 +89,6 @@ object RoutingService {
     // (looks bot-like with no app identity behind it).
     private const val USER_AGENT = "NavOS/0.1 (navigation app; contact: excellentmindblow@gmail.com)"
 
-    private val MODIFIER_TEXT =
-        mapOf(
-            "uturn" to "make a U-turn",
-            "sharp right" to "turn sharp right",
-            "sharp left" to "turn sharp left",
-            "right" to "turn right",
-            "left" to "turn left",
-            "slight right" to "bear right",
-            "slight left" to "bear left",
-            "straight" to "continue straight",
-        )
 
     /** Returns every route OSRM offers - index 0 is always its preferred
      * ("fastest") one, any further entries are alternatives (OSRM doesn't
@@ -649,25 +639,5 @@ object RoutingService {
         modifier: String?,
         roadName: String,
         maneuver: JSONObject,
-    ): String {
-        val namedRoad = roadName.ifBlank { "the road" }
-        val modifierText = (modifier?.let { MODIFIER_TEXT[it] } ?: "continue").replaceFirstChar { it.uppercase() }
-
-        return when (type) {
-            "depart" -> if (roadName.isBlank()) "Head out" else "Head out onto $namedRoad"
-            "arrive" -> "Arrive at your destination"
-            "roundabout", "rotary" -> {
-                val exit = maneuver.optInt("exit", 0)
-                if (exit > 0) "At the roundabout, take exit $exit onto $namedRoad" else "Enter the roundabout"
-            }
-            "merge" -> "Merge onto $namedRoad"
-            "on ramp" -> "Take the ramp onto $namedRoad"
-            "off ramp" -> "Take the exit onto $namedRoad"
-            "fork" -> "Keep ${modifier ?: "straight"} at the fork onto $namedRoad"
-            "end of road" -> "$modifierText onto $namedRoad"
-            "new name" -> "Continue onto $namedRoad"
-            "continue" -> if (modifier == null || modifier == "straight") "Continue onto $namedRoad" else "$modifierText onto $namedRoad"
-            else -> "$modifierText onto $namedRoad"
-        }
-    }
+    ): String = Phrases.instruction(type, modifier, roadName, maneuver.optInt("exit", 0))
 }

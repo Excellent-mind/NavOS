@@ -117,6 +117,9 @@ class SettingsScreen(
                     MapDisplayPrefs.save(prefs)
                     host.onDriveViewChanged()
                 },
+                choiceRow("Language", listOf(Lang.AUTO to "Phone", Lang.EN to "English", Lang.MS to "Melayu"), Lang.choice(prefs)) {
+                    Lang.save(prefs, it)
+                },
                 choiceRow("Distance units", listOf("km" to "Kilometres", "mi" to "Miles"), if (Units.miles) "mi" else "km") {
                     Units.save(prefs, it == "mi")
                 },

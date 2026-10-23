@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import com.excellentmindblow.navos.Lang
 import java.util.Locale
 
 /**
@@ -54,7 +55,7 @@ class VoiceNarrator(context: Context) {
                 // Voice, rate and listener are set once here rather than
                 // before every instruction.
                 voiceHandler.post {
-                    engine.language = Locale.US
+                    applyLanguage()
                     engine.setSpeechRate(0.95f)
                     engine.setPitch(1.0f)
                     engine.setAudioAttributes(guidanceAttributes)
@@ -76,6 +77,15 @@ class VoiceNarrator(context: Context) {
                 }
             }
         }
+
+    /** Speaks Malay with a Malay voice, else the close Indonesian one, else English. */
+    fun applyLanguage() {
+        voiceHandler.post {
+            val wanted = if (Lang.malay) listOf(Locale("ms", "MY"), Locale("id", "ID")) else emptyList()
+            val voice = wanted.firstOrNull { engine.isLanguageAvailable(it) >= TextToSpeech.LANG_AVAILABLE } ?: Locale.US
+            engine.language = voice
+        }
+    }
 
     fun speak(
         key: String,

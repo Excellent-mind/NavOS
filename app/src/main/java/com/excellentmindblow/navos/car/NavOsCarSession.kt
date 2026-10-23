@@ -20,6 +20,7 @@ import androidx.car.app.navigation.model.Trip
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
+import com.excellentmindblow.navos.Lang
 import com.excellentmindblow.navos.Units
 import com.excellentmindblow.navos.navigation.NavigationState
 import com.excellentmindblow.navos.routing.Route
@@ -60,7 +61,10 @@ class NavOsCarSession : Session() {
     private fun ensureInit() {
         if (inited) return
         inited = true
-        Units.load(carContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE))
+        carContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).let {
+            Units.load(it)
+            Lang.load(it)
+        }
         link = CarNavLink(carContext)
         renderer = CarMapRenderer(carContext)
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(renderer)

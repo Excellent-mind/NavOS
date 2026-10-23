@@ -49,15 +49,4 @@ object Units {
             else -> "${Math.round(meters / METERS_PER_MILE)} mi"
         }
     }
-
-    /** How a distance is said aloud: "300 meters" (as before) or "500 feet" / "0.4 miles". */
-    fun spoken(meters: Double): String {
-        if (!miles) return "${(Math.round(meters / 10) * 10).toInt()} meters"
-        val feet = meters * FEET_PER_METER
-        return if (feet < 1000) {
-            "${(Math.round(feet / 50.0) * 50).toInt().coerceAtLeast(50)} feet"
-        } else {
-            String.format(Locale.US, "%.1f miles", meters / METERS_PER_MILE)
-        }
-    }
 }

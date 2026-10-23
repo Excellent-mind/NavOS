@@ -1,6 +1,5 @@
 package com.excellentmindblow.navos.navigation
 
-import com.excellentmindblow.navos.Units
 import com.excellentmindblow.navos.routing.LaneInfo
 import com.excellentmindblow.navos.routing.Route
 import com.excellentmindblow.navos.routing.RoutePoint
@@ -318,11 +317,8 @@ class NavigationEngine(
 
         for (stop in reachedStops) {
             val more = currentRoute.stops.count { it.stepIndex > stop.stepIndex }
-            val label = stop.name.ifBlank { "stop ${stop.number}" }
-            onAnnounce(
-                "stop-reached-${stop.number}",
-                "You have arrived at $label. " + if (more > 0) "Continuing to your next stop." else "Continuing to your destination.",
-            )
+            val label = stop.name.ifBlank { Phrases.stopName(stop.number) }
+            onAnnounce("stop-reached-${stop.number}", Phrases.stopReached(label, more > 0))
             onStopReached(stop)
         }
 
@@ -344,13 +340,10 @@ class NavigationEngine(
         if (distanceToTurn <= nearThreshold) {
             onAnnounce("$stepIndex-near", instruction)
         } else if (distanceToTurn <= farThreshold) {
-            onAnnounce(
-                "$stepIndex-far",
-                "In ${Units.spoken(distanceToTurn)}, ${instruction.replaceFirstChar { it.lowercase() }}",
-            )
+            onAnnounce("$stepIndex-far", Phrases.inDistance(distanceToTurn, instruction))
         }
         if (isArrival && distanceToTurn <= nearThreshold) {
-            onAnnounce("$stepIndex-arrive", "You have arrived at your destination")
+            onAnnounce("$stepIndex-arrive", Phrases.arrived())
         }
     }
 

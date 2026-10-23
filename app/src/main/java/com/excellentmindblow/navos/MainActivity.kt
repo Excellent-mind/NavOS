@@ -1103,6 +1103,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setUpSettings() {
         Units.load(prefs)
+        Lang.load(prefs)
         RoutePrefs.load(prefs)
         settingsScreen.build(findViewById(R.id.homeSettingsList))
     }
