@@ -31,6 +31,12 @@ class TollPricer(
     private val openFares: Map<PlazaKey, IntArray>,
     private val pairFares: Map<Pair<PlazaKey, PlazaKey>, IntArray>,
 ) {
+    /** How many plazas the table knows - a sanity check for downloaded tables. */
+    val plazaCount: Int get() = plazas.size
+
+    /** How many entry>exit fares the table knows. */
+    val pairCount: Int get() = pairFares.size
+
     data class PlazaKey(
         val highway: String,
         val id: String,
