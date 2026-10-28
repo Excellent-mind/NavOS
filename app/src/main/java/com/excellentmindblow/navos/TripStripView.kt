@@ -14,9 +14,9 @@ import com.excellentmindblow.navos.poi.FuelBrand
 import com.excellentmindblow.navos.traffic.RoadReports
 
 /**
- * Draws a [TripStrip.Strip]: the trip as one straight line from you (left) to
- * the destination (right), black where traffic is clear, amber where slow,
- * red where jammed; tolls, R&Rs, petrol / EV stations and cameras above it at
+ * Draws a [TripStrip.Strip]: the trip as one straight strip of road from you
+ * (left) to the destination (right), asphalt with a dashed lane line, amber
+ * where slow, red where jammed; tolls, R&Rs, petrol / EV stations and cameras above it at
  * their place, traffic lights as ticks below. [highlight] lights up one kind
  * and dims the rest. [mini]: just the line, for the other routes' cards.
  */
@@ -64,7 +64,7 @@ class TripStripView
             heightMeasureSpec: Int,
         ) {
             // No markers: no empty row reserved above the line.
-            val h = dp(if (mini) 6f else if (hasMarks()) 60f else 32f).toInt()
+            val h = dp(if (mini) 8f else if (hasMarks()) 64f else 36f).toInt()
             setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), resolveSize(h, heightMeasureSpec))
         }
 
@@ -75,14 +75,15 @@ class TripStripView
             val pad = if (mini) 0f else marker / 2
             val w = width - 2 * pad
             fun x(m: Double) = pad + (m / s.lengthM).toFloat().coerceIn(0f, 1f) * w
-            val lineH = dp(if (mini) 4f else 8f)
+            val lineH = dp(if (mini) 6f else 12f)
             val lineTop = if (mini) (height - lineH) / 2 else (if (hasMarks()) marker else 0f) + dp(8f)
             val dimmed = highlight != null
 
-            // The line, then slow / jammed stretches over it.
-            line.color = if (mini) color(R.color.sig_text_quiet) else color(R.color.sig_route)
+            // The trip as a strip of road: asphalt, slow / jammed stretches painted
+            // on it, then the dashed lane line on top.
+            line.color = color(R.color.road_asphalt)
             rect.set(0f, lineTop, width.toFloat(), lineTop + lineH)
-            canvas.drawRoundRect(rect, lineH / 2, lineH / 2, line)
+            canvas.drawRoundRect(rect, dp(3f), dp(3f), line)
             for (t in s.traffic) {
                 paint.color = color(if (t.jam) R.color.sig_limit else R.color.sig_caution)
                 val left = if (mini) (t.fromM / s.lengthM).toFloat() * width else x(t.fromM)
@@ -90,19 +91,27 @@ class TripStripView
                 canvas.drawRect(left, lineTop, maxOf(right, left + dp(3f)), lineTop + lineH, paint)
             }
             if (mini) return
+            paint.color = color(R.color.road_paint)
+            val dashY = lineTop + lineH / 2
+            val dash = dp(9f)
+            var dx = dp(22f)
+            while (dx + dash < width - dp(26f)) {
+                canvas.drawRect(dx, dashY - dp(0.9f), dx + dash, dashY + dp(0.9f), paint)
+                dx += dash * 2
+            }
 
-            // You (ring) and the destination (dot).
+            // You (blue dot, white ring) and the destination (red square).
             val cy = lineTop + lineH / 2
-            paint.color = color(R.color.sig_sheet)
-            canvas.drawCircle(dp(8f), cy, dp(8f), paint)
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = dp(4f)
+            paint.color = color(R.color.white)
+            canvas.drawCircle(dp(9f), cy, dp(8.5f), paint)
             paint.color = color(R.color.sig_route)
-            canvas.drawCircle(dp(8f), cy, dp(6f), paint)
-            paint.style = Paint.Style.FILL
-            canvas.drawCircle(width - dp(10f), cy, dp(10f), paint)
-            paint.color = color(R.color.sig_sheet)
-            canvas.drawCircle(width - dp(10f), cy, dp(4f), paint)
+            canvas.drawCircle(dp(9f), cy, dp(6f), paint)
+            paint.color = color(R.color.white)
+            rect.set(width - dp(18f), cy - dp(8.5f), width.toFloat() - dp(1f), cy + dp(8.5f))
+            canvas.drawRoundRect(rect, dp(3f), dp(3f), paint)
+            paint.color = color(R.color.sig_limit)
+            rect.inset(dp(2.5f), dp(2.5f))
+            canvas.drawRoundRect(rect, dp(2f), dp(2f), paint)
 
             // Traffic lights: ticks under the line.
             val lightsOn = highlight == LIGHTS

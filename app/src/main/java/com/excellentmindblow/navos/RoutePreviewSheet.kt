@@ -107,7 +107,7 @@ class RoutePreviewSheet(
         }
         row.findViewById<TextView>(R.id.choiceDistance).text = distance
         val via = row.findViewById<TextView>(R.id.choiceVia)
-        via.text = choice.via?.let { tr("via $it", "ikut $it") }.orEmpty()
+        via.text = RoadShields.decorate(context, choice.via?.let { tr("via $it", "ikut $it") }.orEmpty())
         via.visibility = if (choice.via == null) View.GONE else View.VISIBLE
         row.findViewById<View>(R.id.choiceFastest).visibility = if (choice.fastest) View.VISIBLE else View.GONE
 
@@ -118,15 +118,19 @@ class RoutePreviewSheet(
                 choice.tolls == null -> null
                 choice.tolls == 0 -> context.getString(R.string.no_tolls)
                 // The fare when it is known ("+" when a plaza couldn't be priced).
-                fare != null -> tr("Toll ", "Tol ") + com.excellentmindblow.navos.routing.TollPricer.format(fare.totalSen) + if (fare.unpriced > 0) "+" else ""
+                fare != null -> "TOL " + com.excellentmindblow.navos.routing.TollPricer.format(fare.totalSen) + if (fare.unpriced > 0) "+" else ""
                 choice.tolls == 1 -> context.getString(R.string.one_toll)
                 else -> context.getString(R.string.n_tolls, choice.tolls)
             }
         tolls.text = tollText
         tolls.visibility = if (tollText == null) View.GONE else View.VISIBLE
+        // Tolls on a green plate like the plaza signs; "No toll" on an outline plate.
         val noTolls = choice.tolls == 0
-        tolls.setTextColor(color(if (noTolls) R.color.sig_success else R.color.sig_text_quiet))
-        tolls.paint.isFakeBoldText = noTolls
+        tolls.setBackgroundResource(if (noTolls) R.drawable.bg_toll_none else R.drawable.bg_toll_plate)
+        tolls.setTextColor(color(if (noTolls) R.color.sig_text_quiet else R.color.white))
+        tolls.paint.isFakeBoldText = true
+        val d = context.resources.displayMetrics.density
+        tolls.setPadding((8 * d).toInt(), (3 * d).toInt(), (8 * d).toInt(), (2 * d).toInt())
 
         val lights = row.findViewById<TextView>(R.id.choiceLights)
         val lightText =
@@ -141,7 +145,7 @@ class RoutePreviewSheet(
         // Other routes say how they differ from the selected one.
         val diff = differenceText(choice)
         if (diff != null) {
-            via.text = listOfNotNull(diff, choice.via?.let { tr("via $it", "ikut $it") }).joinToString(" · ")
+            via.text = RoadShields.decorate(context, listOfNotNull(diff, choice.via?.let { tr("via $it", "ikut $it") }).joinToString(" · "))
             via.visibility = View.VISIBLE
         }
 
