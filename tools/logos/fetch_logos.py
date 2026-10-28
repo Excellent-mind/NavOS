@@ -21,19 +21,14 @@ API = "https://commons.wikimedia.org/w/api.php"
 UA = "NavOS-logo-fetch/1.0 (https://github.com/Excellent-mind/NavOS)"
 
 QUERIES = {
-    "petronas": ["Petronas logo", "Petronas station"],
-    "shell": ["Shell logo", "Royal Dutch Shell logo"],
-    "petron": ["Petron logo", "Petron Corporation logo"],
-    "caltex": ["Caltex logo", "Caltex brand logo"],
-    "bhpetrol": ["BHPetrol logo", "BHP petrol Malaysia"],
-    "five": ["FIVE Petroleum logo Malaysia"],
-    "tng": ["Touch 'n Go logo", "Touch n Go"],
-    "rfid": ["Touch n Go RFID", "RFID toll Malaysia"],
-    "smarttag": ["SmartTAG Malaysia"],
-    "rnr": ["Malaysia road sign R&R", "Rehat dan Rawat sign", "Malaysian expressway rest area sign"],
-    "toll-sign": ["Malaysia road sign toll", "Malaysian toll plaza sign", "Plaza Tol sign Malaysia"],
-    "smartlane": ["PLUS Smart Lane sign", "Malaysia emergency lane sign"],
-    "my-signs": ["Malaysian road signs"],
+    # Second pass (the first found Petronas, Caltex, Touch 'n Go, SmartTAG, R&R).
+    "shell": ["Shell pecten", "Shell logo.svg", "Shell plc logo"],
+    "petron": ["Petron.svg", "Petron Corporation", "Petron Malaysia"],
+    "bhpetrol": ["BHPetrol", "Boustead Petroleum Marketing"],
+    "rfid": ["Touch n Go RFID logo", "TNG RFID"],
+    "my-symbols": ["Malaysia Symbols", "Malaysia Symbols Toll", "Malaysia Symbols Petrol"],
+    "toll-symbol": ["Malaysia expressway toll symbol", "Malaysia road sign toll plaza symbol"],
+    "smartlane": ["Smart Lane Malaysia", "SmartLane PLUS", "lorong kecemasan"],
 }
 
 
@@ -51,7 +46,7 @@ def get(params):
     return {}
 
 
-def search(q, limit=8):
+def search(q, limit=20):
     d = get({"action": "query", "list": "search", "srnamespace": 6, "srlimit": limit, "srsearch": q})
     return [x["title"] for x in d.get("query", {}).get("search", [])]
 
@@ -93,7 +88,7 @@ def main(out):
                 if t not in titles and t.lower().endswith((".svg", ".png")):
                     titles.append(t)
             time.sleep(1)
-        files = info(titles[:12]) if titles else []
+        files = [f for i in range(0, min(len(titles), 40), 20) for f in info(titles[i:i + 20])]
         os.makedirs(os.path.join(out, key), exist_ok=True)
         for i, f in enumerate(files):
             src = f["url"] if f["mime"] == "image/svg+xml" else (f["thumb"] or f["url"])

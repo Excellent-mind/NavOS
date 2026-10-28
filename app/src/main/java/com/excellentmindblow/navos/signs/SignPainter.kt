@@ -33,11 +33,12 @@ class SignPainter(
     /** The R&R road-sign symbol (canopy over "R&R"), white. */
     private val rnrSymbol = ContextCompat.getDrawable(context, R.drawable.ic_rnr)?.mutate()?.apply { setTint(Color.WHITE) }
 
-    private val green = if (night) 0x16683A else 0x1B7F45
-    private val blue = if (night) 0x18418A else 0x1D4FA8
+    // JKR sign colours (the same as the app's jkr_green / jkr_blue), a shade darker at night.
+    private val green = if (night) 0x005A34 else 0x00693D
+    private val blue = if (night) 0x0B3F85 else 0x0D4C9F
     private val brown = if (night) 0x5C3119 else 0x6E3B1E
     private val edge = if (night) Color.rgb(0xE8, 0xE8, 0xE8) else Color.WHITE
-    private val shieldYellow = Color.rgb(0xF2, 0xB7, 0x05)
+    private val shieldYellow = Color.rgb(0xF6, 0xC4, 0x00)
     private val ink = Color.rgb(0x0A, 0x0A, 0x0A)
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
