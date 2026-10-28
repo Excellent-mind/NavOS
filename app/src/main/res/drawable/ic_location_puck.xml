@@ -18,7 +18,7 @@
     <!-- Bold chevron, pointing up (north/forward), cyan with a white
          outline - the same silhouette Waze uses for its driving arrow. -->
     <path
-        android:fillColor="#1CB0F6"
+        android:fillColor="#2F7BFF"
         android:strokeColor="#FFFFFF"
         android:strokeWidth="1.4"
         android:strokeLineJoin="round"

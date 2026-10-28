@@ -195,7 +195,7 @@ class CarMapRenderer(private val carContext: CarContext) : SurfaceCallback {
             st.addSource(GeoJsonSource(ROUTE_SRC))
             st.addLayer(
                 LineLayer(ROUTE_LAYER, ROUTE_SRC).withProperties(
-                    PropertyFactory.lineColor("#1CB0F6"),
+                    PropertyFactory.lineColor("#2F7BFF"),
                     PropertyFactory.lineWidth(9f),
                     PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
@@ -214,7 +214,7 @@ class CarMapRenderer(private val carContext: CarContext) : SurfaceCallback {
             st.addLayer(
                 CircleLayer(PUCK_LAYER, PUCK_SRC).withProperties(
                     PropertyFactory.circleRadius(10f),
-                    PropertyFactory.circleColor("#1CB0F6"),
+                    PropertyFactory.circleColor("#2F7BFF"),
                     PropertyFactory.circleStrokeColor("#FFFFFF"),
                     PropertyFactory.circleStrokeWidth(3f),
                 ),
