@@ -1523,6 +1523,7 @@ class MainActivity : AppCompatActivity() {
         routePreviewCard = findViewById(R.id.routePreviewCard)
         routePreviewHint = findViewById(R.id.routePreviewHint)
         topNavBar = findViewById(R.id.topNavBar)
+        topNavBar.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> placeBelowGantry() }
         bottomNavBar = findViewById(R.id.bottomNavBar)
         arrivalCard = findViewById(R.id.arrivalCard)
         findViewById<View>(R.id.arrivalConfirmButton).setOnClickListener {
@@ -1974,6 +1975,7 @@ class MainActivity : AppCompatActivity() {
         if (navMode != NavMode.ACTIVE) return
         searchOpenedFromNav = true
         topNavBar.visibility = View.GONE
+        placeBelowGantry()
         bottomNavBar.visibility = View.GONE
         speedBadge.visibility = View.GONE
         clearSpeedLimit(resetData = false)
@@ -1999,6 +2001,7 @@ class MainActivity : AppCompatActivity() {
 
         if (navMode == NavMode.ACTIVE) {
             bottomNavBar.visibility = View.VISIBLE
+            topNavBar.visibility = View.VISIBLE
             speedBadge.visibility = if (MapDisplayPrefs.speedometer) View.VISIBLE else View.GONE
             poiToggleColumn.visibility = View.VISIBLE
         } else if (navMode == NavMode.PREVIEW) {
@@ -4293,6 +4296,17 @@ class MainActivity : AppCompatActivity() {
     /** Lifts every floating drive control by however far the drive bar has
      * grown past its collapsed height, so they stay just above the card
      * instead of being covered when the Stop pill is revealed. */
+    /** Compass and the top alerts sit just under the gantry sign while it shows (it grows with lanes / "Then"). */
+    private fun placeBelowGantry() {
+        val shown = topNavBar.visibility == View.VISIBLE
+        val below = if (shown) topNavBar.bottom + dp(8) else 0
+        for (id in intArrayOf(R.id.compassButton, R.id.recalcPill, R.id.fasterCard, R.id.cameraAlert, R.id.reportAlert)) {
+            val v = findViewById<View>(id) ?: continue
+            val ty = if (shown) (below - v.top).coerceAtLeast(0).toFloat() else 0f
+            if (v.translationY != ty) v.translationY = ty
+        }
+    }
+
     private fun updateNavFloatingOffset() {
         val floating = listOf(speedBadge, speedLimitSign, poiToggleColumn, recenterButton, poiCard)
         if (bottomNavBar.visibility != View.VISIBLE || navBarRow.height == 0) {
@@ -4352,6 +4366,7 @@ class MainActivity : AppCompatActivity() {
         navMode = NavMode.PREVIEW
         topBar.visibility = View.GONE
         topNavBar.visibility = View.GONE
+        placeBelowGantry()
         bottomNavBar.visibility = View.GONE
         homeSheet.visibility = View.GONE
         recenterButton.visibility = View.GONE
@@ -4595,6 +4610,14 @@ class MainActivity : AppCompatActivity() {
         trafficLayer.start(route)
         showTrafficNoticeOnce()
         bottomNavBar.visibility = View.VISIBLE
+        // The gantry sign: the next turn, in JKR green / blue, at the top.
+        topNavBar.visibility = View.VISIBLE
+        // The trip ahead as a strip of road in the drive sheet (from the chosen route card).
+        findViewById<TripStripView>(R.id.navTripStrip).apply {
+            mini = false
+            strip = routeStrips[selectedRouteIndex]
+            visibility = if (strip == null) View.GONE else View.VISIBLE
+        }
         speedBadge.visibility = if (MapDisplayPrefs.speedometer) View.VISIBLE else View.GONE
         poiToggleColumn.visibility = View.VISIBLE
         turnDistanceText.text = ""
@@ -4962,6 +4985,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         topNavBar.visibility = View.GONE
+        placeBelowGantry()
         bottomNavBar.visibility = View.GONE
         speedBadge.visibility = View.GONE
         laneContainer.visibility = View.GONE
@@ -5044,6 +5068,7 @@ class MainActivity : AppCompatActivity() {
         renderPoiPins()
         closeNextTurns()
         topNavBar.visibility = View.GONE
+        placeBelowGantry()
         bottomNavBar.visibility = View.GONE
         speedBadge.visibility = View.GONE
         clearSpeedLimit(resetData = true)

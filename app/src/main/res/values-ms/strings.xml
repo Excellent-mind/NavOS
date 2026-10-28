@@ -58,6 +58,7 @@
     <string name="show_ev">Tunjuk atau sorok cas EV</string>
     <string name="search_along_the_way">Cari sepanjang jalan</string>
     <string name="end_navigation">Tamat navigasi</string>
+    <string name="end_short">Tamat</string>
     <string name="end_trip">Tamat perjalanan</string>
     <string name="share_eta">Kongsi ETA</string>
     <string name="camera_ahead">Ada kamera laju di depan</string>

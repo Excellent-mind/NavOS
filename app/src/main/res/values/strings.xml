@@ -62,6 +62,7 @@
     <string name="show_ev">Show or hide EV charging</string>
     <string name="search_along_the_way">Search along the way</string>
     <string name="end_navigation">End navigation</string>
+    <string name="end_short">End</string>
     <string name="end_trip">End trip</string>
     <string name="share_eta">Share ETA</string>
     <string name="camera_ahead">Speed camera ahead</string>
