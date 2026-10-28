@@ -15,6 +15,7 @@ Below zoom 15 widths are cartographic (readable), and grow smoothly into the
 true widths.
 
 Usage: build_style.py OUT_DIR   ->  jalan-day.json, jalan-night.json
+       (the app ships them in app/src/main/assets/mapstyle/)
 """
 import json
 import math
@@ -96,7 +97,7 @@ FONT_BOLD = ["Noto Sans Bold"]
 
 
 def tr(layer_id, f, **kw):
-    out = {"id": layer_id, "type": "line", "source": "omt", "source-layer": "transportation", "filter": f}
+    out = {"id": layer_id, "type": "line", "source": "openmaptiles", "source-layer": "transportation", "filter": f}
     out.update(kw)
     # Paint lines join round so tile and segment joins don't leave white ticks.
     out.setdefault("layout", {"line-join": "bevel", "line-cap": "butt"})
@@ -107,18 +108,18 @@ def build(theme):
     c = PALETTE[theme]
     L = []
     L.append({"id": "land", "type": "background", "paint": {"background-color": c["land"]}})
-    L.append({"id": "residential", "type": "fill", "source": "omt", "source-layer": "landuse",
+    L.append({"id": "residential", "type": "fill", "source": "openmaptiles", "source-layer": "landuse",
               "filter": cls("residential", "suburb", "neighbourhood"), "paint": {"fill-color": c["residential"]}})
-    L.append({"id": "industrial", "type": "fill", "source": "omt", "source-layer": "landuse",
+    L.append({"id": "industrial", "type": "fill", "source": "openmaptiles", "source-layer": "landuse",
               "filter": cls("industrial", "commercial", "retail", "railway"), "paint": {"fill-color": c["industrial"]}})
-    L.append({"id": "park", "type": "fill", "source": "omt", "source-layer": "park", "paint": {"fill-color": c["park"]}})
-    L.append({"id": "landcover", "type": "fill", "source": "omt", "source-layer": "landcover",
+    L.append({"id": "park", "type": "fill", "source": "openmaptiles", "source-layer": "park", "paint": {"fill-color": c["park"]}})
+    L.append({"id": "landcover", "type": "fill", "source": "openmaptiles", "source-layer": "landcover",
               "filter": cls("wood", "grass", "farmland", "wetland"),
               "paint": {"fill-color": ["match", ["get", "class"], "wood", c["wood"], c["park"]], "fill-opacity": 0.85}})
-    L.append({"id": "water", "type": "fill", "source": "omt", "source-layer": "water", "paint": {"fill-color": c["water"]}})
-    L.append({"id": "waterway", "type": "line", "source": "omt", "source-layer": "waterway",
+    L.append({"id": "water", "type": "fill", "source": "openmaptiles", "source-layer": "water", "paint": {"fill-color": c["water"]}})
+    L.append({"id": "waterway", "type": "line", "source": "openmaptiles", "source-layer": "waterway",
               "paint": {"line-color": c["waterline"], "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 16, 3]}})
-    L.append({"id": "building", "type": "fill", "source": "omt", "source-layer": "building", "minzoom": 14, "maxzoom": 16,
+    L.append({"id": "building", "type": "fill", "source": "openmaptiles", "source-layer": "building", "minzoom": 14,
               "paint": {"fill-color": c["building"], "fill-opacity": ["interpolate", ["linear"], ["zoom"], 14, 0, 15, 1]}})
 
     order = list(reversed(KINDS))  # small roads first, expressways on top
@@ -201,35 +202,30 @@ def build(theme):
     L.append(tr("rail", cls("rail", "transit"), minzoom=12,
                 paint={"line-color": c["rail"], "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.8, 17, 3]}))
 
-    # 3D buildings from z16 (drive view), flat footprints below.
-    L.append({"id": "building-3d", "type": "fill-extrusion", "source": "omt", "source-layer": "building", "minzoom": 15.5,
-              "filter": ["!=", ["get", "hide_3d"], True],
-              "paint": {"fill-extrusion-color": c["building3d"],
-                        "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"], 15.5, 0, 16.5, ["get", "render_height"]],
-                        "fill-extrusion-base": ["get", "render_min_height"], "fill-extrusion-opacity": 0.85}})
+    # 3D buildings are added by the app (MapLayers, "navos-3d-buildings") so Map display can switch them.
 
-    L.append({"id": "boundary", "type": "line", "source": "omt", "source-layer": "boundary",
+    L.append({"id": "boundary", "type": "line", "source": "openmaptiles", "source-layer": "boundary",
               "filter": ["<=", ["get", "admin_level"], 4],
               "paint": {"line-color": c["boundary"], "line-dasharray": [3, 2], "line-width": 1}})
 
     # Labels.
-    L.append({"id": "road-label", "type": "symbol", "source": "omt", "source-layer": "transportation_name", "minzoom": 14,
+    L.append({"id": "road-label", "type": "symbol", "source": "openmaptiles", "source-layer": "transportation_name", "minzoom": 14,
               "filter": cls("motorway", "trunk", "primary", "secondary", "tertiary", "minor"),
               "layout": {"symbol-placement": "line", "text-field": ["coalesce", ["get", "name:latin"], ["get", "name"]],
                          "text-font": FONT, "text-size": ["interpolate", ["linear"], ["zoom"], 14, 10, 18, 14],
                          "text-letter-spacing": 0.02, "symbol-spacing": 350},
               "paint": {"text-color": c["road_label"], "text-halo-color": c["road_halo"], "text-halo-width": 1.4}})
-    L.append({"id": "road-shield", "type": "symbol", "source": "omt", "source-layer": "transportation_name", "minzoom": 8,
+    L.append({"id": "road-shield", "type": "symbol", "source": "openmaptiles", "source-layer": "transportation_name", "minzoom": 8,
               "filter": ["all", cls("motorway", "trunk", "primary"), ["has", "ref"], ["<=", ["get", "ref_length"], 6]],
               "maxzoom": 16.5, "layout": {"symbol-placement": "line", "symbol-spacing": 900, "text-field": ["get", "ref"],
                          "text-font": FONT_BOLD, "text-size": 11, "text-rotation-alignment": "viewport",
                          "icon-image": "shield-yellow", "icon-text-fit": "both", "icon-text-fit-padding": [2, 5, 2, 5],
                          "icon-rotation-alignment": "viewport"},
               "paint": {"text-color": "#111111"}})
-    L.append({"id": "water-label", "type": "symbol", "source": "omt", "source-layer": "water_name",
+    L.append({"id": "water-label", "type": "symbol", "source": "openmaptiles", "source-layer": "water_name",
               "layout": {"text-field": ["get", "name"], "text-font": FONT, "text-size": 12},
               "paint": {"text-color": c["water_label"], "text-halo-color": c["land"], "text-halo-width": 1}})
-    L.append({"id": "place-label", "type": "symbol", "source": "omt", "source-layer": "place",
+    L.append({"id": "place-label", "type": "symbol", "source": "openmaptiles", "source-layer": "place",
               "filter": cls("city", "town", "suburb", "village", "neighbourhood"),
               "layout": {"text-field": ["coalesce", ["get", "name:latin"], ["get", "name"]], "text-font": FONT_BOLD,
                          "text-size": ["match", ["get", "class"], "city", 16, "town", 14, 12],
@@ -241,7 +237,7 @@ def build(theme):
         "name": f"NavOS Jalan {theme}",
         "metadata": {"navos:theme": theme, "attribution": "OpenFreeMap, OpenMapTiles, OpenStreetMap contributors"},
         "glyphs": GLYPHS,
-        "sources": {"omt": {"type": "vector", "url": TILES,
+        "sources": {"openmaptiles": {"type": "vector", "url": TILES,
                             "attribution": "<a href=\"https://openfreemap.org\">OpenFreeMap</a> © OpenMapTiles © OpenStreetMap contributors"}},
         "light": {"anchor": "viewport", "intensity": 0.25},
         "layers": L,

@@ -27,8 +27,8 @@ class SignPainter(
     context: Context,
     private val night: Boolean,
 ) {
-    private val text: Typeface = ResourcesCompat.getFont(context, R.font.atkinson_hyperlegible_bold) ?: Typeface.DEFAULT_BOLD
-    private val numbers: Typeface = ResourcesCompat.getFont(context, R.font.saira_semicondensed_bold) ?: Typeface.DEFAULT_BOLD
+    private val text: Typeface = ResourcesCompat.getFont(context, R.font.overpass_extrabold) ?: Typeface.DEFAULT_BOLD
+    private val numbers: Typeface = ResourcesCompat.getFont(context, R.font.overpass_extrabold) ?: Typeface.DEFAULT_BOLD
 
     /** The R&R road-sign symbol (canopy over "R&R"), white. */
     private val rnrSymbol = ContextCompat.getDrawable(context, R.drawable.ic_rnr)?.mutate()?.apply { setTint(Color.WHITE) }

@@ -32,7 +32,7 @@
     <!-- Route preview -->
     <string name="back_to_search">Back to search</string>
     <string name="add_stop">Add stop</string>
-    <string name="go_now">Go now</string>
+    <string name="go_now">Jalan · Go</string>
     <string name="fastest">FASTEST</string>
     <string name="no_tolls">No tolls</string>
     <string name="one_toll">1 toll</string>

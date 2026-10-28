@@ -86,6 +86,7 @@ import com.excellentmindblow.navos.routing.LaneInfo
 import com.excellentmindblow.navos.routing.RoadPoi
 import com.excellentmindblow.navos.routing.RoadPoiService
 import com.excellentmindblow.navos.navigation.RouteCorners
+import com.excellentmindblow.navos.signs.SignColour
 import com.excellentmindblow.navos.signs.SignOverlayView
 import com.excellentmindblow.navos.signs.SignPlanner
 import com.excellentmindblow.navos.traffic.TrafficPrefs
@@ -134,15 +135,10 @@ import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-// Same free, no-API-key, production-safe tile style used by the earlier
-// React Native build. https://openfreemap.org
-private const val MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
-
-// OpenFreeMap's own dark basemap - one of their six default styles
-// (Positron/Bright/Liberty/Dark/Fiord/3D), same free no-API-key CDN as the
-// light style above, no new provider or dependency. "Fiord" is the one the
-// user picked (confirmed against openfreemap.org's own style list).
-private const val MAP_STYLE_URL_DARK = "https://tiles.openfreemap.org/styles/fiord"
+// NavOS "Jalan" map styles (tools/mapstyle/build_style.py): Malaysian roads at
+// their real width with lane paint, on OpenFreeMap's free, no-API-key tiles.
+internal const val MAP_STYLE_URL = "asset://mapstyle/jalan-day.json"
+internal const val MAP_STYLE_URL_DARK = "asset://mapstyle/jalan-night.json"
 
 private const val PASSED_TAIL_POINTS = 150 // how much of the driven route stays visible (faded) behind the arrow
 private const val ROUTE_INDEX_PROPERTY = "routeIndex"
@@ -261,6 +257,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var routePreviewCard: View
     private lateinit var routePreviewHint: TextView
     private lateinit var topNavBar: View
+    private var turnSignBg = R.drawable.bg_sig_turn
     private lateinit var bottomNavBar: View
     private lateinit var arrivalCard: View
     private var arrivalCardShowing = false
@@ -3067,6 +3064,7 @@ class MainActivity : AppCompatActivity() {
         if (::routeArrows.isInitialized) routeArrows.refreshColor()
         loadedMap.setStyle(Style.Builder().fromUri(styleUrl)) { style ->
             MapLabels.apply(style)
+            MapIcons.addRoadShield(this, style)
             val sources = MapLayers(this).install(style)
             altRouteSource = sources.altRoute
             routeSource = sources.route
@@ -5090,6 +5088,12 @@ class MainActivity : AppCompatActivity() {
         val ref = if (state.offRoute) null else state.roadRef
         turnRefTag.text = ref.orEmpty()
         turnRefTag.visibility = if (ref == null) View.GONE else View.VISIBLE
+        // Like the real gantry: green on the E (expressway) roads, JKR blue everywhere else.
+        val signBg = if (SignColour.isExpressway(ref)) R.drawable.bg_sig_turn else R.drawable.bg_sign_blue
+        if (signBg != turnSignBg) {
+            turnSignBg = signBg
+            topNavBar.setBackgroundResource(signBg)
+        }
 
         if (nextTurnsSheet.visibility == View.VISIBLE) {
             if (state.currentStepIndex != nextTurnsRenderedIndex) {

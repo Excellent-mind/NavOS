@@ -39,8 +39,8 @@ import org.maplibre.geojson.Point
  */
 class CarMapRenderer(private val carContext: CarContext) : SurfaceCallback {
     private companion object {
-        const val STYLE_LIGHT = "https://tiles.openfreemap.org/styles/liberty"
-        const val STYLE_DARK = "https://tiles.openfreemap.org/styles/fiord"
+        const val STYLE_LIGHT = com.excellentmindblow.navos.MAP_STYLE_URL
+        const val STYLE_DARK = com.excellentmindblow.navos.MAP_STYLE_URL_DARK
         const val ROUTE_SRC = "car-route-src"
         const val ROUTE_LAYER = "car-route-layer"
         const val PIN_SRC = "car-pin-src"
@@ -186,6 +186,7 @@ class CarMapRenderer(private val carContext: CarContext) : SurfaceCallback {
         val url = if (carContext.isDarkMode) STYLE_DARK else STYLE_LIGHT
         m.setStyle(Style.Builder().fromUri(url)) { st ->
             com.excellentmindblow.navos.MapLabels.apply(st)
+            com.excellentmindblow.navos.MapIcons.addRoadShield(carContext, st)
             style = st
             ContextCompat.getDrawable(carContext, R.drawable.ic_destination_pin)
                 ?.toBitmap()

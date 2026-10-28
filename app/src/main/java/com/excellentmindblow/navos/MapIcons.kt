@@ -14,6 +14,38 @@ import com.excellentmindblow.navos.traffic.RoadReports
 
 /** Bitmaps drawn in code: the route chevron, numbered stop pins and petrol brand pins / badges. */
 object MapIcons {
+    /** Image id the Jalan map style uses for route numbers (E1, FT2) - see tools/mapstyle. */
+    const val ROAD_SHIELD_ID = "shield-yellow"
+
+    /**
+     * Adds the chrome-yellow JKR route shield the map style puts behind road
+     * numbers. It stretches around the text (icon-text-fit), so one small
+     * image serves "2" and "E33" alike.
+     */
+    fun addRoadShield(
+        context: Context,
+        style: org.maplibre.android.maps.Style,
+    ) {
+        val d = context.resources.displayMetrics.density
+        val w = (24 * d).toInt()
+        val h = (20 * d).toInt()
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        bmp.density = context.resources.displayMetrics.densityDpi
+        val c = Canvas(bmp)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        p.color = ContextCompat.getColor(context, R.color.jkr_shield_ink)
+        c.drawRoundRect(0f, 0f, w.toFloat(), h.toFloat(), 4 * d, 4 * d, p)
+        p.color = ContextCompat.getColor(context, R.color.jkr_shield)
+        c.drawRoundRect(1.5f * d, 1.5f * d, w - 1.5f * d, h - 1.5f * d, 3 * d, 3 * d, p)
+        style.addImage(
+            ROAD_SHIELD_ID,
+            bmp,
+            listOf(org.maplibre.android.maps.ImageStretches(6 * d, 18 * d)),
+            listOf(org.maplibre.android.maps.ImageStretches(6 * d, 14 * d)),
+            org.maplibre.android.maps.ImageContent(5 * d, 4 * d, 19 * d, 16 * d),
+        )
+    }
+
     /** A bold chevron pointing RIGHT (east) in [ink] - the opposite of the
      * route colour (white on the black day route, black on the white night
      * route). On a line-placed symbol the icon's "right" is the direction

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="navos_navy">#14284B</color>
+    <color name="navos_navy">#15181C</color>
     <color name="navos_blue">#1CB0F6</color>
     <color name="white">#FFFFFF</color>
 
@@ -27,40 +27,50 @@
 
     <!-- Signal design language (black and white from the app icon). Screens
          move onto these one at a time; night values in values-night. -->
-    <color name="sig_ink">#0A0A0A</color>
+    <color name="sig_ink">#15181C</color>
     <color name="sig_on_ink">#FFFFFF</color>
-    <color name="sig_on_ink_quiet">#BDBDBD</color>
-    <color name="sig_text">#0A0A0A</color>
-    <color name="sig_text_quiet">#5C5C5C</color>
-    <color name="sig_sheet">#FFFFFF</color>
-    <color name="sig_field">#F2F2F2</color>
-    <color name="sig_outline">#E0E0E0</color>
-    <color name="sig_handle">#CFCFCF</color>
+    <color name="sig_on_ink_quiet">#B9BDC2</color>
+    <color name="sig_text">#15181C</color>
+    <color name="sig_text_quiet">#5A5F66</color>
+    <color name="sig_sheet">#F6F5F1</color>
+    <color name="sig_field">#ECEAE4</color>
+    <color name="sig_outline">#E1DED6</color>
+    <color name="sig_handle">#C9C6BD</color>
     <color name="sig_caution">#F2A900</color>
-    <color name="sig_limit">#D7263D</color>
-    <color name="sig_success">#1F7A45</color>
+    <color name="sig_limit">#D2152A</color>
+    <color name="sig_success">#00693D</color>
     <color name="sig_petrol">#C25E00</color>
     <color name="sig_ev">#1F8A4C</color>
-    <color name="sig_divider">#EDEDED</color>
-    <color name="sig_dash">#BDBDBD</color>
-    <color name="sig_clear_fill">#E6E6E6</color>
+    <color name="sig_divider">#E7E4DD</color>
+    <color name="sig_dash">#C2BFB7</color>
+    <color name="sig_clear_fill">#E3E1DA</color>
 
     <!-- Signal driving screen -->
-    <color name="sig_route">#111111</color>
+    <color name="sig_route">#2F7BFF</color>
     <color name="sig_route_casing">#FFFFFF</color>
-    <color name="sig_route_alt">#A3A3A3</color>
-    <color name="sig_route_passed">#8C8C8C</color>
-    <color name="sig_turn_fill">#0A0A0A</color>
+    <color name="sig_route_alt">#9AA6B8</color>
+    <color name="sig_route_passed">#A9ADB3</color>
+    <color name="sig_turn_fill">#00693D</color>
     <color name="sig_turn_stroke">#FFFFFF</color>
-    <color name="sig_lane_fill">#1E1E1E</color>
+    <color name="sig_lane_fill">#0C0F12</color>
     <color name="sig_float">#FFFFFF</color>
     <color name="sig_float_stroke">#00000000</color>
-    <color name="sig_end_fill">#FCE8EB</color>
+    <color name="sig_end_fill">#FBE7EA</color>
     <color name="sig_end_ink">#B3122B</color>
     <color name="sig_caution_fill">#FFF4D6</color>
     <color name="sig_caution_ink">#6B4700</color>
     <color name="sig_caution_sub">#7A6A3A</color>
-    <color name="sig_success_fill">#E6F4EC</color>
+    <color name="sig_success_fill">#E1F0E7</color>
     <!-- Flood reports (the one blue: water). -->
     <color name="sig_flood">#2457A6</color>
+
+    <!-- Jalan: colours taken from Malaysian road furniture (JKR signs and markers). -->
+    <color name="jkr_green">#00693D</color>
+    <color name="jkr_blue">#0D4C9F</color>
+    <color name="jkr_shield">#F6C400</color>
+    <color name="jkr_shield_ink">#111111</color>
+    <color name="jkr_limit_ring">#D2152A</color>
+    <color name="road_asphalt">#4C5057</color>
+    <color name="road_paint">#F7F7F2</color>
+    <color name="map_building_3d">#D4CFC4</color>
 </resources>

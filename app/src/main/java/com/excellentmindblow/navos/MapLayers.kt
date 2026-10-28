@@ -112,7 +112,7 @@ class MapLayers(
             }
         }
 
-        // 3D buildings - the liberty style's vector tiles already carry
+        // 3D buildings - the OpenFreeMap vector tiles already carry
         // building height data (OpenMapTiles schema: source-layer
         // "building", render_height/render_min_height in metres), the
         // style just never had a layer drawing them as extrusions. Only
@@ -127,7 +127,7 @@ class MapLayers(
                 FillExtrusionLayer("navos-3d-buildings", "openmaptiles")
                     .withSourceLayer("building")
                     .withProperties(
-                        PropertyFactory.fillExtrusionColor("#D6D9E0"),
+                        PropertyFactory.fillExtrusionColor(color(R.color.map_building_3d)),
                         PropertyFactory.fillExtrusionOpacity(0.85f),
                         PropertyFactory.fillExtrusionHeight(Expression.get("render_height")),
                         PropertyFactory.fillExtrusionBase(
@@ -176,7 +176,7 @@ class MapLayers(
             LineLayer(ROUTE_PASSED_LAYER_ID, ROUTE_PASSED_SOURCE_ID).withProperties(
                 PropertyFactory.lineColor(color(R.color.sig_route_passed)),
                 PropertyFactory.lineOpacity(0.55f),
-                PropertyFactory.lineWidth(routeWidthByZoom(6f, 11f, 19f, 29f)),
+                PropertyFactory.lineWidth(routeWidthByZoom(6f, 11f, 19f, 46f)),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
@@ -185,7 +185,7 @@ class MapLayers(
         val routeCasingLayer =
             LineLayer(ROUTE_CASING_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
                 PropertyFactory.lineColor(color(R.color.sig_route_casing)),
-                PropertyFactory.lineWidth(routeWidthByZoom(9f, 15f, 26f, 38f)),
+                PropertyFactory.lineWidth(routeWidthByZoom(9f, 15f, 26f, 56f)),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
@@ -194,7 +194,7 @@ class MapLayers(
         val layer =
             LineLayer(ROUTE_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
                 PropertyFactory.lineColor(color(R.color.sig_route)),
-                PropertyFactory.lineWidth(routeWidthByZoom(6f, 11f, 19f, 29f)),
+                PropertyFactory.lineWidth(routeWidthByZoom(6f, 11f, 19f, 46f)),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
@@ -214,7 +214,7 @@ class MapLayers(
                         Expression.stop("jam", Expression.color(color(R.color.sig_limit))),
                     ),
                 ),
-                PropertyFactory.lineWidth(routeWidthByZoom(6f, 11f, 19f, 29f)),
+                PropertyFactory.lineWidth(routeWidthByZoom(6f, 11f, 19f, 46f)),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             ),

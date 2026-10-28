@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Road number tag on the turn sign (E33, FT2): caution amber, like Malaysian expressway signs. -->
+<!-- Route number (E33, FT2) on a chrome-yellow JKR route shield. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/sig_caution" />
-    <corners android:radius="6dp" />
+    <solid android:color="@color/jkr_shield" />
+    <stroke android:width="1.5dp" android:color="@color/jkr_shield_ink" />
+    <corners android:radius="5dp" />
 </shape>
