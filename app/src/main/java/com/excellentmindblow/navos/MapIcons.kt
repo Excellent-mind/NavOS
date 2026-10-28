@@ -152,6 +152,7 @@ object MapIcons {
             RoadReports.Kind.POLICE -> 0xFF0A0A0A.toInt() to Color.WHITE
             RoadReports.Kind.FLOOD -> 0xFF2457A6.toInt() to Color.WHITE
             RoadReports.Kind.HAZARD -> 0xFFF2A900.toInt() to 0xFF0A0A0A.toInt()
+            RoadReports.Kind.SMART_LANE -> 0xFF00693D.toInt() to Color.WHITE
         }
 
     fun reportIcon(kind: RoadReports.Kind): Int =
@@ -160,6 +161,7 @@ object MapIcons {
             RoadReports.Kind.POLICE -> R.drawable.ic_report_police
             RoadReports.Kind.FLOOD -> R.drawable.ic_report_flood
             RoadReports.Kind.HAZARD -> R.drawable.ic_report_hazard
+            RoadReports.Kind.SMART_LANE -> R.drawable.ic_report_smart_lane
         }
 
     /** A road report on the map / strip: a round badge with a white rim, [sizeDp] across. */

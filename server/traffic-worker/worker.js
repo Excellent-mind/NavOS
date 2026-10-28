@@ -10,7 +10,7 @@
 //   -> {"t": {"<bucket>": {"<seg>": [kmh, samples]}}} the usual speed of each
 //   piece at that time of the week, learned from past probes. A bucket is
 //   weekend*24 + hour, Malaysia time (hour 0-23; weekend = Sat/Sun).
-// POST /v1/report {"k": "accident|police|flood|hazard", "lat": .., "lon": .., "h": heading}
+// POST /v1/report {"k": "accident|police|flood|hazard|smartlane", "lat": .., "lon": .., "h": heading}
 //   -> {"id": n} a road report from a driver; the same kind reported again
 //   within REPORT_MERGE_M by someone else confirms the first one instead.
 // POST /v1/reports {"box": [south, west, north, east]}
@@ -44,7 +44,8 @@ const MAX_BUCKETS = 4;
 const TYPICAL_MIN_SAMPLES = 3;
 const TYPICAL_MAX_WEIGHT = 100; // older weeks fade as new ones come in
 // Road reports: how long each kind lives without a "still there".
-const REPORT_TTL = { accident: 5400, police: 3600, flood: 21600, hazard: 7200 };
+// smartlane: a driver saw the PLUS Smart Lane (emergency lane) open.
+const REPORT_TTL = { accident: 5400, police: 3600, flood: 21600, hazard: 7200, smartlane: 10800 };
 const REPORT_MERGE_M = 250;
 const MAX_REPORTS_PER_HOUR = 6;
 const MAX_VOTES_PER_HOUR = 40;

@@ -39,6 +39,8 @@ internal const val SHOW_3D_BUILDINGS = true
 internal const val TURN_SOURCE_ID = "navos-turn-source"
 internal const val TURN_ARROW_LAYER_ID = "navos-turn-arrow-layer"
 internal const val ROUTE_POI_SOURCE_ID = "navos-route-poi-source"
+internal const val SMART_LANE_SOURCE_ID = "navos-smart-lane-source"
+internal const val SMART_LANE_LAYER_ID = "navos-smart-lane-layer"
 internal const val ROUTE_POI_LAYER_ID = "navos-route-poi-layer"
 internal const val CAMERA_ZONE_SOURCE_ID = "navos-camera-zone-source"
 internal const val CAMERA_ZONE_FILL_ID = "navos-camera-zone-fill"
@@ -148,6 +150,21 @@ class MapLayers(
             // Missing source/source-layer on whatever style version is
             // live - buildings just stay flat, nothing else breaks.
         }
+
+        // An open PLUS Smart Lane: the left (emergency) lane painted green, the
+        // width of one lane, drawn under the route. Lines run the lane's way, so
+        // a negative offset is the left side.
+        style.addSource(GeoJsonSource(SMART_LANE_SOURCE_ID))
+        addBelowLabels(
+            LineLayer(SMART_LANE_LAYER_ID, SMART_LANE_SOURCE_ID).withProperties(
+                PropertyFactory.lineColor(color(R.color.jkr_green)),
+                PropertyFactory.lineOpacity(0.55f),
+                PropertyFactory.lineWidth(metres(3.0)),
+                PropertyFactory.lineOffset(metres(-5.6)),
+                PropertyFactory.lineCap(Property.LINE_CAP_BUTT),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            ),
+        )
 
         // Alternates first so the selected route's layers (added next) end
         // up drawn on top of them.
@@ -412,6 +429,20 @@ class MapLayers(
 
     /** Line width that grows with zoom (z10 / z14 / z18 / z20), so the
      * route stays thick and easy to follow when driving close-in. */
+    /** [m] metres on the ground at any zoom (Malaysia's latitude, 512 px tiles), at least 2 px far out. */
+    private fun metres(m: Double): Expression {
+        val z0 = 40075016.686 * Math.cos(Math.toRadians(3.5)) / 512
+        fun at(z: Int) = (m * Math.pow(2.0, z.toDouble()) / z0).toFloat()
+        val sign = if (m < 0) -1f else 1f
+        return Expression.interpolate(
+            Expression.exponential(2f),
+            Expression.zoom(),
+            Expression.stop(12, sign * maxOf(kotlin.math.abs(at(12)), 2f)),
+            Expression.stop(15, sign * maxOf(kotlin.math.abs(at(15)), 3f)),
+            Expression.stop(22, at(22)),
+        )
+    }
+
     private fun routeWidthByZoom(
         z10: Float,
         z14: Float,

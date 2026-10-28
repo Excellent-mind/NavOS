@@ -10,7 +10,7 @@ import java.io.IOException
 import kotlin.math.abs
 
 /**
- * Road reports from drivers (accident, police, flood, hazard), anonymous:
+ * Road reports from drivers (accident, police, flood, hazard, Smart Lane open), anonymous:
  * sent to and read from the NavOS traffic server (see
  * server/traffic-worker). The pure parts - which reports are on the route
  * ahead, the box to ask for - are unit tested; the network calls block, so
@@ -24,6 +24,9 @@ object RoadReports {
         POLICE("police"),
         FLOOD("flood"),
         HAZARD("hazard"),
+
+        /** A driver saw the PLUS Smart Lane (emergency lane) open - see SmartLanes. */
+        SMART_LANE("smartlane"),
         ;
 
         val label: String
@@ -33,6 +36,7 @@ object RoadReports {
                     POLICE -> tr("Police", "Polis")
                     FLOOD -> tr("Flood", "Banjir")
                     HAZARD -> tr("Hazard", "Bahaya")
+                    SMART_LANE -> tr("Smart lane open", "Smart lane dibuka")
                 }
 
         /** What the voice says when one is ahead. */
@@ -43,6 +47,7 @@ object RoadReports {
                     POLICE -> tr("Police reported ahead", "Ada polis di depan")
                     FLOOD -> tr("Flood reported ahead", "Ada banjir di depan")
                     HAZARD -> tr("Hazard reported ahead", "Ada bahaya di depan")
+                    SMART_LANE -> tr("Smart lane open ahead, you may use the left emergency lane", "Smart lane dibuka di depan, boleh guna lorong kecemasan kiri")
                 }
 
         companion object {

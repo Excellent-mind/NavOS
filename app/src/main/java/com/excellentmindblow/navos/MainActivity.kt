@@ -356,6 +356,15 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun redrawPins() = renderRoutePois()
+
+            override fun paintSmartLanes(lanes: List<com.excellentmindblow.navos.traffic.SmartLanes.Lane>) {
+                val src = map?.style?.getSourceAs<GeoJsonSource>(SMART_LANE_SOURCE_ID) ?: return
+                src.setGeoJson(
+                    FeatureCollection.fromFeatures(
+                        lanes.map { l -> Feature.fromGeometry(LineString.fromLngLats(l.line.map { Point.fromLngLat(it.longitude, it.latitude) })) },
+                    ),
+                )
+            }
         }
 
     /** Learns regular trips (time of day) to suggest the likely one on Home. */
@@ -768,6 +777,8 @@ class MainActivity : AppCompatActivity() {
         recentPlaces = RecentPlaces(prefs)
         tripHabits = TripHabits(prefs)
         // Toll fares for the route cards; re-render once the table is read.
+        // PLUS Smart Lanes (daily schedule + festive activations from Supabase).
+        com.excellentmindblow.navos.traffic.SmartLanes.load(this)
         com.excellentmindblow.navos.routing.TollFares.load(this) {
             mainHandler.post { if (navMode == NavMode.PREVIEW) updateRoutePreviewSummary() }
         }

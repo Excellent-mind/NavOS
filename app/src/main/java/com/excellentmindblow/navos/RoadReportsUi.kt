@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 import com.excellentmindblow.navos.navigation.RouteTrack
 import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.traffic.RoadReports
+import com.excellentmindblow.navos.traffic.SmartLanes
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.util.concurrent.Executors
 
@@ -45,7 +46,16 @@ class RoadReportsUi(
 
         /** The report pins changed. */
         fun redrawPins()
+
+        /** The Smart Lanes open on the route now (painted green on the map). */
+        fun paintSmartLanes(lanes: List<SmartLanes.Lane>)
     }
+
+    /** Smart Lanes the route drives along. */
+    private var smartOnRoute: List<SmartLanes.OnRoute> = emptyList()
+    private var smartTrack: RouteTrack? = null
+    private var smartPainted: List<String> = emptyList()
+    private val smartAlerted = HashSet<String>()
 
     /** Reports on the route being driven, sorted along it. */
     var onRoute: List<RoadReports.OnRoute> = emptyList()
@@ -96,6 +106,13 @@ class RoadReportsUi(
         main.removeCallbacks(poll)
         all = emptyList()
         onRoute = emptyList()
+        smartOnRoute = emptyList()
+        smartTrack = null
+        smartAlerted.clear()
+        if (smartPainted.isNotEmpty()) {
+            smartPainted = emptyList()
+            host.paintSmartLanes(emptyList())
+        }
         current = null
         votingUntil = 0
         hide()
@@ -142,6 +159,11 @@ class RoadReportsUi(
             current = next
             return
         }
+        val smart = smartLaneAhead(progress, now)
+        if (smart != null) {
+            showSmartLane(smart, progress, now)
+            return
+        }
         val passed = current
         if (passed != null) {
             val behind = progress - passed.atM
@@ -172,6 +194,64 @@ class RoadReportsUi(
         distance.visibility = View.VISIBLE
         Motion.reveal(banner, pivotFraction = 0f)
         if (alerted.add(report.id) && report.id !in mine) host.announce("report-${report.id}", report.kind.spoken)
+    }
+
+    /**
+     * The Smart Lane on the route from [SMART_ALERT_M] before it to its end,
+     * when it is open now: by its schedule, a dated activation, or a driver's
+     * "Smart lane open" report along it. Also repaints the open lanes.
+     */
+    private fun smartLaneAhead(
+        progress: Double,
+        now: Long,
+    ): SmartLanes.OnRoute? {
+        val track = host.track() ?: return null
+        if (smartTrack !== track) {
+            smartTrack = track
+            smartOnRoute = SmartLanes.onRoute(track, SmartLanes.lanes)
+        }
+        val open =
+            smartOnRoute.filter { s ->
+                SmartLanes.isOpen(s.lane, now) ||
+                    onRoute.any { it.report.kind == RoadReports.Kind.SMART_LANE && it.atM in (s.startM - 300.0)..s.endM }
+            }
+        val ids = open.map { it.lane.id }
+        if (ids != smartPainted) {
+            smartPainted = ids
+            host.paintSmartLanes(open.map { it.lane })
+        }
+        return open.firstOrNull { progress in (it.startM - SMART_ALERT_M)..it.endM }
+    }
+
+    private fun showSmartLane(
+        s: SmartLanes.OnRoute,
+        progress: Double,
+        now: Long,
+    ) {
+        val lane = s.lane
+        voteRow.visibility = View.GONE
+        icon.setImageBitmap(MapIcons.reportBadge(activity, RoadReports.Kind.SMART_LANE, 40))
+        val on = progress >= s.startM
+        title.text = if (on) tr("On the Smart lane", "Atas Smart lane") else RoadReports.Kind.SMART_LANE.label
+        val until = SmartLanes.openUntil(lane, now)?.let { m -> String.format(java.util.Locale.US, "%d:%02d", ((m / 60) % 12).let { h -> if (h == 0) 12 else h }, m % 60) }
+        sub.text =
+            listOfNotNull(
+                tr("Left emergency lane", "Lorong kecemasan kiri"),
+                tr("max ${lane.speedKmh} km/h", "had ${lane.speedKmh} km/j"),
+                until?.let { tr("until $it", "sampai $it") } ?: tr("reported by drivers", "dilapor pemandu"),
+            ).joinToString(" · ")
+        distance.text = Units.short(((if (on) s.endM else s.startM) - progress).coerceAtLeast(10.0))
+        distance.visibility = View.VISIBLE
+        Motion.reveal(banner, pivotFraction = 0f)
+        if (smartAlerted.add(lane.id)) {
+            host.announce(
+                "smartlane-${lane.id}",
+                tr(
+                    "Smart lane open ahead. You may use the left emergency lane, up to ${lane.speedKmh}.",
+                    "Smart lane dibuka di depan. Boleh guna lorong kecemasan kiri, had ${lane.speedKmh}.",
+                ),
+            )
+        }
     }
 
     private fun askStillThere(report: RoadReports.Report) {
@@ -212,7 +292,7 @@ class RoadReportsUi(
         Motion.dismiss(banner)
     }
 
-    /** The Report button: four big tiles, one tap sends it at where you are. */
+    /** The Report button: five big tiles, one tap sends it at where you are. */
     fun showPicker() {
         val density = activity.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
@@ -248,11 +328,13 @@ class RoadReportsUi(
                         send(kind)
                     }
                 }
+            // Smart lane is the fifth tile: it takes the whole last row.
+            val wide = kind == RoadReports.Kind.SMART_LANE
             grid.addView(
                 tile,
-                GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED, 1f), GridLayout.spec(GridLayout.UNDEFINED, 1f)).apply {
+                GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED, 1f), GridLayout.spec(GridLayout.UNDEFINED, if (wide) 2 else 1, 1f)).apply {
                     width = 0
-                    height = dp(124)
+                    height = dp(if (wide) 104 else 124)
                     setMargins(dp(6), dp(6), dp(6), dp(6))
                 },
             )
@@ -294,6 +376,9 @@ class RoadReportsUi(
     }
 
     companion object {
+        /** A Smart Lane is announced this far before it starts. */
+        private const val SMART_ALERT_M = 2_000.0
+
         private const val LOG = "NavOSReports"
         private const val POLL_MS = 120_000L
         const val ALERT_M = 800.0
