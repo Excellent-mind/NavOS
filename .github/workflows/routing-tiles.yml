@@ -1,0 +1,45 @@
+name: Routing tiles (Valhalla, Malaysia)
+
+# Run manually: Actions tab -> "Routing tiles (Valhalla, Malaysia)" -> Run
+# workflow. Builds Valhalla routing tiles for Malaysia from the latest
+# OpenStreetMap data (tools/routing-tiles/build.sh, ~10 min) and uploads the
+# static files as the "routing-tiles" artifact. Publishing them to a web host
+# for the app comes later; this job only builds.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build tiles
+        run: tools/routing-tiles/build.sh "$RUNNER_TEMP/routing"
+
+      - name: Sizes
+        run: |
+          python3 - "$RUNNER_TEMP/routing/public/index.json" >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          import json, sys, collections
+          tiles = json.load(open(sys.argv[1]))["tiles"]
+          by = collections.defaultdict(lambda: [0, 0])
+          for t in tiles:
+              by[t["level"]][0] += 1; by[t["level"]][1] += t["bytes"]
+          print("| Level | Tiles | Gzipped |\n|---|---|---|")
+          for level, (n, b) in sorted(by.items()):
+              print(f"| {level} | {n} | {b / 1e6:.1f} MB |")
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: routing-tiles
+          path: ${{ runner.temp }}/routing/public
+          retention-days: 14
