@@ -1,0 +1,76 @@
+Logos and road-sign symbols (res/drawable-nodpi), from Wikimedia Commons.
+Converted to PNG; changes noted. Brand logos are trademarks of their owners and are
+shown only to identify stations and toll payment lanes.
+
+logo_petronas.png
+  Source: https://commons.wikimedia.org/wiki/File%3APETRONAS-logo.svg
+  Licence: Public domain
+  Author: Petronas
+  Change: cropped to the symbol
+
+logo_caltex.png
+  Source: https://commons.wikimedia.org/wiki/File%3ACaltex_brand_logo.svg
+  Licence: Public domain
+  Author: Original: Caltex Vector: Beao
+  Change: cropped to the star
+
+logo_shell.png
+  Source: https://commons.wikimedia.org/wiki/File%3AShell_wordmark_2019.svg
+  Licence: Public domain
+  Author: Royal Dutch Shell
+
+logo_tng.png
+  Source: https://commons.wikimedia.org/wiki/File%3ATouch_%27n_Go_logo.svg
+  Licence: Public domain
+  Author: Touch 'n Go
+
+logo_tng_rfid.png
+  Source: https://commons.wikimedia.org/wiki/File%3ATouch_%27n_Go_eWallet_logo.svg
+  Licence: Public domain
+  Author: Touch 'n Go eWallet
+  Change: used for RFID lanes
+
+logo_smarttag.png
+  Source: https://commons.wikimedia.org/wiki/File%3ASmartTAG.png
+  Licence: CC BY-SA 4.0
+  Author: FS88
+
+sign_rnr_green.png
+  Source: https://commons.wikimedia.org/wiki/File%3AMalaysia_Symbols-R%26R_Green.svg
+  Licence: CC BY-SA 4.0
+  Author: มองโกเลีย๔๔
+
+sign_rnr_blue.png
+  Source: https://commons.wikimedia.org/wiki/File%3AMalaysia_Symbols-R%26R_Blue.svg
+  Licence: CC BY-SA 4.0
+  Author: มองโกเลีย๔๔
+
+sym_petrol.png
+  Source: https://commons.wikimedia.org/wiki/File%3AMalaysia_Symbols-Petrol_station.svg
+  Licence: CC BY-SA 4.0
+  Author: มองโกเลีย๔๔
+
+sym_toilet.png
+  Source: https://commons.wikimedia.org/wiki/File%3AMalaysia_Symbols-Toilet.svg
+  Licence: Public domain
+  Author: Fiq Shafiq (user page does not exist anymore) derivative work: Master Uegly
+
+sym_surau.png
+  Source: https://commons.wikimedia.org/wiki/File%3AMalaysia_Symbols-Surau.svg
+  Licence: CC BY-SA 4.0
+  Author: มองโกเลีย๔๔
+
+sym_oku.png
+  Source: https://commons.wikimedia.org/wiki/File%3AMalaysia_Symbols-OKU.svg
+  Licence: CC BY-SA 4.0
+  Author: มองโกเลีย๔๔
+
+sym_atm.png
+  Source: https://commons.wikimedia.org/wiki/File%3AMalaysia_Symbols-ATM.svg
+  Licence: CC BY-SA 4.0
+  Author: มองโกเลีย๔๔
+
+sym_repair.png
+  Source: https://commons.wikimedia.org/wiki/File%3AMalaysia_Symbols-Repair.svg
+  Licence: CC BY-SA 4.0
+  Author: มองโกเลีย๔๔

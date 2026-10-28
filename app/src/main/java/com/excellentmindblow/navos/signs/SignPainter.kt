@@ -33,6 +33,19 @@ class SignPainter(
     /** The R&R road-sign symbol (canopy over "R&R"), white. */
     private val rnrSymbol = ContextCompat.getDrawable(context, R.drawable.ic_rnr)?.mutate()?.apply { setTint(Color.WHITE) }
 
+    /** Real artwork (Wikimedia Commons, see assets/licenses/logos.txt): the JKR R&R sign and
+     * service symbols, and the toll payment lanes' logos. */
+    private val res = context.resources
+
+    private fun art(id: Int): Bitmap? = android.graphics.BitmapFactory.decodeResource(res, id)
+
+    private val rnrSign by lazy { art(R.drawable.sign_rnr_blue) }
+    private val serviceArt by lazy {
+        mapOf("fuel" to art(R.drawable.sym_petrol), "WC" to art(R.drawable.sym_toilet), "surau" to art(R.drawable.sym_surau))
+    }
+    private val tollLanes by lazy { listOfNotNull(art(R.drawable.logo_tng), art(R.drawable.logo_smarttag), art(R.drawable.logo_tng_rfid)) }
+    private val artPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+
     // JKR sign colours (the same as the app's jkr_green / jkr_blue), a shade darker at night.
     private val green = if (night) 0x005A34 else 0x00693D
     private val blue = if (night) 0x0B3F85 else 0x0D4C9F
@@ -543,8 +556,17 @@ class SignPainter(
             type.typeface = text
             type.textSize = 15f
             if (name.isNotBlank()) cv.drawText(ellipsize(name, w - 24f), 12f, 50f, type)
+            // The payment lanes, with their own logos as on the plaza signs: Touch 'n Go, SmartTAG, RFID.
             var x = 12f
-            for (chip in listOf("Touch 'n Go", "RFID")) x += drawChip(cv, chip, x, h - 30f, green) + 8f
+            val lh = 24f
+            for (logo in tollLanes) {
+                val lw = lh * logo.width / logo.height
+                fill.color = Color.WHITE
+                cv.drawRoundRect(RectF(x - 2f, h - 32f, x + lw + 2f, h - 32f + lh + 4f), 4f, 4f, fill)
+                cv.drawBitmap(logo, null, RectF(x, h - 30f, x + lw, h - 30f + lh), artPaint)
+                x += lw + 10f
+            }
+            if (tollLanes.isEmpty()) for (chip in listOf("Touch 'n Go", "RFID")) x += drawChip(cv, chip, x, h - 30f, green) + 8f
         }
     }
 
@@ -563,8 +585,12 @@ class SignPainter(
             type.typeface = numbers
             type.textSize = 20f
             type.color = Color.WHITE
+            val sign = rnrSign
             val symbol = rnrSymbol
-            if (c.services && symbol != null) {
+            if (c.services && sign != null) {
+                // The real JKR R&R symbol.
+                cv.drawBitmap(sign, null, RectF(10f, 5f, 42f, 37f), artPaint)
+            } else if (c.services && symbol != null) {
                 // The R&R symbol in a white-edged box, as on the road signs.
                 stroke.color = Color.WHITE
                 stroke.strokeWidth = 2f
@@ -596,6 +622,10 @@ class SignPainter(
         top: Float,
     ) {
         val r = RectF(x, top, x + 24f, top + 24f)
+        serviceArt[icon]?.let {
+            cv.drawBitmap(it, null, r, artPaint)
+            return
+        }
         fill.color = Color.WHITE
         cv.drawRoundRect(r, 4f, 4f, fill)
         val c = withAlpha(blue, 255)

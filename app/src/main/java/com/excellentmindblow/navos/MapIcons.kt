@@ -119,7 +119,7 @@ object MapIcons {
                 close()
             }
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        paint.color = brand.fill
+        paint.color = brand.badgeFill
         canvas.drawPath(path, paint)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 1.2f * unit
@@ -138,9 +138,16 @@ object MapIcons {
         val size = (sizeDp * context.resources.displayMetrics.density).toInt()
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = brand.fill }
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = brand.badgeFill }
         val r = size / 2f
         canvas.drawCircle(r, r, r, paint)
+        if (brand.logo != 0) {
+            // A thin ring so a white logo badge still reads on a white card.
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = size * 0.04f
+            paint.color = 0x22000000
+            canvas.drawCircle(r, r, r - paint.strokeWidth / 2, paint)
+        }
         drawMark(context, canvas, brand, r, r, size * 0.62f)
         return bitmap
     }
@@ -189,7 +196,9 @@ object MapIcons {
         return bitmap
     }
 
-    /** The brand's mark centred on ([cx], [cy]), fitted into [maxWidth]. */
+    private val logoCache = HashMap<Int, Bitmap?>()
+
+    /** The brand's logo (or mark) centred on ([cx], [cy]), fitted into [maxWidth]. */
     private fun drawMark(
         context: Context,
         canvas: Canvas,
@@ -198,6 +207,16 @@ object MapIcons {
         cy: Float,
         maxWidth: Float,
     ) {
+        if (brand.logo != 0) {
+            val bmp = logoCache.getOrPut(brand.logo) { android.graphics.BitmapFactory.decodeResource(context.resources, brand.logo) }
+            if (bmp != null) {
+                val scale = minOf(maxWidth / bmp.width, maxWidth / bmp.height)
+                val w = bmp.width * scale
+                val h = bmp.height * scale
+                canvas.drawBitmap(bmp, null, android.graphics.RectF(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
+                return
+            }
+        }
         val paint =
             Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = brand.ink

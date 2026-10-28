@@ -58,6 +58,7 @@ class TripStripView
         private val icons = HashMap<Int, Drawable?>()
         private val badges = HashMap<FuelBrand, Bitmap>()
         private val reportBadges = HashMap<RoadReports.Kind, Bitmap>()
+        private var rnrSign: Bitmap? = null
 
         override fun onMeasure(
             widthMeasureSpec: Int,
@@ -162,6 +163,14 @@ class TripStripView
                 return
             }
             if (m.kind == TripStrip.Kind.RNR) {
+                // The real JKR R&R sign (green: expressway R&Rs).
+                if (rnrSign == null) rnrSign = android.graphics.BitmapFactory.decodeResource(resources, R.drawable.sign_rnr_green)
+                rnrSign?.let {
+                    paint.alpha = alpha
+                    canvas.drawBitmap(it, null, rect, paint)
+                    paint.alpha = 255
+                    return
+                }
                 icon(R.drawable.ic_rnr_badge)?.let {
                     it.setBounds(left.toInt(), top.toInt(), (left + size).toInt(), (top + size).toInt())
                     it.alpha = alpha

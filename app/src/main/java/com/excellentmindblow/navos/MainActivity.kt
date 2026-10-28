@@ -2465,7 +2465,7 @@ class MainActivity : AppCompatActivity() {
         val isFuel = poi.kind == PoiKind.FUEL
         val brand = if (isFuel) FuelBrand.of(poi.name) else null
         if (brand != null) {
-            poiLogo.backgroundTintList = ColorStateList.valueOf(brand.fill)
+            poiLogo.backgroundTintList = ColorStateList.valueOf(brand.badgeFill)
             poiLogoIcon.setImageBitmap(MapIcons.brandBadge(this, brand, 40))
             poiLogoIcon.contentDescription = brand.displayName
         } else {
@@ -2506,7 +2506,15 @@ class MainActivity : AppCompatActivity() {
                     setTextColor(ContextCompat.getColor(context, R.color.sig_text))
                     background = ContextCompat.getDrawable(context, R.drawable.bg_sig_chip)
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(14), 0, dp(14), 0)
+                    // The JKR road-sign symbol for it, as on the R&R signs.
+                    facilitySymbol(facility.label)?.let { res ->
+                        ContextCompat.getDrawable(context, res)?.let { d ->
+                            d.setBounds(0, 0, dp(22), dp(22))
+                            setCompoundDrawablesRelative(d, null, null, null)
+                            compoundDrawablePadding = dp(7)
+                        }
+                    }
+                    setPadding(if (facilitySymbol(facility.label) != null) dp(7) else dp(14), 0, dp(14), 0)
                     minHeight = dp(36)
                     layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36))
                 },
@@ -2516,6 +2524,16 @@ class MainActivity : AppCompatActivity() {
 
         Motion.reveal(poiCard, pivotFraction = 1f)
     }
+
+    /** The JKR road-sign symbol for a station facility, when there is one. */
+    private fun facilitySymbol(label: String): Int? =
+        when (label) {
+            "Toilet" -> R.drawable.sym_toilet
+            "Surau" -> R.drawable.sym_surau
+            "ATM" -> R.drawable.sym_atm
+            "Air pump", "Car wash" -> R.drawable.sym_repair
+            else -> null
+        }
 
     /** A train station near the destination: its lines (in their colours), the
      * walk, Park & Ride; "Park & ride here" (or "Drive here"). */
@@ -2600,7 +2618,15 @@ class MainActivity : AppCompatActivity() {
                     setTextColor(ContextCompat.getColor(context, R.color.sig_text))
                     background = ContextCompat.getDrawable(context, R.drawable.bg_sig_chip)
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(14), 0, dp(14), 0)
+                    // The JKR road-sign symbol for it, as on the R&R signs.
+                    facilitySymbol(facility.label)?.let { res ->
+                        ContextCompat.getDrawable(context, res)?.let { d ->
+                            d.setBounds(0, 0, dp(22), dp(22))
+                            setCompoundDrawablesRelative(d, null, null, null)
+                            compoundDrawablePadding = dp(7)
+                        }
+                    }
+                    setPadding(if (facilitySymbol(facility.label) != null) dp(7) else dp(14), 0, dp(14), 0)
                     minHeight = dp(36)
                     layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36))
                 },
