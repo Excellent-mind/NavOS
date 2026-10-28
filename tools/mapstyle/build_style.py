@@ -98,6 +98,8 @@ FONT_BOLD = ["Noto Sans Bold"]
 def tr(layer_id, f, **kw):
     out = {"id": layer_id, "type": "line", "source": "omt", "source-layer": "transportation", "filter": f}
     out.update(kw)
+    # Paint lines join round so tile and segment joins don't leave white ticks.
+    out.setdefault("layout", {"line-join": "bevel", "line-cap": "butt"})
     return out
 
 
@@ -135,12 +137,24 @@ def build(theme):
             L.append(tr(f"{prefix}{name}-kerb", ff, minzoom=max(minz, 12),
                         paint={"line-color": kerb_color, "line-opacity": op,
                                "line-width": width(m + 1.0, {k: v + 1.2 for k, v in low.items()})},
-                        layout={"line-cap": "butt", "line-join": "round"}))
+                        layout={"line-cap": "round", "line-join": "round"}))
             L.append(tr(f"{prefix}{name}", ff, minzoom=minz,
                         paint={"line-color": ["interpolate", ["linear"], ["zoom"], 13, c["asphalt_far"] if hw or name.startswith("primary") else c["asphalt_minor_far"], 16,
                                               c["asphalt_hw"] if hw else c["asphalt"]],
                                "line-opacity": op, "line-width": width(m, low)},
-                        layout={"line-cap": "round" if not hw else "butt", "line-join": "round"}))
+                        layout={"line-cap": "round", "line-join": "round"}))
+            if name.startswith(("motorway", "trunk", "primary")):
+                # Solid edge lines without line-offset (offsets spike at segment joins): a white
+                # band as wide as the lanes, then the lanes' asphalt again on top of it.
+                lanes_m = lanes * LANE
+                L.append(tr(f"{prefix}{name}-edgeband", ff, minzoom=16.5,
+                            paint={"line-color": c["marking"], "line-opacity": c["marking_op"] * op,
+                                   "line-width": metric(lanes_m + 0.2)},
+                            layout={"line-cap": "round", "line-join": "round"}))
+                L.append(tr(f"{prefix}{name}-lanes", ff, minzoom=16.5,
+                            paint={"line-color": c["asphalt_hw"] if hw else c["asphalt"], "line-opacity": op,
+                                   "line-width": metric(lanes_m - 0.2)},
+                            layout={"line-cap": "round", "line-join": "round"}))
 
     def markings(prefix, extra, op):
         for name, f, m, lanes, oneway, low, minz in order:
@@ -148,12 +162,10 @@ def build(theme):
                 continue
             ff = ["all", f, extra]
             mk = {"line-color": c["marking"], "line-opacity": c["marking_op"] * op}
-            # Solid edge lines, 0.3 m in from the asphalt edge on bigger roads.
-            if name.startswith(("motorway", "trunk", "primary", "link")):
-                half = lanes * LANE / 2
-                for side, sgn in (("l", -1), ("r", 1)):
-                    L.append(tr(f"{prefix}{name}-edge-{side}", ff, minzoom=16.5,
-                                paint=dict(mk, **{"line-width": metric(0.20), "line-offset": metric(sgn * half)})))
+            # Edge lines on bigger roads are drawn in road_stack.
+            # Ramps get no paint: at a diverge their edge lines would cut across the main carriageway.
+            if name == "link":
+                continue
             # Lane lines: dashed 3 m line / 6 m gap, 0.15 m wide.
             dash = ["literal", [20, 40]]
             if oneway:
