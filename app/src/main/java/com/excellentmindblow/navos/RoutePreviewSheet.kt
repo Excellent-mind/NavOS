@@ -15,7 +15,7 @@ import com.excellentmindblow.navos.navigation.TripStrip
  * and what Go / Add stop / Back do, stay with [MainActivity].
  */
 class RoutePreviewSheet(
-    root: View,
+    private val root: View,
     private val onSelect: (index: Int) -> Unit,
     private val onShowAll: () -> Unit,
 ) {
@@ -38,10 +38,17 @@ class RoutePreviewSheet(
         destinationAddress: String?,
         hintText: String,
     ) {
+        // Where to is named in the From / To card at the top; the sheet is just the routes.
         destination.text = destinationName.orEmpty()
-        destination.visibility = if (destinationName.isNullOrBlank()) View.GONE else View.VISIBLE
+        destination.visibility = View.GONE
         address.text = destinationAddress.orEmpty().trim()
-        address.visibility = if (destinationAddress.isNullOrBlank()) View.GONE else View.VISIBLE
+        address.visibility = View.GONE
+        (root.rootView.findViewById<TextView>(R.id.routeFromToDest))?.text = destinationName.orEmpty()
+        // "Jalan • 24 min" on the go button, for the chosen route.
+        shown.firstOrNull { it.selected }?.let { sel ->
+            root.rootView.findViewById<TextView>(R.id.startNavigationButton)?.text =
+                "Jalan • " + NavFormat.formatRouteMinutes(sel.durationSeconds)
+        }
 
         cards.removeAllViews()
         shown.forEach { cards.addView(card(cards, it)) }
@@ -105,7 +112,14 @@ class RoutePreviewSheet(
             text = duration
             textSize = if (choice.selected) 30f else 26f
         }
-        row.findViewById<TextView>(R.id.choiceDistance).text = distance
+        // The chosen route says when you arrive, like the drive bar.
+        row.findViewById<TextView>(R.id.choiceDistance).text =
+            if (choice.selected) {
+                val at = java.text.SimpleDateFormat("h:mm a", java.util.Locale.US).format(java.util.Date(System.currentTimeMillis() + (choice.durationSeconds * 1000).toLong()))
+                tr("Arrive $at", "Sampai $at") + " · " + distance
+            } else {
+                distance
+            }
         val via = row.findViewById<TextView>(R.id.choiceVia)
         via.text = RoadShields.decorate(context, choice.via?.let { tr("via $it", "ikut $it") }.orEmpty())
         via.visibility = if (choice.via == null) View.GONE else View.VISIBLE

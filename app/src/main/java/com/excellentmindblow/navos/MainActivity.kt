@@ -281,6 +281,7 @@ class MainActivity : AppCompatActivity() {
     private var driveStartedAtMs = 0L
     private lateinit var routePreviewDestination: TextView
     private lateinit var routePreviewAddress: TextView
+    private val routeFromTo: View by lazy { findViewById(R.id.routeFromTo) }
     private var navSheetExpanded = false
     private lateinit var navBarRow: View
     private var destinationName: String? = null
@@ -1603,6 +1604,9 @@ class MainActivity : AppCompatActivity() {
         homeSheetDragHandle = findViewById(R.id.homeSheetDragHandle)
 
         homeSearchPill.setOnClickListener { openHomeSheetAnimated() }
+        // The floating search bar shows with the Home sheet when it is down; the
+        // compass and alerts stay clear of whatever card is at the top.
+        findViewById<View>(android.R.id.content).viewTreeObserver.addOnGlobalLayoutListener { syncTopStack() }
         homeSettingsButton.setOnClickListener { setHomeSheetState(HomeSheetState.SETTINGS) }
         homeSheetBackButton.setOnClickListener {
             if (searchOpenedFromNav) exitSearchFromNav() else closeHomeSheetAnimated()
@@ -2008,6 +2012,7 @@ class MainActivity : AppCompatActivity() {
             // Backing out of tr("Add stop", "Tambah hentian") from the route preview.
             routePreviewCard.visibility = View.VISIBLE
             routeBackButton.visibility = View.VISIBLE
+            routeFromTo.visibility = routeBackButton.visibility
         }
     }
 
@@ -3724,6 +3729,7 @@ class MainActivity : AppCompatActivity() {
         routeListShowing = false
         routeListOverlay.visibility = View.GONE
         routeBackButton.visibility = View.GONE
+        routeFromTo.visibility = routeBackButton.visibility
     }
 
     /** Keeps hunting for more route choices after the first ones are shown. */
@@ -4162,6 +4168,7 @@ class MainActivity : AppCompatActivity() {
                 searchOpenedFromNav = true // same back / drag-down handling as a mid-drive search
                 routePreviewCard.visibility = View.GONE
                 routeBackButton.visibility = View.GONE
+                routeFromTo.visibility = routeBackButton.visibility
                 topBar.visibility = View.GONE
                 homeSheet.visibility = View.VISIBLE
                 setHomeSheetState(HomeSheetState.SEARCH)
@@ -4296,10 +4303,21 @@ class MainActivity : AppCompatActivity() {
     /** Lifts every floating drive control by however far the drive bar has
      * grown past its collapsed height, so they stay just above the card
      * instead of being covered when the Stop pill is revealed. */
-    /** Compass and the top alerts sit just under the gantry sign while it shows (it grows with lanes / "Then"). */
+    private val homeTopSearch: View by lazy { findViewById(R.id.homeTopSearch) }
+
+    private fun syncTopStack() {
+        val wantSearch = homeSheet.visibility == View.VISIBLE && homeSheetCollapsedRow.visibility == View.VISIBLE
+        val v = if (wantSearch) View.VISIBLE else View.GONE
+        if (homeTopSearch.visibility != v) homeTopSearch.visibility = v
+        placeBelowGantry()
+    }
+
+    /** Compass and the top alerts sit just under the card at the top: the gantry sign
+     * while driving (it grows with lanes / "Then"), the From / To card, or Home's search bar. */
     private fun placeBelowGantry() {
-        val shown = topNavBar.visibility == View.VISIBLE
-        val below = if (shown) topNavBar.bottom + dp(8) else 0
+        val top = listOf(topNavBar, routeFromTo, homeTopSearch).filter { it.visibility == View.VISIBLE }
+        val shown = top.isNotEmpty()
+        val below = if (shown) top.maxOf { it.bottom } + dp(8) else 0
         for (id in intArrayOf(R.id.compassButton, R.id.recalcPill, R.id.fasterCard, R.id.cameraAlert, R.id.reportAlert)) {
             val v = findViewById<View>(id) ?: continue
             val ty = if (shown) (below - v.top).coerceAtLeast(0).toFloat() else 0f
@@ -4388,6 +4406,7 @@ class MainActivity : AppCompatActivity() {
         routeListShowing = false
         routeListOverlay.visibility = View.GONE
         routeBackButton.visibility = View.VISIBLE
+        routeFromTo.visibility = routeBackButton.visibility
         // After layout, so the fit knows how tall the sheet is.
         routePreviewCard.post { if (navMode == NavMode.PREVIEW) fitSelectedRoute() }
     }
