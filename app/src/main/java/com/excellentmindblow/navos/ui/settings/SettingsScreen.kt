@@ -144,6 +144,12 @@ fun SettingsScreen(
 
             Overline(tr("About", "Tentang"))
             Text(
+                tr("Version", "Versi") + " " + com.excellentmindblow.navos.BuildConfig.VERSION_NAME + " (" + com.excellentmindblow.navos.BuildConfig.VERSION_CODE + ")",
+                style = JalanType.bodyStrong,
+                color = c.ink,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Text(
                 tr(
                     "NavOS · maps and data © OpenStreetMap contributors, OpenFreeMap. Routing by OSRM. Toll fares from Lembaga Lebuhraya Malaysia. Logos and JKR symbols from Wikimedia Commons (see the licences in the app).",
                     "NavOS · peta dan data © penyumbang OpenStreetMap, OpenFreeMap. Laluan oleh OSRM. Kadar tol daripada Lembaga Lebuhraya Malaysia. Logo dan simbol JKR daripada Wikimedia Commons.",
