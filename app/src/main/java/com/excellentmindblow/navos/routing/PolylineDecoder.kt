@@ -8,7 +8,7 @@ data class RoutePoint(
 )
 
 /**
- * Native port of legacy-expo-rn/src/services/polyline.ts - same Google
+ * Native port of the original React Native app's polyline.ts - same Google
  * encoded-polyline decode (OSRM's `geometries=polyline` response format),
  * same algorithm shape (result seeded at 1, offset-by-one byte read) so
  * the two stay byte-for-byte equivalent in behavior.

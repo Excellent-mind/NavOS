@@ -34,6 +34,7 @@ big icon with distance under it, road name large + "towards ...", exit and
 shield chips, lane band, "Then" tab only for back-to-back turns; roundabout
 icons trace the clockwise path round a faded ring.
 0.11.1 (code 14) = roundabout icons redrawn (bigger ring, slim strokes, head on a short stub).
+0.11.2 (code 15) = old React Native app (legacy-expo-rn) removed, README rewritten; merged to main.
 
 ## Traffic server
 Cloudflare Worker `navos-traffic` (server/traffic-worker). Deploy with the

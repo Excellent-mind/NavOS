@@ -11,7 +11,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * Native port of legacy-expo-rn/src/services/geo.ts - same great-circle
+ * Native port of the original React Native app's geo.ts - same great-circle
  * distance, bearing, and point-to-polyline distance math, used for
  * off-route detection and step-advance decisions.
  */

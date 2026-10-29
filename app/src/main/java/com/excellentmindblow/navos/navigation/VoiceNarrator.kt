@@ -13,7 +13,7 @@ import com.excellentmindblow.navos.Lang
 import java.util.Locale
 
 /**
- * Native port of legacy-expo-rn/src/services/voice.ts - same "only speak
+ * Native port of the original React Native app's voice.ts - same "only speak
  * when the key changes" guard (NavigationEngine's onLocation fires several
  * times a second from GPS updates; without this every update would
  * re-speak the same instruction), backed by Android's built-in
