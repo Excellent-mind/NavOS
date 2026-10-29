@@ -33,6 +33,7 @@ turn arrow painted on the route before each junction.
 big icon with distance under it, road name large + "towards ...", exit and
 shield chips, lane band, "Then" tab only for back-to-back turns; roundabout
 icons trace the clockwise path round a faded ring.
+0.11.1 (code 14) = roundabout icons redrawn (bigger ring, slim strokes, head on a short stub).
 
 ## Traffic server
 Cloudflare Worker `navos-traffic` (server/traffic-worker). Deploy with the

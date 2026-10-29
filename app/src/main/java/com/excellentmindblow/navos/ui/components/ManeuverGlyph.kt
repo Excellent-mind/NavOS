@@ -50,11 +50,13 @@ fun ManeuverGlyph(
         fun head(
             tip: Offset,
             from: Offset,
-            k: Float = 1f,
+            lenU: Float = 13f,
+            halfU: Float = 8.5f,
+            rimU: Float = 2f,
         ) {
             val a = atan2((tip.y - from.y).toDouble(), (tip.x - from.x).toDouble())
-            val len = 13f * u * k
-            val half = 8.5f * u * k
+            val len = lenU * u
+            val half = halfU * u
             val base = Offset(tip.x - (len * cos(a)).toFloat(), tip.y - (len * sin(a)).toFloat())
             val nx = (-sin(a)).toFloat() * half
             val ny = cos(a).toFloat() * half
@@ -66,7 +68,7 @@ fun ManeuverGlyph(
                     close()
                 }
             drawPath(tri, color)
-            drawPath(tri, color, style = Stroke(width = 2f * u, join = StrokeJoin.Round))
+            drawPath(tri, color, style = Stroke(width = rimU * u, join = StrokeJoin.Round))
         }
 
         fun mirrorIf(
@@ -100,34 +102,29 @@ fun ManeuverGlyph(
             type.contains("roundabout") || type.contains("rotary") -> {
                 // The whole ring faded; your way round it bold, clockwise (Malaysia drives on the left):
                 // in from the bottom, out left (first exit), straight on, right, or all the way round.
-                val c = p(24f, 24f)
-                val r = 7.5f * u
-                drawCircle(color.copy(alpha = color.alpha * 0.35f), radius = r, center = c, style = Stroke(width = w * 0.7f))
+                // Big ring, slim strokes, a short stub and the head right on it, so it reads at 24 dp.
+                val c = p(24f, 26f)
+                val r = 10.5f * u
+                drawCircle(color.copy(alpha = color.alpha * 0.35f), radius = r, center = c, style = Stroke(width = 3.4f * u))
                 val sweep =
                     when {
-                        mod.contains("sharp left") || mod == "left" || mod.contains("slight left") -> 90f
+                        mod == "uturn" -> 315f
+                        mod.contains("left") -> 90f
                         mod.contains("right") -> 270f
-                        mod == "uturn" -> 330f
                         else -> 180f
                     }
-                val start = 90f // bottom of the ring
+                val endA = Math.toRadians((90f + sweep).toDouble())
+                val ux = cos(endA).toFloat()
+                val uy = sin(endA).toFloat()
                 val path =
                     Path().apply {
-                        moveTo(24f * u, 45f * u)
+                        moveTo(24f * u, 46f * u)
                         lineTo(24f * u, c.y + r)
-                        arcTo(androidx.compose.ui.geometry.Rect(c.x - r, c.y - r, c.x + r, c.y + r), start, sweep, false)
+                        arcTo(androidx.compose.ui.geometry.Rect(c.x - r, c.y - r, c.x + r, c.y + r), 90f, sweep, false)
+                        lineTo(c.x + (r + 2.5f * u) * ux, c.y + (r + 2.5f * u) * uy)
                     }
-                // Out of the ring along the exit's direction (radially).
-                val endA = Math.toRadians((start + sweep).toDouble())
-                val ex = c.x + r * cos(endA).toFloat()
-                val ey = c.y + r * sin(endA).toFloat()
-                val ox = c.x + (r + 4f * u) * cos(endA).toFloat()
-                val oy = c.y + (r + 4f * u) * sin(endA).toFloat()
-                path.lineTo(ox, oy)
-                line(path)
-                val tx = c.x + (r + 14f * u) * cos(endA).toFloat()
-                val ty = c.y + (r + 14f * u) * sin(endA).toFloat()
-                head(Offset(tx, ty), Offset(ex, ey), 0.8f)
+                line(path, Stroke(width = 5f * u, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                head(Offset(c.x + (r + 11f * u) * ux, c.y + (r + 11f * u) * uy), Offset(c.x, c.y), lenU = 8.5f, halfU = 6.5f, rimU = 1f)
             }
             type == "uturn" || mod == "uturn" ->
                 // Malaysia: U-turns go round to the right.
