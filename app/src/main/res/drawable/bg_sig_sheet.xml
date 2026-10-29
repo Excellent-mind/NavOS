@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Signal bottom sheet: 28dp top corners, flat bottom. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/sig_sheet" />
-    <corners android:topLeftRadius="28dp" android:topRightRadius="28dp" android:bottomLeftRadius="0dp" android:bottomRightRadius="0dp" />
-</shape>

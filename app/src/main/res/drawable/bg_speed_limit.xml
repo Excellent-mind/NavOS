@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Round white sign with a red ring: the posted speed limit (white at night too, like a real sign). -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-    <solid android:color="#FFFFFF" />
-    <stroke android:width="7dp" android:color="@color/jkr_limit_ring" />
-</shape>

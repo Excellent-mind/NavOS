@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Coral "Stop" pill, same as Waze's. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#FF5A5F" />
-    <corners android:radius="28dp" />
-</shape>

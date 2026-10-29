@@ -70,10 +70,8 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.core:core-splashscreen:1.0.1") // launch splash screen (logo on black)
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.activity:activity-ktx:1.9.3") // registerForActivityResult (permission request)
     implementation("androidx.drawerlayout:drawerlayout:1.2.0") // settings drawer
     implementation("androidx.dynamicanimation:dynamicanimation:1.0.0") // spring-driven home sheet
@@ -85,8 +83,6 @@ dependencies {
     // JS bridge in between.
     implementation("org.maplibre.gl:android-sdk-opengl:13.6.1")
 
-    // Android Auto (Car App Library) - lets NavOS run on the car screen.
-    implementation("androidx.car.app:app:1.4.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.mockito:mockito-core:5.14.2")

@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Route end: a red square, like the trip strip's destination. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/sig_limit" />
-    <corners android:radius="2dp" />
-</shape>
