@@ -57,6 +57,7 @@ class DriveViewModel(
     private val _ahead = MutableStateFlow<List<RoutePoint>?>(null)
     val ahead: StateFlow<List<RoutePoint>?> = _ahead.asStateFlow()
     private var aheadAt = Double.NaN
+    private var lastFixP = Double.NaN
 
     /** The next turn's arrow on the route (points along the line through the turn) and the head's bearing. */
     data class TurnArrow(
@@ -236,6 +237,7 @@ class DriveViewModel(
         _turn.value = null
         _ahead.value = null
         aheadAt = Double.NaN
+        lastFixP = Double.NaN
         _state.value = null
         _route.value = null
         _alert.value = null
@@ -256,6 +258,7 @@ class DriveViewModel(
         track = t
         _ahead.value = null
         aheadAt = Double.NaN
+        lastFixP = Double.NaN
         smartOnRoute = SmartLanes.onRoute(t, SmartLanes.lanes)
         com.excellentmindblow.navos.traffic.SpeedCameras.load(getApplication())
         _cameras.value = com.excellentmindblow.navos.traffic.SpeedCameras.onRoute(t, com.excellentmindblow.navos.traffic.SpeedCameras.all)
@@ -298,12 +301,25 @@ class DriveViewModel(
         val t = track ?: return
         if (p.isNaN() || segment == null) return
         val total = t.distanceAt(t.source.size - 1)
-        // The line starts right under the arrow: your spot on the route, then the rest of it.
-        if (aheadAt.isNaN() || kotlin.math.abs(p - aheadAt) >= 2.0) {
-            aheadAt = p
+        // The line starts under the arrow. The map glides the arrow from the last fix to this one
+        // over about a second, so cut where the arrow is coming from (the last fix, a few metres
+        // back), not where it is going: the line then always reaches under the arrow and never
+        // starts ahead of it. After a jump (GPS gap, reroute) cut at the new fix.
+        val prevP = lastFixP
+        lastFixP = p
+        val cut = (if (!prevP.isNaN() && p - prevP in 0.0..CUT_FOLLOW_MAX_M) prevP else p) - CUT_BEHIND_M
+        if (aheadAt.isNaN() || kotlin.math.abs(cut - aheadAt) >= 1.0) {
+            aheadAt = cut
             val g = t.source
-            val next = (segment + 1).coerceIn(1, g.size - 1)
-            _ahead.value = listOf(t.pointAt(p)) + g.subList(next, g.size)
+            // First route point past the cut.
+            var lo = 0
+            var hi = g.size - 1
+            while (lo < hi) {
+                val mid = (lo + hi) ushr 1
+                if (t.distanceAt(mid) <= cut) lo = mid + 1 else hi = mid
+            }
+            val next = lo.coerceIn(1, g.size - 1)
+            _ahead.value = listOf(t.pointAt(cut.coerceAtLeast(0.0))) + g.subList(next, g.size)
         }
         val s = _state.value
         val toTurn = s?.distanceToNextTurnMeters
@@ -524,6 +540,12 @@ class DriveViewModel(
     private companion object {
         /** Further than this from the line, the arrow shows the real fix (you may have left the route). */
         const val SNAP_TO_ROUTE_M = 35.0
+
+        /** The line is cut this far behind where the arrow comes from, so it always runs under the arrow. */
+        const val CUT_BEHIND_M = 3.0
+
+        /** Further than this between two fixes is a jump, not driving: cut at the new fix. */
+        const val CUT_FOLLOW_MAX_M = 80.0
 
         /** The turn arrow shows from this far before the turn, and covers this much each side of it. */
         const val TURN_ARROW_FROM_M = 400.0

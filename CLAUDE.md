@@ -42,6 +42,8 @@ chips fit 360 dp, Overpass mirror fallback, "onto the road" dropped from the sig
 0.13.0 (code 17) = turn list (tap the banner), unnamed links take the next road's
 name, map style: kerbs drawn before all asphalt (no kerb lines across joins), lane
 paint only on big roads, fewer one-way arrows (no service roads / ramps).
+0.13.1 (code 18) = route line cut where the arrow comes from (last fix, 3 m back), so it
+always starts under the arrow instead of ahead of it while the arrow glides.
 
 ## Traffic server
 Cloudflare Worker `navos-traffic` (server/traffic-worker). Deploy with the

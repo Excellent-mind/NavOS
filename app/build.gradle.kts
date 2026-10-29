@@ -17,8 +17,8 @@ android {
         applicationId = "com.excellentmindblow.navos"
         minSdk = 24
         targetSdk = 34
-        versionCode = 17
-        versionName = "0.13.0"
+        versionCode = 18
+        versionName = "0.13.1"
 
         // The unrestricted APK bundles all 4 ABIs' libmaplibre.so (arm64,
         // armv7, x86, x86_64 - including two desktop/emulator-only
