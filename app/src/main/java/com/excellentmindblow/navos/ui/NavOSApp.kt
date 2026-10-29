@@ -1,15 +1,20 @@
 package com.excellentmindblow.navos.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -17,40 +22,260 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.excellentmindblow.navos.ui.components.FloatingSearchBar
+import com.excellentmindblow.navos.ui.home.HomeSheet
 import com.excellentmindblow.navos.ui.map.MapController
 import com.excellentmindblow.navos.ui.map.NavMap
+import com.excellentmindblow.navos.routing.RoutePoint
+import com.excellentmindblow.navos.ui.map.RouteLayers
+import com.excellentmindblow.navos.ui.route.RoutePreviewScreen
+import com.excellentmindblow.navos.ui.route.RouteViewModel
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalDensity
+import com.excellentmindblow.navos.ui.theme.Jalan
+import com.excellentmindblow.navos.ui.search.SearchScreen
 
 /**
  * The whole app: the map underneath, and the current screen's panels on top
  * of it (like Google Maps / Waze, the map never leaves).
  */
 @Composable
-fun NavOSApp(app: AppViewModel = viewModel()) {
+fun NavOSApp(
+    app: AppViewModel = viewModel(),
+    places: PlacesViewModel = viewModel(),
+    routes: RouteViewModel = viewModel(),
+    drive: com.excellentmindblow.navos.ui.drive.DriveViewModel = viewModel(),
+) {
     val screen by app.screen.collectAsStateWithLifecycle()
     val location by app.location.collectAsStateWithLifecycle()
+    val destination by app.destination.collectAsStateWithLifecycle()
     val night = isSystemInDarkTheme()
     val map = remember { MapController() }
+    // Bumped after every style load (day / night switch) so layers are redrawn.
+    var styleTick by remember { mutableStateOf(0) }
 
-    // Centre on you at the first fix.
     LaunchedEffect(location) {
+        places.onLocation(location)
         val l = location ?: return@LaunchedEffect
+        // Centre on you at the first fix.
         if (!app.centredOnce && map.map != null) {
             app.centredOnce = true
             map.moveTo(l.latitude, l.longitude, animated = false)
         }
     }
 
+    fun openSearch(purpose: PlacesViewModel.Purpose) {
+        places.purpose = purpose
+        places.clearSearch()
+        app.go(Screen.SEARCH)
+    }
+
     Box(Modifier.fillMaxSize()) {
-        NavMap(controller = map, night = night, location = location, modifier = Modifier.fillMaxSize())
+        val c = Jalan.colors
+        NavMap(
+            controller = map,
+            night = night,
+            location = location,
+            modifier = Modifier.fillMaxSize(),
+            onStyleReady = { style ->
+                RouteLayers.install(style, c.route.toArgb(), c.inkQuiet.copy(alpha = 0.55f).toArgb(), c.card.toArgb())
+                styleTick++
+            },
+        )
 
         when (screen) {
-            Screen.HOME ->
+            Screen.HOME -> {
+                val shortcuts by places.shortcuts.collectAsStateWithLifecycle()
+                val recents by places.recents.collectAsStateWithLifecycle()
+                val predicted by places.predicted.collectAsStateWithLifecycle()
                 FloatingSearchBar(
-                    onSearch = { app.go(Screen.SEARCH) },
+                    onSearch = { openSearch(PlacesViewModel.Purpose.GO) },
                     onSettings = { app.go(Screen.SETTINGS) },
                     modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 16.dp, vertical = 12.dp),
                 )
-            else -> Unit // Phases 2-5
+                HomeSheet(
+                    predicted = predicted,
+                    shortcuts = shortcuts,
+                    recents = recents,
+                    distanceTo = places::distanceTo,
+                    onGo = { app.routeTo(places.picked(it)) },
+                    onSetHome = { openSearch(PlacesViewModel.Purpose.SET_HOME) },
+                    onSetWork = { openSearch(PlacesViewModel.Purpose.SET_WORK) },
+                    modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars),
+                )
+            }
+            Screen.SEARCH -> {
+                val query by places.query.collectAsStateWithLifecycle()
+                val results by places.results.collectAsStateWithLifecycle()
+                val searching by places.searching.collectAsStateWithLifecycle()
+                val shortcuts by places.shortcuts.collectAsStateWithLifecycle()
+                val recents by places.recents.collectAsStateWithLifecycle()
+                SearchScreen(
+                    purpose = places.purpose,
+                    query = query,
+                    results = results,
+                    searching = searching,
+                    shortcuts = shortcuts,
+                    recents = recents,
+                    distanceTo = places::distanceTo,
+                    onQuery = places::setQuery,
+                    onPick = { p ->
+                        val purpose = places.purpose
+                        places.picked(p)
+                        places.purpose = PlacesViewModel.Purpose.GO
+                        if (purpose == PlacesViewModel.Purpose.GO) app.routeTo(p) else app.go(Screen.HOME)
+                    },
+                    onBack = { app.go(Screen.HOME) },
+                    onClearRecents = places::clearRecents,
+                )
+            }
+            Screen.PREVIEW -> {
+                val state by routes.state.collectAsStateWithLifecycle()
+                val selected by routes.selected.collectAsStateWithLifecycle()
+                val density = LocalDensity.current
+                fun back() {
+                    routes.clear()
+                    map.style?.let { RouteLayers.show(it, null, emptyList()) }
+                    app.go(Screen.HOME)
+                }
+                BackHandler { back() }
+                // Plan once there is a fix and a destination.
+                LaunchedEffect(destination, location != null) {
+                    val d = destination ?: return@LaunchedEffect
+                    val l = location ?: return@LaunchedEffect
+                    routes.plan(RoutePoint(l.latitude, l.longitude), RoutePoint(d.latitude, d.longitude))
+                }
+                // Draw the routes and frame them between the From / To card and the sheet.
+                LaunchedEffect(state, selected, styleTick) {
+                    val s = state as? RouteViewModel.State.Ready ?: return@LaunchedEffect
+                    val style = map.style ?: return@LaunchedEffect
+                    val sel = s.options.getOrNull(selected)?.route
+                    RouteLayers.show(style, sel, s.options.map { it.route }.filter { it !== sel })
+                    map.map?.let { m -> with(density) { RouteLayers.frame(m, s.options.map { it.route }, 170.dp.roundToPx(), 460.dp.roundToPx(), 40.dp.roundToPx()) } }
+                }
+                RoutePreviewScreen(
+                    destination = destination,
+                    state = state,
+                    selected = selected,
+                    onSelect = routes::select,
+                    onBack = ::back,
+                    onRetry = {
+                        val d = destination
+                        val l = location
+                        if (d != null && l != null) routes.plan(RoutePoint(l.latitude, l.longitude), RoutePoint(d.latitude, d.longitude), force = true)
+                    },
+                    onGo = { app.go(Screen.DRIVE) },
+                )
+            }
+            Screen.DRIVE -> DriveHost(app, routes, drive, map, styleTick)
+            else -> {
+                BackHandler { app.go(Screen.HOME) }
+            }
         }
+    }
+}
+
+/** The drive: starts the service with the chosen route, follows you with the camera, draws the route. */
+@Composable
+private fun DriveHost(
+    app: AppViewModel,
+    routes: RouteViewModel,
+    drive: com.excellentmindblow.navos.ui.drive.DriveViewModel,
+    map: MapController,
+    styleTick: Int,
+) {
+    val state by drive.state.collectAsStateWithLifecycle()
+    val route by drive.route.collectAsStateWithLifecycle()
+    val fix by drive.location.collectAsStateWithLifecycle()
+    val phoneFix by app.location.collectAsStateWithLifecycle()
+    val ended by drive.ended.collectAsStateWithLifecycle()
+    val voiceOn by drive.voiceOn.collectAsStateWithLifecycle()
+    var askEnd by remember { mutableStateOf(false) }
+    var picker by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+    // Start once with the route picked on the cards.
+    LaunchedEffect(Unit) {
+        if (drive.route.value == null) routes.selectedRoute()?.let { drive.start(it) }
+    }
+    LaunchedEffect(ended) { if (ended) { drive.end(); app.go(Screen.HOME) } }
+    // The route line (also after a reroute or a day / night switch).
+    LaunchedEffect(route, styleTick) { map.style?.let { RouteLayers.show(it, route, emptyList()) } }
+    // Follow you: tilted, heading up, the arrow low on the screen under the sign.
+    val here = fix ?: phoneFix
+    LaunchedEffect(here) {
+        val l = here ?: return@LaunchedEffect
+        val m = map.map ?: return@LaunchedEffect
+        val top = with(density) { 220.dp.toPx().toDouble() }
+        val bottom = with(density) { 200.dp.toPx().toDouble() }
+        m.animateCamera(
+            org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(
+                org.maplibre.android.camera.CameraPosition.Builder()
+                    .target(org.maplibre.android.geometry.LatLng(l.latitude, l.longitude))
+                    .zoom(17.2).tilt(55.0)
+                    .bearing(if (l.hasBearing() && l.speed > 1.5f) l.bearing.toDouble() else m.cameraPosition.bearing)
+                    .padding(0.0, top, 0.0, bottom)
+                    .build(),
+            ),
+            900,
+        )
+    }
+    fun finish() {
+        drive.end()
+        map.style?.let { RouteLayers.show(it, null, emptyList()) }
+        here?.let { l -> map.moveTo(l.latitude, l.longitude) }
+        app.go(Screen.HOME)
+    }
+    BackHandler { askEnd = true }
+
+    val routeState by routes.state.collectAsStateWithLifecycle()
+    val routeSel by routes.selected.collectAsStateWithLifecycle()
+    val strip = (routeState as? RouteViewModel.State.Ready)?.options?.getOrNull(routeSel)?.strip
+    com.excellentmindblow.navos.ui.drive.DriveScreen(
+        state = state,
+        speedKmh = com.excellentmindblow.navos.Units.speed(((here?.speed ?: 0f) * 3.6f).toDouble()),
+        limitKmh = null,
+        strip = strip,
+        voiceOn = voiceOn,
+        onVoice = { drive.setVoice(!voiceOn) },
+        onReport = { picker = true },
+        onEnd = { askEnd = true },
+    )
+    if (picker) {
+        com.excellentmindblow.navos.ui.drive.ReportPicker(
+            onPick = { kind ->
+                picker = false
+                val l = here
+                if (l == null) {
+                    android.widget.Toast.makeText(context, com.excellentmindblow.navos.tr("Waiting for GPS", "Tunggu GPS"), android.widget.Toast.LENGTH_SHORT).show()
+                } else {
+                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val ok = runCatching { com.excellentmindblow.navos.traffic.RoadReports.send(kind, RoutePoint(l.latitude, l.longitude), if (l.hasBearing()) l.bearing.toDouble() else null) }.getOrNull() != null
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            android.widget.Toast.makeText(context, if (ok) com.excellentmindblow.navos.tr("Reported. Thanks!", "Dah lapor. Terima kasih!") else com.excellentmindblow.navos.tr("Couldn't send the report", "Laporan tak dapat dihantar"), android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            },
+            onDismiss = { picker = false },
+        )
+    }
+    if (askEnd) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { askEnd = false },
+            containerColor = Jalan.colors.sheet,
+            title = { androidx.compose.material3.Text(com.excellentmindblow.navos.tr("End the drive?", "Tamatkan perjalanan?"), style = com.excellentmindblow.navos.ui.theme.JalanType.title) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { askEnd = false; finish() }) {
+                    androidx.compose.material3.Text(com.excellentmindblow.navos.tr("End", "Tamat"), style = com.excellentmindblow.navos.ui.theme.JalanType.label, color = com.excellentmindblow.navos.ui.theme.Traffic.Jam)
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { askEnd = false }) {
+                    androidx.compose.material3.Text(com.excellentmindblow.navos.tr("Keep driving", "Teruskan"), style = com.excellentmindblow.navos.ui.theme.JalanType.label, color = Jalan.colors.ink)
+                }
+            },
+        )
     }
 }

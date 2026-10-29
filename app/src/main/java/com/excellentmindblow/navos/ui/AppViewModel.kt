@@ -27,6 +27,15 @@ class AppViewModel(
     private val _location = MutableStateFlow<Location?>(null)
     val location: StateFlow<Location?> = _location.asStateFlow()
 
+    /** Where the trip goes (set by search / Home, used by route choice and the drive). */
+    private val _destination = MutableStateFlow<com.excellentmindblow.navos.search.GeocodeResult?>(null)
+    val destination: StateFlow<com.excellentmindblow.navos.search.GeocodeResult?> = _destination.asStateFlow()
+
+    fun routeTo(place: com.excellentmindblow.navos.search.GeocodeResult) {
+        _destination.value = place
+        _screen.value = Screen.PREVIEW
+    }
+
     /** True once the first fix arrived, so the map centres on you once. */
     var centredOnce = false
 
