@@ -83,6 +83,8 @@ fun NavMap(
     night: Boolean,
     location: Location?,
     modifier: Modifier = Modifier,
+    /** Driving: a navigation arrow that points the way you go; otherwise the blue dot with a heading. */
+    driving: Boolean = false,
     onStyleReady: (Style) -> Unit = {},
     onMapClick: (LatLng) -> Unit = {},
     onMapLongClick: (LatLng) -> Unit = {},
@@ -90,6 +92,7 @@ fun NavMap(
     val click by androidx.compose.runtime.rememberUpdatedState(onMapClick)
     val longClick by androidx.compose.runtime.rememberUpdatedState(onMapLongClick)
     var listening by remember { mutableStateOf(false) }
+    val drivingNow by androidx.compose.runtime.rememberUpdatedState(driving)
     val context = LocalContext.current
     val mapView = remember { MapLibre.getInstance(context); MapView(context).apply { onCreate(null) } }
     var loadedNight by remember { mutableStateOf<Boolean?>(null) }
@@ -147,15 +150,28 @@ fun NavMap(
                 MapIcons.addAll(context, style)
                 runCatching {
                     m.locationComponent.activateLocationComponent(
-                        LocationComponentActivationOptions.builder(context, style).useDefaultLocationEngine(false).build(),
+                        LocationComponentActivationOptions.builder(context, style)
+                            .useDefaultLocationEngine(false)
+                            .locationComponentOptions(
+                                org.maplibre.android.location.LocationComponentOptions.builder(context)
+                                    .gpsDrawable(com.excellentmindblow.navos.R.drawable.nav_puck)
+                                    .accuracyAlpha(0.12f)
+                                    .build(),
+                            ).build(),
                     )
                     m.locationComponent.isLocationComponentEnabled = true
-                    m.locationComponent.renderMode = RenderMode.COMPASS
+                    m.locationComponent.renderMode = if (drivingNow) RenderMode.GPS else RenderMode.COMPASS
                     m.locationComponent.cameraMode = CameraMode.NONE
                 }
                 onStyleReady(style)
             }
         }
+    }
+
+    // Arrow while driving, dot otherwise.
+    LaunchedEffect(driving) {
+        val m = controller.map ?: return@LaunchedEffect
+        runCatching { if (m.locationComponent.isLocationComponentActivated) m.locationComponent.renderMode = if (driving) RenderMode.GPS else RenderMode.COMPASS }
     }
 
     // Feed our own fused location (LiveLocationTracker) to the location dot.

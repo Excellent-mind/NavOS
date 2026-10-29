@@ -100,10 +100,12 @@ private fun AppContent(
     val context = androidx.compose.ui.platform.LocalContext.current
     Box(Modifier.fillMaxSize()) {
         val c = Jalan.colors
+        val driveShown by drive.shown.collectAsStateWithLifecycle()
         NavMap(
             controller = map,
             night = night,
-            location = location,
+            location = if (screen == Screen.DRIVE) driveShown ?: location else location,
+            driving = screen == Screen.DRIVE,
             modifier = Modifier.fillMaxSize(),
             onStyleReady = { style ->
                 RouteLayers.install(style, c.route.toArgb(), c.inkQuiet.copy(alpha = 0.55f).toArgb(), c.card.toArgb())
@@ -404,7 +406,9 @@ private fun DriveHost(
     LaunchedEffect(route, styleTick) { map.style?.let { RouteLayers.show(it, route, emptyList()) } }
     // The camera: follows you (zoom by speed, closer at turns), or the driver moved the map (free,
     // follows again after 12 s), or the whole way left (overview, until Re-centre).
-    val here = fix ?: phoneFix
+    val shownFix by drive.shown.collectAsStateWithLifecycle()
+    val here = shownFix ?: fix ?: phoneFix
+    var sheetPx by remember { mutableStateOf(0) }
     var camMode by remember { mutableStateOf(com.excellentmindblow.navos.navigation.DriveCamera.Mode.FOLLOW) }
     var lastGesture by remember { mutableStateOf(0L) }
     val camView = remember { mutableStateOf<com.excellentmindblow.navos.navigation.DriveCamera.View?>(null) }
@@ -447,7 +451,7 @@ private fun DriveHost(
         lastCamAt = now
         // The car sits [carAt] of the way down the clear band between the sign and the bottom sheet.
         val bandTop = with(density) { 190.dp.toPx() }
-        val bandBottom = with(density) { 250.dp.toPx() }
+        val bandBottom = if (sheetPx > 0) sheetPx.toFloat() else with(density) { 250.dp.toPx() }
         val y = bandTop + (v.carAt * (screenH - bandTop - bandBottom)).toFloat()
         val padTop = (2 * y - screenH).coerceAtLeast(0f).toDouble()
         val padBottom = (screenH - 2 * y).coerceAtLeast(0f).toDouble()
@@ -520,6 +524,9 @@ private fun DriveHost(
                 if (camMode == com.excellentmindblow.navos.navigation.DriveCamera.Mode.OVERVIEW) com.excellentmindblow.navos.navigation.DriveCamera.Mode.FOLLOW
                 else com.excellentmindblow.navos.navigation.DriveCamera.Mode.OVERVIEW
         },
+        moving = (here?.speed ?: 0f) > 4f,
+        onCloseStation = { drive.onTheWay.select(null) },
+        onSheetHeight = { sheetPx = it },
         onVoice = { drive.setVoice(!voiceOn) },
         onReport = { picker = true },
         onEnd = { askEnd = true },

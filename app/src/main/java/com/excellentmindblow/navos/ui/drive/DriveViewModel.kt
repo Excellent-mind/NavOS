@@ -53,6 +53,10 @@ class DriveViewModel(
     private val _location = MutableStateFlow<Location?>(null)
     val location: StateFlow<Location?> = _location.asStateFlow()
 
+    /** Where the arrow is drawn: on the route line, heading along it, while you're on the route; else the GPS fix. */
+    private val _shown = MutableStateFlow<Location?>(null)
+    val shown: StateFlow<Location?> = _shown.asStateFlow()
+
     /** The drive ended by itself (arrived) or from the notification. */
     private val _ended = MutableStateFlow(false)
     val ended: StateFlow<Boolean> = _ended.asStateFlow()
@@ -204,6 +208,7 @@ class DriveViewModel(
 
     fun end() {
         service?.stopNavigation()
+        _shown.value = null
         _state.value = null
         _route.value = null
         _alert.value = null
@@ -231,6 +236,26 @@ class DriveViewModel(
         val t = track ?: return null
         val snap = GeoUtils.snapToPolyline(RoutePoint(l.latitude, l.longitude), t.source) ?: return null
         return if (snap.distanceMeters > 60) null else snap
+    }
+
+    /**
+     * The fix moved onto the route line (GPS wanders 5-15 m; on the route you are
+     * on the road), pointing along it - like every car navigator does. Off the
+     * route, or when the state says off-route, the real fix.
+     */
+    private fun onRoute(
+        l: Location,
+        snap: GeoUtils.RouteSnap?,
+        progressM: Double,
+    ): Location {
+        val t = track ?: return l
+        if (snap == null || progressM.isNaN() || snap.distanceMeters > SNAP_TO_ROUTE_M || _state.value?.offRoute == true) return l
+        val p = t.pointAt(progressM)
+        return Location(l).apply {
+            latitude = p.latitude
+            longitude = p.longitude
+            bearing = t.bearingAt(progressM, 25.0).toFloat()
+        }
     }
 
     /** Live traffic on the route ahead: amber where slow, red where jammed. */
@@ -327,6 +352,7 @@ class DriveViewModel(
         _limit.value = limits.limitAt(here)
         val snap = snapOf(l)
         val p = snap?.let { track?.progressOf(it) } ?: Double.NaN
+        _shown.value = onRoute(l, snap, p)
         onTheWay.onFix(l, p, snap?.segmentIndex ?: 0)
         if (p.isNaN()) {
             _alert.value = null
@@ -387,4 +413,9 @@ class DriveViewModel(
     }
 
     override fun onCleared() = unbind()
+
+    private companion object {
+        /** Further than this from the line, the arrow shows the real fix (you may have left the route). */
+        const val SNAP_TO_ROUTE_M = 35.0
+    }
 }

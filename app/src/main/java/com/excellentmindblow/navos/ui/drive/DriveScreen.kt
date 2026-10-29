@@ -26,6 +26,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,7 +47,6 @@ import com.excellentmindblow.navos.navigation.TripStrip
 import com.excellentmindblow.navos.tr
 import com.excellentmindblow.navos.ui.components.GantrySign
 import com.excellentmindblow.navos.ui.components.JalanIcons
-import com.excellentmindblow.navos.ui.components.JalanSheet
 import com.excellentmindblow.navos.ui.components.SpeedSigns
 import com.excellentmindblow.navos.ui.components.TripRibbon
 import com.excellentmindblow.navos.ui.theme.Jalan
@@ -71,11 +79,18 @@ fun DriveScreen(
     camMode: com.excellentmindblow.navos.navigation.DriveCamera.Mode,
     onRecentre: () -> Unit,
     onOverview: () -> Unit,
+    /** Driving along (not stopped): the open sheet tucks itself away. */
+    moving: Boolean,
+    onCloseStation: () -> Unit,
+    onSheetHeight: (Int) -> Unit,
     onVoice: () -> Unit,
     onReport: () -> Unit,
     onEnd: () -> Unit,
 ) {
     val c = Jalan.colors
+    var expanded by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
+    var touchedAt by remember { mutableStateOf(0L) }
+    var sheetPx by remember { mutableStateOf(0f) }
     Box(Modifier.fillMaxSize()) {
         // The sign.
         Column(Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -119,9 +134,10 @@ fun DriveScreen(
             }
         }
 
-        val bottomGap = if (station != null) 330.dp else if (strip != null) 266.dp else 206.dp
+        // Buttons float just above the sheet, wherever the sheet is.
+        val bottomGap = with(androidx.compose.ui.platform.LocalDensity.current) { sheetPx.toDp() } + 16.dp
         // Report and voice on the left.
-        Column(Modifier.align(Alignment.BottomStart).windowInsetsPadding(WindowInsets.navigationBars).padding(start = 14.dp, bottom = bottomGap), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = bottomGap), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Surface(shape = CircleShape, color = Traffic.Report, shadowElevation = 6.dp, modifier = Modifier.size(56.dp)) {
                 Box(Modifier.clickable(role = Role.Button, onClickLabel = tr("Report", "Lapor"), onClick = onReport), contentAlignment = Alignment.Center) {
                     Icon(Icons.Rounded.Warning, contentDescription = tr("Report something on the road", "Lapor sesuatu di jalan"), tint = Color(0xFF111111))
@@ -135,7 +151,7 @@ fun DriveScreen(
         }
         // Speed on the right.
         Column(
-            Modifier.align(Alignment.BottomEnd).windowInsetsPadding(WindowInsets.navigationBars).padding(end = 14.dp, bottom = bottomGap),
+            Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = bottomGap),
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -157,7 +173,7 @@ fun DriveScreen(
             visible = camMode != com.excellentmindblow.navos.navigation.DriveCamera.Mode.FOLLOW,
             enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.85f),
             exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.85f),
-            modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = bottomGap - 56.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomGap),
         ) {
             Row(
                 Modifier.height(48.dp).background(c.ink, RoundedCornerShape(24.dp)).clickable(role = Role.Button, onClick = onRecentre).padding(horizontal = 18.dp),
@@ -169,49 +185,122 @@ fun DriveScreen(
             }
         }
 
-        // Arrival bar, or the station you tapped.
-        JalanSheet(Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars)) {
-          androidx.compose.animation.AnimatedContent(
-              targetState = station,
-              transitionSpec = {
-                  (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) + androidx.compose.animation.slideInVertically { it / 6 })
-                      .togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)))
-              },
-              contentKey = { it != null },
-              label = "drive-sheet",
-          ) { card ->
-          if (card != null) {
-              card()
-          } else {
-          Column {
-            PoiChips(poiOn, poiLoading, onPoiToggle)
-            Spacer(Modifier.height(12.dp))
-            val remaining = state?.durationRemainingSeconds ?: 0.0
-            val arrive = SimpleDateFormat("h:mm a", Locale.US).format(Date(System.currentTimeMillis() + (remaining * 1000).toLong()))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f).padding(start = 4.dp)) {
-                    Text(if (state == null) "—" else arrive, style = JalanType.eta, color = c.ink)
-                    Text(
-                        if (state == null) "" else NavFormat.formatTripDuration(remaining) + " · " + NavFormat.formatTripDistance(state.distanceRemainingMeters),
-                        style = JalanType.caption.copy(fontSize = 16.sp),
-                        color = c.inkQuiet,
-                    )
-                }
-                Box(
-                    Modifier.height(52.dp).background(c.ink, RoundedCornerShape(26.dp)).clickable(role = Role.Button, onClick = onEnd).padding(horizontal = 22.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(tr("End", "Tamat"), style = JalanType.bodyStrong, color = c.onInk)
+        // The sheet: open (petrol / EV / parking / train, arrival, trip strip) or tucked down to one
+        // line so the map shows more road. Drag or tap the handle to switch; while driving it tucks
+        // itself away after a few seconds, and opens for a station card.
+        val open = expanded || station != null
+        LaunchedEffect(expanded, moving, touchedAt, station != null) {
+            if (expanded && moving && station == null) {
+                kotlinx.coroutines.delay(AUTO_TUCK_MS)
+                expanded = false
+            }
+        }
+        val remaining = state?.durationRemainingSeconds ?: 0.0
+        val arrive = SimpleDateFormat("h:mm a", Locale.US).format(Date(System.currentTimeMillis() + (remaining * 1000).toLong()))
+        val left = if (state == null) "" else NavFormat.formatTripDuration(remaining) + " · " + NavFormat.formatTripDistance(state.distanceRemainingMeters)
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .onSizeChanged { sheetPx = it.height.toFloat(); onSheetHeight(it.height) }
+                .pointerInput(station != null) {
+                    var dy = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { dy = 0f },
+                        onDragEnd = {
+                            if (station == null) {
+                                if (dy < -24f) expanded = true else if (dy > 24f) expanded = false
+                            } else if (dy > 48f) {
+                                onCloseStation()
+                            }
+                            touchedAt = System.currentTimeMillis()
+                        },
+                    ) { change, amount ->
+                        change.consume()
+                        dy += amount
+                    }
+                },
+        ) {
+            androidx.compose.material3.Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                color = c.sheet,
+                shadowElevation = 12.dp,
+            ) {
+                Column(Modifier.windowInsetsPadding(WindowInsets.navigationBars).padding(start = 16.dp, end = 16.dp, bottom = if (open) 16.dp else 10.dp).animateContentSize(androidx.compose.animation.core.spring(stiffness = 500f))) {
+                    // Handle: tap to open / tuck.
+                    Box(
+                        Modifier.fillMaxWidth().height(24.dp).clickable(
+                            interactionSource = null,
+                            indication = null,
+                            role = Role.Button,
+                            onClickLabel = if (open) tr("Show less", "Tunjuk kurang") else tr("Show more", "Tunjuk lagi"),
+                        ) {
+                            if (station != null) onCloseStation() else expanded = !expanded
+                            touchedAt = System.currentTimeMillis()
+                        },
+                        contentAlignment = Alignment.Center,
+                    ) { Box(Modifier.size(40.dp, 5.dp).background(c.line, CircleShape)) }
+                    androidx.compose.animation.AnimatedContent(
+                        targetState = if (station != null) 2 else if (open) 1 else 0,
+                        transitionSpec = {
+                            (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)) + androidx.compose.animation.slideInVertically { it / 8 })
+                                .togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(100)))
+                        },
+                        label = "drive-sheet",
+                    ) { mode ->
+                        when (mode) {
+                            2 -> station?.invoke()
+                            1 ->
+                                Column {
+                                    PoiChips(poiOn, poiLoading) { onPoiToggle(it); touchedAt = System.currentTimeMillis() }
+                                    Spacer(Modifier.height(12.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f).padding(start = 4.dp)) {
+                                            Text(if (state == null) "—" else arrive, style = JalanType.eta, color = c.ink)
+                                            Text(left, style = JalanType.caption.copy(fontSize = 16.sp), color = c.inkQuiet)
+                                        }
+                                        EndPill(onEnd, big = true)
+                                    }
+                                    if (strip != null) {
+                                        Spacer(Modifier.height(10.dp))
+                                        TripRibbon(strip, Modifier.fillMaxWidth())
+                                    }
+                                }
+                            else ->
+                                // Tucked: one line, tap it to open.
+                                Row(
+                                    Modifier.fillMaxWidth().clickable(interactionSource = null, indication = null) {
+                                        expanded = true
+                                        touchedAt = System.currentTimeMillis()
+                                    },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(if (state == null) "—" else arrive, style = JalanType.eta.copy(fontSize = 30.sp), color = c.ink)
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(left, style = JalanType.caption.copy(fontSize = 15.sp), color = c.inkQuiet, modifier = Modifier.weight(1f), maxLines = 1)
+                                    EndPill(onEnd, big = false)
+                                }
+                        }
+                    }
                 }
             }
-            if (strip != null) {
-                Spacer(Modifier.height(10.dp))
-                TripRibbon(strip, Modifier.fillMaxWidth())
-            }
-          }
-          }
-          }
         }
     }
 }
 
+/** Sheet open while driving tucks itself down after this long without a touch. */
+private const val AUTO_TUCK_MS = 6_000L
+
+@Composable
+private fun EndPill(
+    onEnd: () -> Unit,
+    big: Boolean,
+) {
+    val c = Jalan.colors
+    Box(
+        Modifier.height(if (big) 52.dp else 44.dp).background(c.ink, RoundedCornerShape(26.dp)).clickable(role = Role.Button, onClick = onEnd).padding(horizontal = if (big) 22.dp else 18.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(tr("End", "Tamat"), style = JalanType.bodyStrong, color = c.onInk)
+    }
+}
