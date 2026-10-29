@@ -45,10 +45,27 @@ fun NavOSApp(
     routes: RouteViewModel = viewModel(),
     drive: com.excellentmindblow.navos.ui.drive.DriveViewModel = viewModel(),
 ) {
+    val themePref by app.theme.collectAsStateWithLifecycle()
+    val night =
+        when (themePref) {
+            com.excellentmindblow.navos.ui.settings.ThemePref.LIGHT -> false
+            com.excellentmindblow.navos.ui.settings.ThemePref.DARK -> true
+            else -> isSystemInDarkTheme()
+        }
+    com.excellentmindblow.navos.ui.theme.NavOSTheme(night = night) { AppContent(app, places, routes, drive, night) }
+}
+
+@Composable
+private fun AppContent(
+    app: AppViewModel,
+    places: PlacesViewModel,
+    routes: RouteViewModel,
+    drive: com.excellentmindblow.navos.ui.drive.DriveViewModel,
+    night: Boolean,
+) {
     val screen by app.screen.collectAsStateWithLifecycle()
     val location by app.location.collectAsStateWithLifecycle()
     val destination by app.destination.collectAsStateWithLifecycle()
-    val night = isSystemInDarkTheme()
     val map = remember { MapController() }
     // Bumped after every style load (day / night switch) so layers are redrawn.
     var styleTick by remember { mutableStateOf(0) }
@@ -78,6 +95,7 @@ fun NavOSApp(
             modifier = Modifier.fillMaxSize(),
             onStyleReady = { style ->
                 RouteLayers.install(style, c.route.toArgb(), c.inkQuiet.copy(alpha = 0.55f).toArgb(), c.card.toArgb())
+                com.excellentmindblow.navos.ui.map.DriveLayers.install(style)
                 styleTick++
             },
         )
@@ -167,8 +185,13 @@ fun NavOSApp(
                 )
             }
             Screen.DRIVE -> DriveHost(app, routes, drive, map, styleTick)
-            else -> {
+            Screen.ARRIVED -> {
                 BackHandler { app.go(Screen.HOME) }
+                com.excellentmindblow.navos.ui.drive.ArrivalCard(app.arrivedName, app.arrivedSide) { app.go(Screen.HOME) }
+            }
+            Screen.SETTINGS -> {
+                val theme by app.theme.collectAsStateWithLifecycle()
+                com.excellentmindblow.navos.ui.settings.SettingsScreen(theme = theme, onTheme = app::setTheme, onBack = { app.go(Screen.HOME) })
             }
         }
     }
@@ -189,6 +212,11 @@ private fun DriveHost(
     val phoneFix by app.location.collectAsStateWithLifecycle()
     val ended by drive.ended.collectAsStateWithLifecycle()
     val voiceOn by drive.voiceOn.collectAsStateWithLifecycle()
+    val alert by drive.alert.collectAsStateWithLifecycle()
+    val limit by drive.limit.collectAsStateWithLifecycle()
+    val reports by drive.reports.collectAsStateWithLifecycle()
+    val openLanes by drive.openLanes.collectAsStateWithLifecycle()
+    val destination by app.destination.collectAsStateWithLifecycle()
     var askEnd by remember { mutableStateOf(false) }
     var picker by remember { mutableStateOf(false) }
     val density = LocalDensity.current
@@ -199,7 +227,21 @@ private fun DriveHost(
     LaunchedEffect(Unit) {
         if (drive.route.value == null) routes.selectedRoute()?.let { drive.start(it) }
     }
-    LaunchedEffect(ended) { if (ended) { drive.end(); app.go(Screen.HOME) } }
+    // Reports on the route and open Smart Lanes on the map.
+    LaunchedEffect(reports, openLanes, styleTick) { map.style?.let { com.excellentmindblow.navos.ui.map.DriveLayers.show(it, reports, openLanes) } }
+    // Arrived (the service ends the drive at the destination): the arrival card.
+    LaunchedEffect(ended) {
+        if (!ended) return@LaunchedEffect
+        val r = drive.route.value
+        app.arrivedName = destination?.name.orEmpty()
+        app.arrivedSide = com.excellentmindblow.navos.NavFormat.arrivalSide(r?.steps?.lastOrNull()?.modifier)?.let { context.getString(it) }
+        drive.end()
+        map.style?.let {
+            RouteLayers.show(it, null, emptyList())
+            com.excellentmindblow.navos.ui.map.DriveLayers.show(it, emptyList(), emptyList())
+        }
+        app.go(Screen.ARRIVED)
+    }
     // The route line (also after a reroute or a day / night switch).
     LaunchedEffect(route, styleTick) { map.style?.let { RouteLayers.show(it, route, emptyList()) } }
     // Follow you: tilted, heading up, the arrow low on the screen under the sign.
@@ -223,7 +265,10 @@ private fun DriveHost(
     }
     fun finish() {
         drive.end()
-        map.style?.let { RouteLayers.show(it, null, emptyList()) }
+        map.style?.let {
+            RouteLayers.show(it, null, emptyList())
+            com.excellentmindblow.navos.ui.map.DriveLayers.show(it, emptyList(), emptyList())
+        }
         here?.let { l -> map.moveTo(l.latitude, l.longitude) }
         app.go(Screen.HOME)
     }
@@ -235,9 +280,10 @@ private fun DriveHost(
     com.excellentmindblow.navos.ui.drive.DriveScreen(
         state = state,
         speedKmh = com.excellentmindblow.navos.Units.speed(((here?.speed ?: 0f) * 3.6f).toDouble()),
-        limitKmh = null,
+        limitKmh = limit,
         strip = strip,
         voiceOn = voiceOn,
+        alert = alert,
         onVoice = { drive.setVoice(!voiceOn) },
         onReport = { picker = true },
         onEnd = { askEnd = true },

@@ -11,7 +11,6 @@ import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
 import com.excellentmindblow.navos.ui.AppViewModel
 import com.excellentmindblow.navos.ui.NavOSApp
-import com.excellentmindblow.navos.ui.theme.NavOSTheme
 
 /**
  * The one activity. The UI is Jetpack Compose (ui/), on top of the engine
@@ -28,9 +27,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Lang.applyToApp(getSharedPreferences(PREFS_NAME, MODE_PRIVATE))
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        Lang.applyToApp(prefs)
+        Lang.load(prefs)
+        Units.load(prefs)
         enableEdgeToEdge()
-        setContent { NavOSTheme { NavOSApp(app) } }
+        setContent { NavOSApp(app) }
         if (hasLocation()) {
             app.startLocation()
         } else {

@@ -41,6 +41,21 @@ class AppViewModel(
 
     private var tracker: LiveLocationTracker? = null
 
+    private val prefs = app.getSharedPreferences(com.excellentmindblow.navos.MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+
+    /** Day / night choice: follow the phone, always day, always night. */
+    private val _theme = MutableStateFlow(prefs.getString(com.excellentmindblow.navos.ui.settings.ThemePref.KEY, null) ?: com.excellentmindblow.navos.ui.settings.ThemePref.SYSTEM)
+    val theme: StateFlow<String> = _theme.asStateFlow()
+
+    fun setTheme(value: String) {
+        prefs.edit().putString(com.excellentmindblow.navos.ui.settings.ThemePref.KEY, value).apply()
+        _theme.value = value
+    }
+
+    /** Where the last drive ended, for the arrival card. */
+    var arrivedName: String = ""
+    var arrivedSide: String? = null
+
     fun go(to: Screen) {
         _screen.value = to
     }

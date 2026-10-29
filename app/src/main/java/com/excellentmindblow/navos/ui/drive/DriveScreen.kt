@@ -59,6 +59,7 @@ fun DriveScreen(
     limitKmh: Int?,
     strip: TripStrip.Strip?,
     voiceOn: Boolean,
+    alert: DriveViewModel.Alert?,
     onVoice: () -> Unit,
     onReport: () -> Unit,
     onEnd: () -> Unit,
@@ -66,7 +67,7 @@ fun DriveScreen(
     val c = Jalan.colors
     Box(Modifier.fillMaxSize()) {
         // The sign.
-        Box(Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 10.dp, vertical = 8.dp)) {
+        Column(Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (state == null) {
                 GantrySign("depart", null, "", tr("Starting navigation…", "Mula navigasi…"), null, null, null, null, null)
             } else if (state.offRoute) {
@@ -86,6 +87,7 @@ fun DriveScreen(
                     thenText = state.nextRoadName ?: state.nextInstruction,
                 )
             }
+            if (alert != null) AlertBanner(alert)
         }
 
         val bottomGap = if (strip != null) 210.dp else 150.dp
