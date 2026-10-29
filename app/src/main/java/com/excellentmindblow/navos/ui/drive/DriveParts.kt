@@ -1,6 +1,7 @@
 package com.excellentmindblow.navos.ui.drive
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.runtime.getValue
@@ -101,3 +102,32 @@ fun ArrivalCard(
     }
 }
 
+
+/** Waze's "Still there?": after you pass a report, one tap to confirm it or clear it for everyone. */
+@Composable
+fun StillThereCard(
+    report: com.excellentmindblow.navos.traffic.RoadReports.Report,
+    onVote: (Boolean) -> Unit,
+) {
+    val c = Jalan.colors
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = c.card, shadowElevation = 6.dp) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(28.dp).background(Color(android.graphics.Color.parseColor(DriveLayers.colour(report.kind))), CircleShape))
+                Spacer(Modifier.width(10.dp))
+                Text(tr("${report.kind.label} - still there?", "${report.kind.label} - masih ada?"), style = JalanType.bodyStrong, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                Box(
+                    Modifier.weight(1f).height(48.dp).background(c.field, RoundedCornerShape(14.dp)).clickable(role = androidx.compose.ui.semantics.Role.Button) { onVote(false) },
+                    contentAlignment = Alignment.Center,
+                ) { Text(tr("Not there", "Tiada"), style = JalanType.label, color = c.ink) }
+                Box(
+                    Modifier.weight(1f).height(48.dp).background(c.ink, RoundedCornerShape(14.dp)).clickable(role = androidx.compose.ui.semantics.Role.Button) { onVote(true) },
+                    contentAlignment = Alignment.Center,
+                ) { Text(tr("Still there", "Masih ada"), style = JalanType.label, color = c.onInk) }
+            }
+        }
+    }
+}

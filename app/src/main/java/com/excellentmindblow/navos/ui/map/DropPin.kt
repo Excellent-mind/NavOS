@@ -73,4 +73,68 @@ object DropPin {
         c.drawCircle(cx, cy, 4.8f * d, p)
         return bmp
     }
+
+    // ---- parked car
+
+    private const val SRC_CAR = "navos-parked"
+    const val LAYER_CAR = "navos-parked"
+    private const val ICON_CAR = "navos-parked-car"
+
+    fun installCar(
+        context: Context,
+        style: Style,
+    ) {
+        if (style.getSource(SRC_CAR) != null) return
+        style.addImage(ICON_CAR, carPin(context))
+        style.addSource(GeoJsonSource(SRC_CAR))
+        style.addLayer(
+            SymbolLayer(LAYER_CAR, SRC_CAR).withProperties(
+                PropertyFactory.iconImage(ICON_CAR),
+                PropertyFactory.iconAnchor("bottom"),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+            ),
+        )
+    }
+
+    fun showCar(
+        style: Style,
+        lat: Double?,
+        lon: Double?,
+    ) {
+        val f = if (lat == null || lon == null) emptyList() else listOf(Feature.fromGeometry(Point.fromLngLat(lon, lat)))
+        style.getSourceAs<GeoJsonSource>(SRC_CAR)?.setGeoJson(FeatureCollection.fromFeatures(f))
+    }
+
+    /** Blue pin with a white "P" and a small car roof: where you parked. */
+    private fun carPin(context: Context): Bitmap {
+        val d = context.resources.displayMetrics.density
+        val w = (36 * d).toInt()
+        val h = (46 * d).toInt()
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val cx = w / 2f
+        val r = 14 * d
+        val cy = r + 3 * d
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        val pin =
+            Path().apply {
+                addCircle(cx, cy, r, Path.Direction.CW)
+                moveTo(cx - r * 0.6f, cy + r * 0.8f)
+                lineTo(cx, h - 3 * d)
+                lineTo(cx + r * 0.6f, cy + r * 0.8f)
+                close()
+            }
+        p.color = 0xFF2457A6.toInt()
+        p.setShadowLayer(2.5f * d, 0f, 1f * d, 0x55000000)
+        c.drawPath(pin, p)
+        p.clearShadowLayer()
+        p.color = 0xFFFFFFFF.toInt()
+        p.textAlign = Paint.Align.CENTER
+        p.textSize = 17 * d
+        p.typeface = android.graphics.Typeface.DEFAULT_BOLD
+        val fm = p.fontMetrics
+        c.drawText("P", cx, cy - (fm.ascent + fm.descent) / 2, p)
+        return bmp
+    }
 }

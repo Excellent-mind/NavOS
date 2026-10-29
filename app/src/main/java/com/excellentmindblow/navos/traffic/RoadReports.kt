@@ -25,6 +25,15 @@ object RoadReports {
         FLOOD("flood"),
         HAZARD("hazard"),
 
+        /** Traffic jam (stop-and-go), as Waze drivers report it. */
+        JAM("jam"),
+
+        /** A mobile speed trap (not a fixed AES camera - those are bundled, see SpeedCameras). */
+        CAMERA("camera"),
+
+        /** Road closed (works, accident, event). */
+        CLOSED("closed"),
+
         /** A driver saw the PLUS Smart Lane (emergency lane) open - see SmartLanes. */
         SMART_LANE("smartlane"),
         ;
@@ -36,6 +45,9 @@ object RoadReports {
                     POLICE -> tr("Police", "Polis")
                     FLOOD -> tr("Flood", "Banjir")
                     HAZARD -> tr("Hazard", "Bahaya")
+                    JAM -> tr("Traffic jam", "Jem")
+                    CAMERA -> tr("Speed trap", "Perangkap laju")
+                    CLOSED -> tr("Road closed", "Jalan ditutup")
                     SMART_LANE -> tr("Smart lane open", "Smart lane dibuka")
                 }
 
@@ -47,6 +59,9 @@ object RoadReports {
                     POLICE -> tr("Police reported ahead", "Ada polis di depan")
                     FLOOD -> tr("Flood reported ahead", "Ada banjir di depan")
                     HAZARD -> tr("Hazard reported ahead", "Ada bahaya di depan")
+                    JAM -> tr("Traffic jam reported ahead", "Ada jem di depan")
+                    CAMERA -> tr("Speed trap reported ahead", "Ada perangkap laju di depan")
+                    CLOSED -> tr("Road closed ahead", "Jalan ditutup di depan")
                     SMART_LANE -> tr("Smart lane open ahead, you may use the left emergency lane", "Smart lane dibuka di depan, boleh guna lorong kecemasan kiri")
                 }
 

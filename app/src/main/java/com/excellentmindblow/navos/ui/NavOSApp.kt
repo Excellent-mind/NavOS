@@ -112,6 +112,7 @@ private fun AppContent(
                 com.excellentmindblow.navos.ui.map.PoiPins.install(style)
                 com.excellentmindblow.navos.ui.map.PoiPins.installArea(style)
                 com.excellentmindblow.navos.ui.map.DropPin.install(context, style)
+                com.excellentmindblow.navos.ui.map.DropPin.installCar(context, style)
                 com.excellentmindblow.navos.ui.map.RouteBubbles.install(style)
                 styleTick++
             },
@@ -127,6 +128,18 @@ private fun AppContent(
                     mapLongTap.value = { ll -> places.dropPin(ll.latitude, ll.longitude) }
                     mapTap.value = { ll ->
                         val m = map.map
+                        val car =
+                            m?.let {
+                                val pt = it.projection.toScreenLocation(ll)
+                                val slop = with(density) { 20.dp.toPx() }
+                                runCatching { it.queryRenderedFeatures(android.graphics.RectF(pt.x - slop, pt.y - slop * 2, pt.x + slop, pt.y + slop / 2), com.excellentmindblow.navos.ui.map.DropPin.LAYER_CAR) }.getOrDefault(emptyList()).isNotEmpty()
+                            } ?: false
+                        val spot = com.excellentmindblow.navos.search.ParkedCar.get(context.getSharedPreferences(com.excellentmindblow.navos.MainActivity.PREFS_NAME, android.content.Context.MODE_PRIVATE))
+                        if (car && spot != null) {
+                            val h = ((System.currentTimeMillis() - spot.atMs) / 3_600_000L).toInt()
+                            val ago = if (h < 1) com.excellentmindblow.navos.tr("parked just now", "baru diparkir") else com.excellentmindblow.navos.tr("parked $h h ago", "diparkir $h jam lepas")
+                            places.dropPin(spot.latitude, spot.longitude, com.excellentmindblow.navos.tr("Your car", "Kereta anda"), listOfNotNull(ago, spot.near.takeIf { it.isNotBlank() }?.let { com.excellentmindblow.navos.tr("at $it", "di $it") }).joinToString(" · "))
+                        } else {
                         val hit =
                             m?.let {
                                 val pt = it.projection.toScreenLocation(ll)
@@ -142,6 +155,7 @@ private fun AppContent(
                             places.dropPin(g?.latitude() ?: ll.latitude, g?.longitude() ?: ll.longitude, name, cat)
                         } else if (places.pinned.value != null) {
                             places.clearPin()
+                        }
                         }
                     }
                     onDispose {
@@ -166,6 +180,10 @@ private fun AppContent(
                         kotlinx.coroutines.delay(if (t == null) 5_000 else 120_000)
                     }
                 }
+                // Where you parked, for a day after arriving.
+                val parked = remember(styleTick) { com.excellentmindblow.navos.search.ParkedCar.get(context.getSharedPreferences(com.excellentmindblow.navos.MainActivity.PREFS_NAME, android.content.Context.MODE_PRIVATE)) }
+                LaunchedEffect(parked, styleTick) { map.style?.let { com.excellentmindblow.navos.ui.map.DropPin.showCar(it, parked?.latitude, parked?.longitude) } }
+                androidx.compose.runtime.DisposableEffect(Unit) { onDispose { map.style?.let { com.excellentmindblow.navos.ui.map.DropPin.showCar(it, null, null) } } }
                 LaunchedEffect(pinned, styleTick) { map.style?.let { com.excellentmindblow.navos.ui.map.DropPin.show(it, pinned?.latitude, pinned?.longitude) } }
                 FloatingSearchBar(
                     onSearch = { openSearch(PlacesViewModel.Purpose.GO) },
@@ -329,7 +347,8 @@ private fun DriveHost(
     val fix by drive.location.collectAsStateWithLifecycle()
     val phoneFix by app.location.collectAsStateWithLifecycle()
     val ended by drive.ended.collectAsStateWithLifecycle()
-    val voiceOn by drive.voiceOn.collectAsStateWithLifecycle()
+    val voiceMode by drive.voiceMode.collectAsStateWithLifecycle()
+    val askVote by drive.askVote.collectAsStateWithLifecycle()
     val alert by drive.alert.collectAsStateWithLifecycle()
     val limit by drive.limit.collectAsStateWithLifecycle()
     val reports by drive.reports.collectAsStateWithLifecycle()
@@ -393,6 +412,13 @@ private fun DriveHost(
         if (!ended) return@LaunchedEffect
         val r = drive.route.value
         app.arrivedName = drive.arrivalName ?: destination?.name.orEmpty()
+        // Remember where the car is (Waze: "your car is parked here").
+        (drive.location.value ?: app.location.value)?.let { l ->
+            com.excellentmindblow.navos.search.ParkedCar.save(
+                context.getSharedPreferences(com.excellentmindblow.navos.MainActivity.PREFS_NAME, android.content.Context.MODE_PRIVATE),
+                com.excellentmindblow.navos.search.ParkedCar.Spot(l.latitude, l.longitude, app.arrivedName, System.currentTimeMillis()),
+            )
+        }
         app.arrivedSide = com.excellentmindblow.navos.NavFormat.arrivalSide(r?.steps?.lastOrNull()?.modifier)?.let { context.getString(it) }
         drive.end()
         map.style?.let {
@@ -491,7 +517,21 @@ private fun DriveHost(
         speedKmh = com.excellentmindblow.navos.Units.speed(((here?.speed ?: 0f) * 3.6f).toDouble()),
         limitKmh = limit,
         strip = strip,
-        voiceOn = voiceOn,
+        voiceMode = voiceMode,
+        askVote = askVote,
+        onVote = drive::vote,
+        onShare = {
+            val st = state
+            val name = drive.arrivalName ?: destination?.name.orEmpty()
+            val at = java.text.SimpleDateFormat("h:mm a", java.util.Locale.US).format(java.util.Date(System.currentTimeMillis() + ((st?.durationRemainingSeconds ?: 0.0) * 1000).toLong()))
+            val text =
+                com.excellentmindblow.navos.tr(
+                    "I'm on my way to $name, arriving around $at (${com.excellentmindblow.navos.NavFormat.formatTripDistance(st?.distanceRemainingMeters ?: 0.0)} to go). Sent from NavOS.",
+                    "Saya dalam perjalanan ke $name, sampai lebih kurang $at (lagi ${com.excellentmindblow.navos.NavFormat.formatTripDistance(st?.distanceRemainingMeters ?: 0.0)}). Dihantar dari NavOS.",
+                )
+            val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, text)
+            context.startActivity(android.content.Intent.createChooser(send, com.excellentmindblow.navos.tr("Share arrival time", "Kongsi masa sampai")))
+        },
         alert = alert,
         sign =
             state?.let { st ->
@@ -553,7 +593,18 @@ private fun DriveHost(
         moving = (here?.speed ?: 0f) > 4f,
         onCloseStation = { drive.onTheWay.select(null) },
         onSheetHeight = { sheetPx = it },
-        onVoice = { drive.setVoice(!voiceOn) },
+        onVoice = {
+            val m = drive.cycleVoice()
+            android.widget.Toast.makeText(
+                context,
+                when (m) {
+                    com.excellentmindblow.navos.ui.drive.DriveViewModel.VoiceMode.ON -> com.excellentmindblow.navos.tr("Voice on", "Suara hidup")
+                    com.excellentmindblow.navos.ui.drive.DriveViewModel.VoiceMode.ALERTS -> com.excellentmindblow.navos.tr("Alerts only", "Amaran sahaja")
+                    com.excellentmindblow.navos.ui.drive.DriveViewModel.VoiceMode.OFF -> com.excellentmindblow.navos.tr("Voice off", "Suara senyap")
+                },
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+        },
         onReport = { picker = true },
         onEnd = { askEnd = true },
     )
@@ -561,16 +612,8 @@ private fun DriveHost(
         com.excellentmindblow.navos.ui.drive.ReportPicker(
             onPick = { kind ->
                 picker = false
-                val l = here
-                if (l == null) {
-                    android.widget.Toast.makeText(context, com.excellentmindblow.navos.tr("Waiting for GPS", "Tunggu GPS"), android.widget.Toast.LENGTH_SHORT).show()
-                } else {
-                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        val ok = runCatching { com.excellentmindblow.navos.traffic.RoadReports.send(kind, RoutePoint(l.latitude, l.longitude), if (l.hasBearing()) l.bearing.toDouble() else null) }.getOrNull() != null
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            android.widget.Toast.makeText(context, if (ok) com.excellentmindblow.navos.tr("Reported. Thanks!", "Dah lapor. Terima kasih!") else com.excellentmindblow.navos.tr("Couldn't send the report", "Laporan tak dapat dihantar"), android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                drive.report(kind) { ok ->
+                    android.widget.Toast.makeText(context, if (ok) com.excellentmindblow.navos.tr("Reported. Thanks!", "Dah lapor. Terima kasih!") else com.excellentmindblow.navos.tr("Couldn't send the report", "Laporan tak dapat dihantar"), android.widget.Toast.LENGTH_SHORT).show()
                 }
             },
             onDismiss = { picker = false },

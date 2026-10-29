@@ -72,7 +72,8 @@ fun SettingsScreen(
     val c = Jalan.colors
     var lang by remember { mutableStateOf(Lang.choice(prefs)) }
     var miles by remember { mutableStateOf(Units.miles) }
-    var voice by remember { mutableStateOf(prefs.getBoolean("voice_enabled", true)) }
+    // Same setting as the drive screen's voice button: On / Alerts only / Off.
+    var voice by remember { mutableStateOf(prefs.getString("voice_mode", null) ?: if (prefs.getBoolean("voice_enabled", true)) "ON" else "OFF") }
     var share by remember { mutableStateOf(TrafficPrefs.sharing(prefs)) }
     var learn by remember { mutableStateOf(TripHabits(prefs).enabled) }
     var cleared by remember { mutableStateOf(false) }
@@ -110,9 +111,14 @@ fun SettingsScreen(
             }
 
             Overline(tr("Driving", "Memandu"))
-            Toggle(tr("Voice guidance", "Panduan suara"), tr("Spoken turns and alerts", "Arahan belok dan amaran disebut"), voice) {
+            Text(tr("Voice", "Suara"), style = JalanType.bodyStrong, color = c.ink, modifier = Modifier.padding(top = 8.dp))
+            Text(tr("Alerts only: cameras, reports and traffic, no turn instructions", "Amaran sahaja: kamera, laporan dan trafik, tanpa arahan belok"), style = JalanType.caption, color = c.inkQuiet)
+            Segmented(
+                listOf("ON" to tr("On", "Hidup"), "ALERTS" to tr("Alerts only", "Amaran"), "OFF" to tr("Off", "Senyap")),
+                voice,
+            ) {
                 voice = it
-                prefs.edit().putBoolean("voice_enabled", it).apply()
+                prefs.edit().putString("voice_mode", it).putBoolean("voice_enabled", it != "OFF").apply()
             }
             Toggle(
                 tr("Share live traffic", "Kongsi trafik langsung"),

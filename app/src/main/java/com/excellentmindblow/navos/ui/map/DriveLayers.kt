@@ -142,6 +142,9 @@ object DriveLayers {
             RoadReports.Kind.POLICE -> "#15181C"
             RoadReports.Kind.FLOOD -> "#2457A6"
             RoadReports.Kind.HAZARD -> "#F2A900"
+            RoadReports.Kind.JAM -> "#E88600"
+            RoadReports.Kind.CAMERA -> "#D2152A"
+            RoadReports.Kind.CLOSED -> "#7A1F2B"
             RoadReports.Kind.SMART_LANE -> "#00693D"
         }
 

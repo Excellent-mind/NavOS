@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -66,7 +67,11 @@ fun DriveScreen(
     speedKmh: Int,
     limitKmh: Int?,
     strip: TripStrip.Strip?,
-    voiceOn: Boolean,
+    voiceMode: DriveViewModel.VoiceMode,
+    /** A report you just passed: "still there?" */
+    askVote: com.excellentmindblow.navos.traffic.RoadReports.Report?,
+    onVote: (Boolean) -> Unit,
+    onShare: () -> Unit,
     alert: DriveViewModel.Alert?,
     /** What the sign says (exit number, shields, destinations). */
     sign: com.excellentmindblow.navos.signs.TurnSign?,
@@ -133,7 +138,16 @@ fun DriveScreen(
                 last.value?.let { FasterCard(it, state?.durationRemainingSeconds ?: 0.0, onTakeFaster, onKeepRoute) }
             }
             androidx.compose.animation.AnimatedVisibility(
-                visible = faster == null && alert != null,
+                visible = askVote != null && faster == null,
+                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
+            ) {
+                val last = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(askVote) }
+                if (askVote != null) last.value = askVote
+                last.value?.let { StillThereCard(it, onVote) }
+            }
+            androidx.compose.animation.AnimatedVisibility(
+                visible = faster == null && askVote == null && alert != null,
                 enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
                 exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
             ) {
@@ -154,7 +168,20 @@ fun DriveScreen(
             }
             Surface(shape = CircleShape, color = c.card, shadowElevation = 6.dp, modifier = Modifier.size(52.dp)) {
                 Box(Modifier.clickable(role = Role.Button, onClick = onVoice), contentAlignment = Alignment.Center) {
-                    Icon(if (voiceOn) JalanIcons.Volume else JalanIcons.VolumeOff, contentDescription = if (voiceOn) tr("Mute voice", "Senyapkan suara") else tr("Turn voice on", "Hidupkan suara"), tint = c.ink)
+                    Icon(
+                        when (voiceMode) {
+                            DriveViewModel.VoiceMode.ON -> JalanIcons.Volume
+                            DriveViewModel.VoiceMode.ALERTS -> JalanIcons.Bell
+                            DriveViewModel.VoiceMode.OFF -> JalanIcons.VolumeOff
+                        },
+                        contentDescription =
+                            when (voiceMode) {
+                                DriveViewModel.VoiceMode.ON -> tr("Voice on. Tap for alerts only", "Suara hidup. Tekan untuk amaran sahaja")
+                                DriveViewModel.VoiceMode.ALERTS -> tr("Alerts only. Tap to mute", "Amaran sahaja. Tekan untuk senyap")
+                                DriveViewModel.VoiceMode.OFF -> tr("Muted. Tap to turn voice on", "Senyap. Tekan untuk hidupkan suara")
+                            },
+                        tint = c.ink,
+                    )
                 }
             }
         }
@@ -269,6 +296,10 @@ fun DriveScreen(
                                             Text(if (state == null) "—" else arrive, style = JalanType.eta, color = c.ink)
                                             Text(left, style = JalanType.caption.copy(fontSize = 16.sp), color = c.inkQuiet)
                                         }
+                                        Box(
+                                            Modifier.padding(end = 8.dp).size(52.dp).background(c.field, CircleShape).clickable(role = Role.Button, onClickLabel = tr("Share arrival time", "Kongsi masa sampai"), onClick = onShare),
+                                            contentAlignment = Alignment.Center,
+                                        ) { Icon(Icons.Rounded.Share, contentDescription = tr("Share arrival time", "Kongsi masa sampai"), tint = c.ink) }
                                         EndPill(onEnd, big = true)
                                     }
                                     if (strip != null) {

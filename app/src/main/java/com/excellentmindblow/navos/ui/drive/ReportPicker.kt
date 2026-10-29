@@ -25,7 +25,7 @@ import com.excellentmindblow.navos.ui.theme.JalanType
 import com.excellentmindblow.navos.ui.theme.Jkr
 import com.excellentmindblow.navos.ui.theme.Traffic
 
-/** Report button: five big tiles, one tap reports it where you are, for other drivers. */
+/** Report button: big tiles (crash, police, flood, hazard, jam, speed trap, road closed, Smart lane), one tap reports it where you are, for other drivers. */
 @Composable
 fun ReportPicker(
     onPick: (RoadReports.Kind) -> Unit,
@@ -40,7 +40,7 @@ fun ReportPicker(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(tr("Reported where you are now, for other drivers.", "Dilapor di tempat anda sekarang, untuk pemandu lain."), style = JalanType.body, color = c.inkQuiet)
                 val kinds = RoadReports.Kind.entries
-                kinds.chunked(2).forEach { row ->
+                kinds.chunked(3).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         row.forEach { k -> Tile(k, Modifier.weight(1f)) { onPick(k) } }
                     }
@@ -64,14 +64,17 @@ private fun Tile(
             RoadReports.Kind.POLICE -> Color(0xFF15181C)
             RoadReports.Kind.FLOOD -> Color(0xFF2457A6)
             RoadReports.Kind.HAZARD -> Traffic.Report
+            RoadReports.Kind.JAM -> Traffic.Slow
+            RoadReports.Kind.CAMERA -> Jkr.LimitRing
+            RoadReports.Kind.CLOSED -> Color(0xFF7A1F2B)
             RoadReports.Kind.SMART_LANE -> Jkr.Green
         }
     val ink = if (k == RoadReports.Kind.HAZARD) Color(0xFF111111) else Color.White
     Column(
-        modifier.fillMaxWidth().height(84.dp).background(fill, RoundedCornerShape(16.dp)).clickable(role = Role.Button, onClick = onClick).padding(10.dp),
+        modifier.fillMaxWidth().height(76.dp).background(fill, RoundedCornerShape(16.dp)).clickable(role = Role.Button, onClick = onClick).padding(10.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(k.label, style = JalanType.bodyStrong, color = ink)
+        Text(k.label, style = JalanType.label, color = ink, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }

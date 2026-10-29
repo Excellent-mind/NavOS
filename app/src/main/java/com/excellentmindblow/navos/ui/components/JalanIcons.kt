@@ -134,4 +134,13 @@ object JalanIcons {
                 moveTo(6f, 21f); lineTo(12f, 21f)
             }
         }
+
+    /** Alerts only: a bell. */
+    val Bell =
+        icon("bell") {
+            stroke {
+                moveTo(6f, 16f); lineTo(6f, 11f); arcTo(6f, 6f, 0f, false, true, 18f, 11f); lineTo(18f, 16f); lineTo(20f, 18f); lineTo(4f, 18f); close()
+                moveTo(10f, 21f); lineTo(14f, 21f)
+            }
+        }
 }

@@ -44,6 +44,10 @@ name, map style: kerbs drawn before all asphalt (no kerb lines across joins), la
 paint only on big roads, fewer one-way arrows (no service roads / ramps).
 0.13.1 (code 18) = route line cut where the arrow comes from (last fix, 3 m back), so it
 always starts under the arrow instead of ahead of it while the arrow glides.
+0.14.0 (code 19) = Waze logic: report kinds jam / speed trap / road closed (worker
+TTLs), "Still there?" vote after passing a report, traffic-ahead warning with
+delay, speeding chime, voice modes (On / Alerts only / Off), Share ETA,
+parked-car memory on the home map.
 
 ## Traffic server
 Cloudflare Worker `navos-traffic` (server/traffic-worker). Deploy with the

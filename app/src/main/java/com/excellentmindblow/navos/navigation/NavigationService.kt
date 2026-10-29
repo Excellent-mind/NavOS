@@ -255,7 +255,8 @@ class NavigationService : Service() {
             engine =
                 NavigationEngine(
                     onState = { state -> handleState(state) },
-                    onAnnounce = { key, text -> voiceNarrator?.speak(key, text) },
+                    // Turn-by-turn instructions; muted in "alerts only" (cameras, reports still speak).
+                    onAnnounce = { key, text -> if (guidanceSpoken) voiceNarrator?.speak(key, text) },
                     onStopReached = { stop ->
                         stopsPassed += 1
                         listener.onStopReached(stop)
@@ -288,6 +289,14 @@ class NavigationService : Service() {
         lastState = null
         engine?.setRoute(route)
         listener.onRerouted(route)
+    }
+
+    /** Voice mode "alerts only": turn instructions quiet, warnings still spoken. */
+    @Volatile
+    private var guidanceSpoken = true
+
+    fun setGuidanceSpoken(on: Boolean) {
+        guidanceSpoken = on
     }
 
     fun setVoiceEnabled(enabled: Boolean) {

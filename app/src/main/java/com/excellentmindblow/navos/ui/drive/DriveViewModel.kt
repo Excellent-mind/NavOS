@@ -76,8 +76,32 @@ class DriveViewModel(
     private val _ended = MutableStateFlow(false)
     val ended: StateFlow<Boolean> = _ended.asStateFlow()
 
-    private val _voiceOn = MutableStateFlow(true)
-    val voiceOn: StateFlow<Boolean> = _voiceOn.asStateFlow()
+    /** Waze-style voice: everything, alerts only (no turn instructions), or nothing. */
+    enum class VoiceMode { ON, ALERTS, OFF }
+
+    private val prefs = app.getSharedPreferences(com.excellentmindblow.navos.MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+    private val _voiceMode =
+        MutableStateFlow(runCatching { VoiceMode.valueOf(prefs.getString(KEY_VOICE_MODE, null) ?: "") }.getOrDefault(if (prefs.getBoolean("voice_enabled", true)) VoiceMode.ON else VoiceMode.OFF))
+    val voiceMode: StateFlow<VoiceMode> = _voiceMode.asStateFlow()
+
+    /** A report you just drove past, asking "still there?" (Waze's way of keeping reports true). */
+    private val _askVote = MutableStateFlow<RoadReports.Report?>(null)
+    val askVote: StateFlow<RoadReports.Report?> = _askVote.asStateFlow()
+    private val asked = HashSet<Int>()
+    private val mine = HashSet<Int>()
+    private var voteTimeout: Job? = null
+
+    /** Slow or jammed stretch ahead on the route, from live traffic. */
+    data class JamAhead(
+        val startM: Double,
+        val endM: Double,
+        val delayS: Double,
+        val jam: Boolean,
+    )
+
+    private var jamAhead: JamAhead? = null
+    private var overSpeed = false
+    private val tone by lazy { runCatching { android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 70) }.getOrNull() }
 
     /** Something on the road ahead to show under the sign: a report, or an open Smart Lane. */
     data class Alert(
@@ -191,6 +215,7 @@ class DriveViewModel(
                 val s = (binder as NavigationService.LocalBinder).getService()
                 service = s
                 s.setListener(listener)
+                applyVoice()
                 pending?.let {
                     s.startNavigation(it)
                     pending = null
@@ -210,6 +235,10 @@ class DriveViewModel(
         setTrack(route)
         alerted.clear()
         overWarned.clear()
+        asked.clear()
+        jamAhead = null
+        overSpeed = false
+        _askVote.value = null
         limits.reset()
         startReports()
         arrivalName = null
@@ -293,6 +322,33 @@ class DriveViewModel(
         }
     }
 
+    /** Just drove past someone's report: ask once if it's still there (not for your own, not Smart Lanes). */
+    private fun askStillThere(p: Double) {
+        if (_askVote.value != null) return
+        val passed =
+            _reports.value.firstOrNull { r ->
+                val behind = p - r.atM
+                behind in VOTE_FROM_M..VOTE_TO_M && r.report.kind != RoadReports.Kind.SMART_LANE && r.report.id !in mine && r.report.id !in asked
+            } ?: return
+        asked += passed.report.id
+        _askVote.value = passed.report
+        voteTimeout?.cancel()
+        voteTimeout = viewModelScope.launch { delay(VOTE_SHOW_MS); _askVote.value = null }
+    }
+
+    /** A short chime when you go over the limit (once, until you're back under it). */
+    private fun speedChime(l: Location) {
+        val limit = _limit.value ?: return
+        if (!l.hasSpeed()) return
+        val kmh = l.speed * 3.6
+        if (!overSpeed && kmh > limit + OVER_BY_KMH) {
+            overSpeed = true
+            if (_voiceMode.value != VoiceMode.OFF) runCatching { tone?.startTone(android.media.ToneGenerator.TONE_PROP_BEEP2, 220) }
+        } else if (overSpeed && kmh < limit + 1) {
+            overSpeed = false
+        }
+    }
+
     /** The driven part and the turn arrow, from where you are on the route. */
     private fun updateLine(
         p: Double,
@@ -355,9 +411,28 @@ class DriveViewModel(
         viewModelScope.launch {
             val live = withContext(Dispatchers.IO) { runCatching { TrafficClient.flow(TrafficFlow.piecesAhead(nodes, from)) }.getOrNull() } ?: return@launch
             if (_route.value !== r) return@launch
+            val runs = TrafficFlow.runs(nodes, free, live, from)
             _traffic.value =
-                TrafficFlow.runs(nodes, free, live, from).map { run ->
+                runs.map { run ->
                     TrafficRun(r.geometry.subList(run.from, (run.to + 1).coerceAtMost(r.geometry.size)), run.level == TrafficFlow.Level.JAM)
+                }
+            // The first slow / jammed stretch ahead and what it costs (as Waze says "+6 min").
+            val t = track
+            jamAhead =
+                if (t == null || t.source !== r.geometry) {
+                    null
+                } else {
+                    runs.firstNotNullOfOrNull { run ->
+                        var delay = 0.0
+                        for (i in run.from until run.to.coerceAtMost(nodes.size - 1)) {
+                            val kmh = live["${nodes[i]}-${nodes[i + 1]}"] ?: continue
+                            if (kmh <= 1.0) continue
+                            val len = t.distanceAt(i + 1) - t.distanceAt(i)
+                            delay += len / (kmh / 3.6) - len / free[i]
+                        }
+                        val js = JamAhead(t.distanceAt(run.from), t.distanceAt(run.to), delay.coerceAtLeast(0.0), run.level == TrafficFlow.Level.JAM)
+                        js.takeIf { js.endM - js.startM >= 200 && js.delayS >= 60 }
+                    }
                 }
         }
     }
@@ -458,6 +533,9 @@ class DriveViewModel(
 
         val report = RoadReports.nextAhead(_reports.value, p, 800.0)?.takeIf { it.report.kind != RoadReports.Kind.SMART_LANE }
         val lane = open.firstOrNull { p in (it.startM - 2_000.0)..it.endM }
+        val jam = jamAhead?.takeIf { p in (it.startM - JAM_WARN_M)..it.endM }
+        askStillThere(p)
+        speedChime(l)
         // Speed camera ahead: first, it costs money. Its limit shows when the map has none.
         val cam = com.excellentmindblow.navos.traffic.SpeedCameras.nextToWarn(_cameras.value, p)
         val speedKmh = if (l.hasSpeed()) l.speed * 3.6 else 0.0
@@ -485,6 +563,21 @@ class DriveViewModel(
                 }
                 report != null ->
                     Alert("report-${report.report.id}", report.report.kind, report.report.kind.label, RoadReports.detail(report.report), report.atM - p)
+                jam != null -> {
+                    val inIt = p >= jam.startM
+                    val min = Math.round(jam.delayS / 60.0).toInt().coerceAtLeast(1)
+                    Alert(
+                        "jam-${jam.startM.toInt()}",
+                        RoadReports.Kind.JAM,
+                        when {
+                            inIt -> tr("In heavy traffic", "Dalam kesesakan")
+                            jam.jam -> tr("Heavy traffic ahead", "Sesak teruk di depan")
+                            else -> tr("Slow traffic ahead", "Lalu lintas perlahan di depan")
+                        },
+                        tr("+$min min · ${com.excellentmindblow.navos.Units.short(jam.endM - jam.startM)} of it", "+$min min · ${com.excellentmindblow.navos.Units.short(jam.endM - jam.startM)}"),
+                        (if (inIt) jam.endM else jam.startM) - p,
+                    )
+                }
                 lane != null -> {
                     val on = p >= lane.startM
                     val until = SmartLanes.openUntil(lane.lane, now)?.let { m -> String.format(java.util.Locale.US, "%d:%02d", ((m / 60) % 12).let { h -> if (h == 0) 12 else h }, m % 60) }
@@ -511,19 +604,58 @@ class DriveViewModel(
                         } else {
                             tr("Speed camera ahead.", "Kamera laju di depan.")
                         }
+                    } else if (a.key.startsWith("jam-")) {
+                        val min = Math.round((jamAhead?.delayS ?: 60.0) / 60.0).toInt().coerceAtLeast(1)
+                        if (a.title == tr("In heavy traffic", "Dalam kesesakan")) "" else tr("Heavy traffic ahead. About $min minutes slower.", "Sesak di depan. Lebih kurang $min minit lambat.")
                     } else if (a.kind == RoadReports.Kind.SMART_LANE) {
                         tr("Smart lane open ahead. You may use the left emergency lane.", "Smart lane dibuka di depan. Boleh guna lorong kecemasan kiri.")
                     } else {
                         a.kind.spoken
                     }
-                service?.announce(a.key, spoken)
+                if (spoken.isNotEmpty()) service?.announce(a.key, spoken)
             }
         }
     }
 
-    fun setVoice(on: Boolean) {
-        _voiceOn.value = on
-        service?.setVoiceEnabled(on)
+    /** On -> Alerts only -> Off -> On. */
+    fun cycleVoice(): VoiceMode {
+        val next = VoiceMode.entries[(_voiceMode.value.ordinal + 1) % VoiceMode.entries.size]
+        _voiceMode.value = next
+        prefs.edit().putString(KEY_VOICE_MODE, next.name).apply()
+        applyVoice()
+        return next
+    }
+
+    private fun applyVoice() {
+        val m = _voiceMode.value
+        service?.setVoiceEnabled(m != VoiceMode.OFF)
+        service?.setGuidanceSpoken(m == VoiceMode.ON)
+    }
+
+    /** Sends a report from where you are; remembers it so you're not asked "still there?" about your own. */
+    fun report(
+        kind: RoadReports.Kind,
+        onDone: (Boolean) -> Unit,
+    ) {
+        val l = _shown.value ?: _location.value ?: return onDone(false)
+        viewModelScope.launch {
+            val id = withContext(Dispatchers.IO) { runCatching { RoadReports.send(kind, RoutePoint(l.latitude, l.longitude), if (l.hasBearing()) l.bearing.toDouble() else null) }.getOrNull() }
+            if (id != null) mine += id
+            onDone(id != null)
+        }
+    }
+
+    /** Answer to "still there?". */
+    fun vote(stillThere: Boolean) {
+        val r = _askVote.value ?: return
+        _askVote.value = null
+        voteTimeout?.cancel()
+        viewModelScope.launch(Dispatchers.IO) { runCatching { RoadReports.vote(r.id, stillThere) } }
+    }
+
+    fun dismissVote() {
+        _askVote.value = null
+        voteTimeout?.cancel()
     }
 
     private fun unbind() {
@@ -535,11 +667,26 @@ class DriveViewModel(
         service = null
     }
 
-    override fun onCleared() = unbind()
+    override fun onCleared() {
+        unbind()
+        runCatching { tone?.release() }
+    }
 
     private companion object {
         /** Further than this from the line, the arrow shows the real fix (you may have left the route). */
         const val SNAP_TO_ROUTE_M = 35.0
+        const val KEY_VOICE_MODE = "voice_mode"
+
+        /** Ask "still there?" once you're this far past a report. */
+        const val VOTE_FROM_M = 40.0
+        const val VOTE_TO_M = 400.0
+        const val VOTE_SHOW_MS = 10_000L
+
+        /** Warn of slow traffic this far before it starts. */
+        const val JAM_WARN_M = 5_000.0
+
+        /** Chime this much over the limit. */
+        const val OVER_BY_KMH = 5
 
         /** The line is cut this far behind where the arrow comes from, so it always runs under the arrow. */
         const val CUT_BEHIND_M = 3.0
