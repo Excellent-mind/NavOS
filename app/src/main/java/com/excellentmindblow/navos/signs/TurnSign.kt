@@ -17,6 +17,10 @@ data class TurnSign(
     val text: String,
     /** Green JKR expressway sign (on or onto an E road), else blue. */
     val expressway: Boolean,
+    /** The road you turn onto, when it has a name ("Jalan Ampang"); else the destinations. Big line of the banner. */
+    val primary: String = text,
+    /** Where it leads, shown small as "towards ..." when [primary] is a road name. */
+    val towards: String? = null,
 ) {
     companion object {
         private val EXIT_IN_NAME = Regex("(?i)^\\s*(exit|keluar|susur keluar)\\s*([0-9]{2,4}[A-Za-z]?)\\s*[-:,]?\\s*")
@@ -56,7 +60,10 @@ data class TurnSign(
                     else -> fallback
                 }
             val expressway = SignColour.isExpressway(onRoadRef) || refs.any { SignColour.isExpressway(it) }
-            return TurnSign(exit, refs, text, expressway)
+            val placesText = places.joinToString(" · ").takeIf { it.isNotEmpty() }
+            val primary = name.ifEmpty { placesText ?: fallback }
+            val towards = if (name.isNotEmpty()) placesText else null
+            return TurnSign(exit, refs, text, expressway, primary, towards)
         }
     }
 }

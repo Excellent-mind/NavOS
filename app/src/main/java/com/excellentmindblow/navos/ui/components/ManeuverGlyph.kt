@@ -50,10 +50,11 @@ fun ManeuverGlyph(
         fun head(
             tip: Offset,
             from: Offset,
+            k: Float = 1f,
         ) {
             val a = atan2((tip.y - from.y).toDouble(), (tip.x - from.x).toDouble())
-            val len = 13f * u
-            val half = 8.5f * u
+            val len = 13f * u * k
+            val half = 8.5f * u * k
             val base = Offset(tip.x - (len * cos(a)).toFloat(), tip.y - (len * sin(a)).toFloat())
             val nx = (-sin(a)).toFloat() * half
             val ny = cos(a).toFloat() * half
@@ -97,23 +98,36 @@ fun ManeuverGlyph(
                 drawCircle(hole, radius = 5.5f * u, center = p(24f, 19f))
             }
             type.contains("roundabout") || type.contains("rotary") -> {
-                // Clockwise ring; leave it left (first exit), straight, or right.
-                drawCircle(color, radius = 8f * u, center = p(24f, 20f), style = Stroke(width = w * 0.8f))
-                line(Path().apply { moveTo(24f * u, 44f * u); lineTo(24f * u, 28f * u) })
-                when {
-                    left -> {
-                        line(Path().apply { moveTo(16f * u, 20f * u); lineTo(9f * u, 20f * u) })
-                        head(p(3f, 20f), p(16f, 20f))
+                // The whole ring faded; your way round it bold, clockwise (Malaysia drives on the left):
+                // in from the bottom, out left (first exit), straight on, right, or all the way round.
+                val c = p(24f, 24f)
+                val r = 7.5f * u
+                drawCircle(color.copy(alpha = color.alpha * 0.35f), radius = r, center = c, style = Stroke(width = w * 0.7f))
+                val sweep =
+                    when {
+                        mod.contains("sharp left") || mod == "left" || mod.contains("slight left") -> 90f
+                        mod.contains("right") -> 270f
+                        mod == "uturn" -> 330f
+                        else -> 180f
                     }
-                    right -> {
-                        line(Path().apply { moveTo(32f * u, 20f * u); lineTo(39f * u, 20f * u) })
-                        head(p(45f, 20f), p(32f, 20f))
+                val start = 90f // bottom of the ring
+                val path =
+                    Path().apply {
+                        moveTo(24f * u, 45f * u)
+                        lineTo(24f * u, c.y + r)
+                        arcTo(androidx.compose.ui.geometry.Rect(c.x - r, c.y - r, c.x + r, c.y + r), start, sweep, false)
                     }
-                    else -> {
-                        line(Path().apply { moveTo(24f * u, 12f * u); lineTo(24f * u, 9f * u) })
-                        head(p(24f, 2f), p(24f, 12f))
-                    }
-                }
+                // Out of the ring along the exit's direction (radially).
+                val endA = Math.toRadians((start + sweep).toDouble())
+                val ex = c.x + r * cos(endA).toFloat()
+                val ey = c.y + r * sin(endA).toFloat()
+                val ox = c.x + (r + 4f * u) * cos(endA).toFloat()
+                val oy = c.y + (r + 4f * u) * sin(endA).toFloat()
+                path.lineTo(ox, oy)
+                line(path)
+                val tx = c.x + (r + 14f * u) * cos(endA).toFloat()
+                val ty = c.y + (r + 14f * u) * sin(endA).toFloat()
+                head(Offset(tx, ty), Offset(ex, ey), 0.8f)
             }
             type == "uturn" || mod == "uturn" ->
                 // Malaysia: U-turns go round to the right.

@@ -45,7 +45,6 @@ import com.excellentmindblow.navos.NavFormat
 import com.excellentmindblow.navos.navigation.NavigationState
 import com.excellentmindblow.navos.navigation.TripStrip
 import com.excellentmindblow.navos.tr
-import com.excellentmindblow.navos.ui.components.GantrySign
 import com.excellentmindblow.navos.ui.components.JalanIcons
 import com.excellentmindblow.navos.ui.components.SpeedSigns
 import com.excellentmindblow.navos.ui.components.TripRibbon
@@ -97,25 +96,24 @@ fun DriveScreen(
         // The sign.
         Column(Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (state == null) {
-                GantrySign("depart", null, "", tr("Starting navigation…", "Mula navigasi…"), null, null, null, null, null)
+                com.excellentmindblow.navos.ui.components.TurnBanner("depart", null, "", tr("Starting navigation…", "Mula navigasi…"), null, null, emptyList(), null, null, null)
             } else if (state.offRoute) {
-                GantrySign("continue", null, "", tr("Finding a new route…", "Cari laluan baru…"), null, null, null, null, null)
+                com.excellentmindblow.navos.ui.components.TurnBanner("continue", null, "", tr("Finding a new route…", "Cari laluan baru…"), null, null, emptyList(), null, null, null)
             } else {
                 val showLanes = state.distanceToNextTurnMeters <= 600 && !state.isArrival
-                val showThen = state.nextManeuverType != null && state.distanceToNextTurnMeters <= 400 && !state.isArrival
-                GantrySign(
+                // "Then" only when the turn after comes right behind this one (as Google Maps does).
+                val showThen = state.nextManeuverType != null && !state.isArrival && state.distanceBetweenTurnsMeters in 1.0..350.0 && state.distanceToNextTurnMeters <= 1000
+                com.excellentmindblow.navos.ui.components.TurnBanner(
                     maneuverType = state.maneuverType,
                     modifier = state.modifier,
                     distance = NavFormat.formatCountdownDistance(state.distanceToNextTurnMeters),
-                    road = sign?.text ?: state.instruction,
-                    roadRef = state.roadRef,
+                    primary = sign?.primary ?: state.instruction,
+                    towards = sign?.towards,
                     exit = sign?.exit,
-                    refs = sign?.refs,
-                    expressway = sign?.expressway,
+                    refs = sign?.refs ?: listOfNotNull(state.roadRef),
                     lanes = if (showLanes) state.lanes else null,
                     thenType = if (showThen) state.nextManeuverType else null,
                     thenModifier = state.nextModifier,
-                    thenText = state.nextRoadName ?: state.nextInstruction,
                 )
             }
             // Faster route first (it needs an answer), else what's on the road ahead.

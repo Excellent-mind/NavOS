@@ -30,6 +30,9 @@ class TurnSignTest {
         assertEquals("3305A", s.exit)
         assertEquals(listOf("E33"), s.refs)
         assertEquals("Kuantan · Genting Highlands", s.text)
+        // Banner: the road big, where it goes small.
+        assertEquals("Jalan Duta", s.primary)
+        assertEquals("Kuantan · Genting Highlands", s.towards)
     }
 
     @Test

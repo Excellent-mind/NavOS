@@ -29,6 +29,10 @@ camera pins; home screen without the bottom sheet.
 exit-number tag and destinations on the sign (TurnSign), green sign on
 expressway exits, bigger driving arrow, driven part of the route hidden,
 turn arrow painted on the route before each junction.
+0.11.0 (code 13) = Google Maps-style turn banner (TurnBanner): green banner,
+big icon with distance under it, road name large + "towards ...", exit and
+shield chips, lane band, "Then" tab only for back-to-back turns; roundabout
+icons trace the clockwise path round a faded ring.
 
 ## Traffic server
 Cloudflare Worker `navos-traffic` (server/traffic-worker). Deploy with the
