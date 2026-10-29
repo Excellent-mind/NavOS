@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- White rounded card sitting on the light-grey section of a bottom sheet. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/navos_surface" />
-    <corners android:radius="16dp" />
-</shape>

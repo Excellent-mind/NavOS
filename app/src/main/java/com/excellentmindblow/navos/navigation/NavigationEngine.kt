@@ -47,7 +47,7 @@ data class NavigationState(
 )
 
 /**
- * Native port of legacy-expo-rn/src/services/navigationEngine.ts - same
+ * Native port of the original React Native app's navigationEngine.ts - same
  * thresholds and step-advance / off-route / announce-distance logic,
  * driven by pushing each GPS fix in (onLocation) instead of a React
  * hook's effect dependencies.

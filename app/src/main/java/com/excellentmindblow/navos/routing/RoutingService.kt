@@ -72,7 +72,7 @@ data class Route(
 )
 
 /**
- * Native port of legacy-expo-rn/src/services/routing.ts - same OSRM free
+ * Native port of the original React Native app's routing.ts - same OSRM free
  * public demo server, same request shape, and the same maneuver/modifier
  * -> natural-language instruction logic. Extended with alternatives=true
  * (the legacy app only ever requested one route) so the UI can offer a

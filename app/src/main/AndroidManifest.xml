@@ -19,9 +19,6 @@
          persistent notification. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Android Auto: navigation templates + drawing the map on the car screen. -->
-    <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
-    <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
 
     <application
         android:allowBackup="false"
@@ -30,20 +27,13 @@
         android:theme="@style/Theme.NavOS"
         android:usesCleartextTraffic="false">
 
-        <!-- Android Auto: tells the car host this app provides car templates. -->
-        <meta-data
-            android:name="com.google.android.gms.car.application"
-            android:resource="@xml/automotive_app_desc" />
-        <meta-data
-            android:name="androidx.car.app.minCarApiLevel"
-            android:value="1" />
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:configChanges="uiMode"
             android:launchMode="singleTask"
-            android:theme="@style/Theme.NavOS.Splash"
+            android:theme="@style/Theme.NavOS"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -163,21 +153,6 @@
              MainActivity) or targets its "end navigation" action (from the
              notification action's own PendingIntent, which doesn't need
              exported="true" to work). -->
-        <!-- Android Auto entry point (map / navigation category). -->
-        <service
-            android:name=".car.NavOsCarAppService"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="androidx.car.app.CarAppService" />
-                <category android:name="androidx.car.app.category.NAVIGATION" />
-            </intent-filter>
-            <!-- "Hey Google, navigate to ..." arrives as a geo: intent. -->
-            <intent-filter>
-                <action android:name="androidx.car.app.action.NAVIGATE" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="geo" />
-            </intent-filter>
-        </service>
 
         <service
             android:name=".navigation.NavigationService"

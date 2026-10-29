@@ -31,6 +31,12 @@ class TollPricer(
     private val openFares: Map<PlazaKey, IntArray>,
     private val pairFares: Map<Pair<PlazaKey, PlazaKey>, IntArray>,
 ) {
+    /** How many plazas the table knows - a sanity check for downloaded tables. */
+    val plazaCount: Int get() = plazas.size
+
+    /** How many entry>exit fares the table knows. */
+    val pairCount: Int get() = pairFares.size
+
     data class PlazaKey(
         val highway: String,
         val id: String,
@@ -99,7 +105,10 @@ class TollPricer(
 
     companion object {
         private val NOISE =
-            Regex("\\b(PLAZA|TOL|TOLL|SELATAN|UTARA|TIMUR|BARAT|ARAH|KE|BOUND|NB|SB|EB|WB)\\b")
+            Regex("\\b(PLAZA|TOL|TOLL|SELATAN|UTARA|TIMUR|BARAT|ARAH|ATAH|KE|BOUND|NB|SB|EB|WB|PLUS|ENTRY|EXIT|EXIT\\d+|MASUK|KELUAR)\\b")
+
+        // Short forms on the map -> LLM's spelling.
+        private val SPELLING = listOf(Regex("\\bSG\\b") to "SUNGAI", Regex("\\bAIR\\b") to "AYER", Regex("\\bJLN\\b") to "JALAN", Regex("\\bBDR\\b") to "BANDAR")
         private val DIRECTION = Regex("\\((U|S|T|B|N|E|W|UTARA|SELATAN|TIMUR|BARAT)\\)")
 
         fun normalize(name: String): String =
@@ -107,6 +116,7 @@ class TollPricer(
                 .uppercase(Locale.ROOT)
                 .replace(DIRECTION, " ")
                 .replace(Regex("[^A-Z0-9 ]"), " ")
+                .let { t -> SPELLING.fold(t) { acc, (re, to) -> acc.replace(re, to) } }
                 .replace(NOISE, " ")
                 .replace(Regex("\\s+"), " ")
                 .trim()

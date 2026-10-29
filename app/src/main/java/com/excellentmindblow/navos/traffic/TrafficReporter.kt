@@ -24,6 +24,7 @@ class TrafficReporter(
     private var route: Route? = null
     private var track: RouteTrack? = null
     private var lastSeg = 0
+    private var where: Map<String, DoubleArray> = emptyMap()
     private var lastUploadMs = 0L
 
     /** A new drive (new id) or a reroute ([sameDrive] keeps the id). */
@@ -43,6 +44,17 @@ class TrafficReporter(
         val cum = DoubleArray(newRoute.geometry.size)
         for (i in 1 until cum.size) cum[i] = cum[i - 1] + GeoUtils.distanceMeters(newRoute.geometry[i - 1], newRoute.geometry[i])
         probe = TrafficProbe(nodes, cum)
+        // Where each piece is and its normal speed, sent along with its live speed.
+        val free = newRoute.freeFlowMs
+        val g = newRoute.geometry
+        val w = HashMap<String, DoubleArray>(nodes.size)
+        if (free != null) {
+            for (i in 0 until minOf(nodes.size - 1, free.size)) {
+                if (nodes[i] <= 0 || nodes[i + 1] <= 0) continue
+                w["${nodes[i]}-${nodes[i + 1]}"] = doubleArrayOf(g[i].latitude, g[i].longitude, g[i + 1].latitude, g[i + 1].longitude, free[i] * 3.6)
+            }
+        }
+        where = w
         track = RouteTrack(newRoute.geometry)
         lastSeg = 0
     }
@@ -76,7 +88,8 @@ class TrafficReporter(
         val batch = p.drain()
         if (batch.isEmpty()) return
         val id = session
-        io.execute { runCatching { TrafficClient.sendProbes(id, batch) } }
+        val w = where
+        io.execute { runCatching { TrafficClient.sendProbes(id, batch, w) } }
     }
 
     /** End of the drive. What's still queued is dropped, not sent: it is the

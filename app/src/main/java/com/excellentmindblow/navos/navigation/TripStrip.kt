@@ -21,6 +21,8 @@ object TripStrip {
         val name: String,
         /** For [Kind.REPORT]: what was reported. */
         val report: RoadReports.Kind? = null,
+        /** Names of nearby same-kind places merged into this one (a toll's other booths). */
+        val otherNames: List<String> = emptyList(),
     )
 
     /** A slow ([jam] = false) or jammed stretch, [fromM]..[toM] along the route. */
@@ -93,7 +95,14 @@ object TripStrip {
                     for (m in list.sortedBy { it.atM }) {
                         val last = out.lastOrNull()
                         if (last != null && m.atM - last.atM < gap) {
-                            if (last.name.isBlank() && m.name.isNotBlank()) out[out.size - 1] = last.copy(name = m.name)
+                            out[out.size - 1] =
+                                if (last.name.isBlank() && m.name.isNotBlank()) {
+                                    last.copy(name = m.name)
+                                } else if (m.name.isNotBlank() && m.name != last.name && m.name !in last.otherNames) {
+                                    last.copy(otherNames = last.otherNames + m.name)
+                                } else {
+                                    last
+                                }
                         } else {
                             out += m
                         }

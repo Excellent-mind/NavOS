@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- View tag key: set while Motion.dismiss() is animating a view out. -->
-    <item name="motion_leaving" type="id" />
-</resources>

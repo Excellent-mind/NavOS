@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The driving arrow: the NavOS logo's blue arrow, pointing up (the map turns it to your heading).
+     Bigger than the route line so it reads at a glance; a soft dark rim lifts it off the blue line. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="58dp" android:height="58dp"
+    android:viewportWidth="58" android:viewportHeight="58">
+    <path android:pathData="M29,4L50,51Q51.5,54.5 48,53L29,43L10,53Q6.5,54.5 8,51Z"
+        android:fillColor="#33000000" android:strokeColor="#33000000" android:strokeWidth="7" android:strokeLineJoin="round" />
+    <path android:pathData="M29,4L50,51Q51.5,54.5 48,53L29,43L10,53Q6.5,54.5 8,51Z"
+        android:fillColor="#0A82FE" android:strokeColor="#FFFFFF" android:strokeWidth="4" android:strokeLineJoin="round" />
+</vector>

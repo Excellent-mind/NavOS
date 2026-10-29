@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- NavOS logo: ring, the S-shaped road, the blue arrow. Drawn on a 1254 grid, scaled into the
+     adaptive-icon safe zone (the logo's ring is ~64 of the 108 dp). Paths shared with ui/brand/NavLogo.kt. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="1485" android:viewportHeight="1485">
+    <group android:translateX="122.5" android:translateY="145.5">
+        <path android:pathData="M417.0,948.6A406,406 0 1,1 914.5,317.5" android:strokeColor="#FFFFFF" android:strokeWidth="60" />
+        <path android:pathData="M933.3,338.8A406,406 0 0,1 912.1,879.0" android:strokeColor="#FFFFFF" android:strokeWidth="60" />
+        <path android:pathData="M752,432L445,432A93,93 0 0,0 445,618L808,618A88,88 0 0,1 808,794L505,794C450,794 415,830 415,875C415,930 432,958 474.5,976.0A406,406 0 0,0 897.9,893.0" android:strokeColor="#FFFFFF" android:strokeWidth="57" android:strokeLineJoin="round" />
+        <path android:pathData="M893,431L712,358Q704,356 708,364L748,432L708,500Q704,508 712,505Z" android:fillColor="#0A82FE" android:strokeColor="#FFFFFF" android:strokeWidth="10" android:strokeLineJoin="round" />
+    </group>
+</vector>

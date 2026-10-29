@@ -1,0 +1,19 @@
+# One-off data job: fetches Malaysia's toll plazas from OpenStreetMap
+# (tools/tolls/fetch_plazas.py) and uploads them as an artifact, to be
+# bundled as app/src/main/assets/tolls/plazas.json. Runs when the script
+# changes, or by hand.
+name: Toll plazas
+on:
+  workflow_dispatch:
+  push:
+    paths: ["tools/tolls/fetch_plazas.py"]
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/tolls/fetch_plazas.py plazas.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: toll-plazas
+          path: plazas.json

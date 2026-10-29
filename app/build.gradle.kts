@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -16,8 +17,8 @@ android {
         applicationId = "com.excellentmindblow.navos"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 15
+        versionName = "0.11.2"
 
         // The unrestricted APK bundles all 4 ABIs' libmaplibre.so (arm64,
         // armv7, x86, x86_64 - including two desktop/emulator-only
@@ -47,6 +48,12 @@ android {
     }
 
     buildTypes {
+        // Shrink the debug APK too (Compose + MapLibre unshrunk is ~33 MB, over the 30 MB
+        // chat upload limit). The app's own classes are kept as they are (proguard-rules.pro).
+        debug {
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("release")
@@ -63,20 +70,28 @@ android {
     }
 
     buildFeatures {
-        viewBinding = true
+        compose = true
         buildConfig = true
     }
 }
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.core:core-splashscreen:1.0.1") // launch splash screen (logo on black)
     implementation("androidx.appcompat:appcompat:1.7.0")
-    implementation("com.google.android.material:material:1.12.0")
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.activity:activity-ktx:1.9.3") // registerForActivityResult (permission request)
-    implementation("androidx.drawerlayout:drawerlayout:1.2.0") // settings drawer
-    implementation("androidx.dynamicanimation:dynamicanimation:1.0.0") // spring-driven home sheet
+
+    // Jetpack Compose (the UI). BOM 2024.09 = Compose 1.7, fits compileSdk 34.
+    implementation(platform("androidx.compose:compose-bom:2024.09.03"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-core")
+    implementation("androidx.compose.animation:animation")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 
     // MapLibre's native Android SDK - the exact same engine
     // @maplibre/maplibre-react-native wrapped (confirmed from its own
@@ -85,8 +100,6 @@ dependencies {
     // JS bridge in between.
     implementation("org.maplibre.gl:android-sdk-opengl:13.6.1")
 
-    // Android Auto (Car App Library) - lets NavOS run on the car screen.
-    implementation("androidx.car.app:app:1.4.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.mockito:mockito-core:5.14.2")

@@ -42,11 +42,45 @@ object TrafficClient {
     fun sendProbes(
         session: String,
         probes: List<Pair<String, Double>>,
+        /** Where each piece is: seg -> (latA, lonA, latB, lonB, normal km/h). Public map data, for area traffic. */
+        where: Map<String, DoubleArray> = emptyMap(),
     ) {
         if (probes.isEmpty()) return
         val p = JSONArray()
-        for ((seg, kmh) in probes) p.put(JSONArray().put(seg).put(kmh))
-        post("/probe", JSONObject().put("s", session).put("p", p))
+        val g = JSONArray()
+        for ((seg, kmh) in probes) {
+            p.put(JSONArray().put(seg).put(kmh))
+            where[seg]?.let { w -> g.put(JSONArray().put(seg).put(w[0]).put(w[1]).put(w[2]).put(w[3]).put(w[4])) }
+        }
+        val body = JSONObject().put("s", session).put("p", p)
+        if (g.length() > 0) body.put("g", g)
+        post("/probe", body)
+    }
+
+    /** A slow or jammed road piece somewhere on the map. */
+    data class AreaPiece(
+        val aLat: Double,
+        val aLon: Double,
+        val bLat: Double,
+        val bLon: Double,
+        val jam: Boolean,
+    )
+
+    /** Slow and jammed pieces in a box (south, west, north, east; at most ~0.35 degrees a side). */
+    @Throws(IOException::class)
+    fun area(
+        south: Double,
+        west: Double,
+        north: Double,
+        east: Double,
+    ): List<AreaPiece> {
+        val body = post("/area", JSONObject().put("box", JSONArray().put(south).put(west).put(north).put(east)))
+        val a = body.optJSONArray("a") ?: return emptyList()
+        return (0 until a.length()).mapNotNull { i ->
+            val r = a.optJSONArray(i) ?: return@mapNotNull null
+            if (r.length() < 5) return@mapNotNull null
+            AreaPiece(r.getDouble(0), r.getDouble(1), r.getDouble(2), r.getDouble(3), r.getInt(4) >= 2)
+        }
     }
 
     /** Live speed (km/h) of those [pieces] that 3+ drivers measured in the last 10 minutes. */

@@ -1,0 +1,2 @@
+Speed and red-light camera locations (cameras.json): © OpenStreetMap contributors,
+available under the Open Database License (ODbL) 1.0. Built by tools/cameras/build.py.
