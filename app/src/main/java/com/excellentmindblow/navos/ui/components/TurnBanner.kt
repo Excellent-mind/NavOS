@@ -2,6 +2,7 @@ package com.excellentmindblow.navos.ui.components
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,12 +59,18 @@ fun TurnBanner(
     thenType: String?,
     thenModifier: String?,
     layout: Modifier = Modifier,
+    /** Tap: the list of every turn ahead. */
+    onClick: (() -> Unit)? = null,
 ) {
     val night = Jalan.colors.isNight
     val green = if (night) BannerColors.Night else BannerColors.Day
     val dark = if (night) BannerColors.NightDark else BannerColors.DayDark
     val showLanes = !lanes.isNullOrEmpty() && lanes.size in 2..8
-    Column(layout.fillMaxWidth().semantics { contentDescription = "$distance, $primary" }) {
+    Column(
+        layout.fillMaxWidth()
+            .semantics { contentDescription = "$distance, $primary" }
+            .then(if (onClick != null) Modifier.clickable(interactionSource = null, indication = null, onClickLabel = tr("All turns", "Semua belokan"), onClick = onClick) else Modifier),
+    ) {
         Surface(shape = RoundedCornerShape(20.dp), color = green, shadowElevation = 8.dp, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.animateContentSize()) {
                 Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 18.dp, top = 14.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {

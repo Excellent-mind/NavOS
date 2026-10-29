@@ -48,4 +48,13 @@ class TurnSignTest {
         assertEquals("Keep left", TurnSign.of(step(""), null, "Keep left").text)
         assertEquals("Bear left", TurnSign.of(step(""), null, "Bear left onto the road").primary)
     }
+
+    @Test
+    fun unnamedLinkTakesTheNextRoadsName() {
+        val link = step("").copy(distanceMeters = 120.0)
+        assertEquals("Jalan Pembangunan", TurnSign.of(link, null, "Turn left onto the road", step("Jalan Pembangunan")).primary)
+        // A long unnamed road keeps the plain instruction.
+        val long = step("").copy(distanceMeters = 900.0)
+        assertEquals("Turn left", TurnSign.of(long, null, "Turn left onto the road", step("Jalan Pembangunan")).primary)
+    }
 }

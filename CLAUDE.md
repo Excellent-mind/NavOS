@@ -39,6 +39,9 @@ icons trace the clockwise path round a faded ring.
 arrowhead sized to stay inside the line, Petrol/EV/Parking/Train chips answer
 under them (nearest places, none on the way, or failed + Try again), equal
 chips fit 360 dp, Overpass mirror fallback, "onto the road" dropped from the sign.
+0.13.0 (code 17) = turn list (tap the banner), unnamed links take the next road's
+name, map style: kerbs drawn before all asphalt (no kerb lines across joins), lane
+paint only on big roads, fewer one-way arrows (no service roads / ramps).
 
 ## Traffic server
 Cloudflare Worker `navos-traffic` (server/traffic-worker). Deploy with the

@@ -77,6 +77,8 @@ fun DriveScreen(
     onTakeFaster: () -> Unit,
     onKeepRoute: () -> Unit,
     station: (@Composable () -> Unit)?,
+    /** Every turn still ahead, for the list the banner opens. */
+    turnRows: () -> List<com.excellentmindblow.navos.ui.components.TurnRow>,
     /** What was found for the chips that are on (list, none, or failed). */
     poiAnswers: @Composable () -> Unit,
     camMode: com.excellentmindblow.navos.navigation.DriveCamera.Mode,
@@ -94,6 +96,7 @@ fun DriveScreen(
     var expanded by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
     var touchedAt by remember { mutableStateOf(0L) }
     var sheetPx by remember { mutableStateOf(0f) }
+    var showTurns by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize()) {
         // The sign.
         Column(Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -116,6 +119,7 @@ fun DriveScreen(
                     lanes = if (showLanes) state.lanes else null,
                     thenType = if (showThen) state.nextManeuverType else null,
                     thenModifier = state.nextModifier,
+                    onClick = { showTurns = true },
                 )
             }
             // Faster route first (it needs an answer), else what's on the road ahead.
@@ -291,6 +295,7 @@ fun DriveScreen(
                 }
             }
         }
+        if (showTurns) com.excellentmindblow.navos.ui.components.TurnList(turnRows()) { showTurns = false }
     }
 }
 

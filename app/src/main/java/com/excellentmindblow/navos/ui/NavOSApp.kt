@@ -496,12 +496,17 @@ private fun DriveHost(
         sign =
             state?.let { st ->
                 val steps = route?.steps.orEmpty()
-                com.excellentmindblow.navos.signs.TurnSign.of(steps.getOrNull(st.currentStepIndex), steps.getOrNull(st.currentStepIndex - 1)?.ref, st.instruction)
+                com.excellentmindblow.navos.signs.TurnSign.of(steps.getOrNull(st.currentStepIndex), steps.getOrNull(st.currentStepIndex - 1)?.ref, st.instruction, steps.getOrNull(st.currentStepIndex + 1))
             },
         faster = faster,
         poiOn = poiOn,
         poiLoading = poiLoading,
         onPoiToggle = drive.onTheWay::toggle,
+        turnRows = {
+            val st = state
+            val r = route
+            if (st == null || r == null) emptyList() else com.excellentmindblow.navos.ui.components.turnRows(r.steps, st.currentStepIndex, st.distanceToNextTurnMeters, destination?.name)
+        },
         poiAnswers = {
             val poiStatus by drive.onTheWay.status.collectAsStateWithLifecycle()
             com.excellentmindblow.navos.ui.drive.PoiAnswers(

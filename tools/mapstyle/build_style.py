@@ -128,9 +128,11 @@ def build(theme):
     surface = ["!", ["in", ["get", "brunnel"], ["literal", ["tunnel", "bridge"]]]]
 
     def road_stack(prefix, extra, op):
+        # Three passes, like a road atlas: every road's kerb first, then every road's asphalt,
+        # then the lane bands. Drawing kerb + asphalt per road type let one type's kerb paint
+        # across the next type's surface where they join (a grey line cutting the road).
         for name, f, m, lanes, oneway, low, minz in order:
             ff = ["all", f, extra]
-            hw = name.startswith(("motorway", "trunk"))
             # Kerb / shoulder edge, 0.5 m each side (and the toll-green edge on expressways).
             kerb_color = c["kerb"]
             if name.startswith("motorway"):
@@ -139,11 +141,17 @@ def build(theme):
                         paint={"line-color": kerb_color, "line-opacity": op,
                                "line-width": width(m + 1.0, {k: v + 1.2 for k, v in low.items()})},
                         layout={"line-cap": "round", "line-join": "round"}))
+        for name, f, m, lanes, oneway, low, minz in order:
+            ff = ["all", f, extra]
+            hw = name.startswith(("motorway", "trunk"))
             L.append(tr(f"{prefix}{name}", ff, minzoom=minz,
                         paint={"line-color": ["interpolate", ["linear"], ["zoom"], 13, c["asphalt_far"] if hw or name.startswith("primary") else c["asphalt_minor_far"], 16,
                                               c["asphalt_hw"] if hw else c["asphalt"]],
                                "line-opacity": op, "line-width": width(m, low)},
                         layout={"line-cap": "round", "line-join": "round"}))
+        for name, f, m, lanes, oneway, low, minz in order:
+            ff = ["all", f, extra]
+            hw = name.startswith(("motorway", "trunk"))
             if name.startswith(("motorway", "trunk", "primary")):
                 # Solid edge lines without line-offset (offsets spike at segment joins): a white
                 # band as wide as the lanes, then the lanes' asphalt again on top of it.
@@ -159,7 +167,9 @@ def build(theme):
 
     def markings(prefix, extra, op):
         for name, f, m, lanes, oneway, low, minz in order:
-            if name == "service":
+            # Lane paint only on the big roads: town streets, service roads and ramps are short
+            # pieces whose dashes criss-cross at every junction.
+            if not name.startswith(("motorway", "trunk", "primary", "secondary")):
                 continue
             ff = ["all", f, extra]
             mk = {"line-color": c["marking"], "line-opacity": c["marking_op"] * op}
@@ -210,11 +220,11 @@ def build(theme):
                         "fill-extrusion-opacity": ["interpolate", ["linear"], ["zoom"], 15.5, 0, 16.5, 0.82]}})
 
     # One-way arrows on town roads from z16.5 (expressways are all one way: no arrows there).
-    ow_roads = cls("primary", "secondary", "tertiary", "minor", "service")
+    ow_roads = cls("secondary", "tertiary", "minor")
     for name, sign, rot in (("oneway", 1, 0), ("oneway-back", -1, 180)):
-        L.append({"id": name, "type": "symbol", "source": "openmaptiles", "source-layer": "transportation", "minzoom": 16.5,
-                  "filter": ["all", ow_roads, ["==", ["get", "oneway"], sign]],
-                  "layout": {"symbol-placement": "line", "symbol-spacing": 160, "icon-image": "navos-oneway",
+        L.append({"id": name, "type": "symbol", "source": "openmaptiles", "source-layer": "transportation", "minzoom": 17,
+                  "filter": ["all", ow_roads, ["==", ["get", "oneway"], sign], NOT_RAMP],
+                  "layout": {"symbol-placement": "line", "symbol-spacing": 260, "icon-padding": 12, "icon-image": "navos-oneway",
                              "icon-rotate": rot, "icon-size": ["interpolate", ["linear"], ["zoom"], 16.5, 0.6, 19, 1.0],
                              "icon-rotation-alignment": "map", "icon-allow-overlap": False},
                   "paint": {"icon-opacity": 0.75}})

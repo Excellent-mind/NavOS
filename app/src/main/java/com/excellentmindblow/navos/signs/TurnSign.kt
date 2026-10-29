@@ -23,6 +23,8 @@ data class TurnSign(
     val towards: String? = null,
 ) {
     companion object {
+        /** An unnamed piece at most this long counts as a link onto the next road. */
+        const val LINK_M = 300.0
         private val UNNAMED = Regex("(?i)\\s+onto the road$")
         private val EXIT_IN_NAME = Regex("(?i)^\\s*(exit|keluar|susur keluar)\\s*([0-9]{2,4}[A-Za-z]?)\\s*[-:,]?\\s*")
 
@@ -35,11 +37,18 @@ data class TurnSign(
             step: RouteStep?,
             onRoadRef: String?,
             fallback: String,
+            /** The turn after [step]: an unnamed link that leads straight onto a named road takes that road's name. */
+            next: RouteStep? = null,
         ): TurnSign {
             // "Bear left onto the road" (an unnamed road) reads as plain "Bear left".
             val fallback = fallback.replace(UNNAMED, "")
             if (step == null) return TurnSign(null, emptyList(), fallback, SignColour.isExpressway(onRoadRef))
             var name = step.roadName.trim()
+            // A short unnamed piece (slip road, junction link) onto a named road: say the named road,
+            // like other navigators do ("Turn left · Jalan Pembangunan", not "Turn left onto the road").
+            if (name.isEmpty() && next != null && step.distanceMeters <= LINK_M && next.roadName.isNotBlank()) {
+                name = next.roadName.trim()
+            }
             var exit = step.exits?.trim()?.takeIf { it.isNotEmpty() }
             EXIT_IN_NAME.find(name)?.let { m ->
                 if (exit == null) exit = m.groupValues[2]
