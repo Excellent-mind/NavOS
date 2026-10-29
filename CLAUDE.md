@@ -25,6 +25,10 @@ arrow while driving), drive sheet slides up/down and tucks itself while moving.
 0.10.0 (code 11) = AES / AwAS speed-camera warnings (bundled OSM cameras,
 tools/cameras/build.py -> assets/cameras.json), camera count on route cards,
 camera pins; home screen without the bottom sheet.
+0.10.1 (code 12) = sign and line polish: JKR-style turn glyphs (ManeuverGlyph),
+exit-number tag and destinations on the sign (TurnSign), green sign on
+expressway exits, bigger driving arrow, driven part of the route hidden,
+turn arrow painted on the route before each junction.
 
 ## Traffic server
 Cloudflare Worker `navos-traffic` (server/traffic-worker). Deploy with the

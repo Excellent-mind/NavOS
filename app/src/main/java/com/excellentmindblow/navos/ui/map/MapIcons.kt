@@ -46,6 +46,7 @@ object MapIcons {
         for ((kind, fill) in KINDS) style.addImage("navos-poi-$kind", badge(context, kind, fill))
         style.addImage("navos-oneway", oneway(context))
         style.addImage("navos-cam", camera(context))
+        style.addImage("navos-turn-head", turnHead(context))
     }
 
     private fun badge(
@@ -176,6 +177,18 @@ object MapIcons {
             }
             else -> c.drawCircle(cx, cx, 2.2f * u, fill)
         }
+    }
+
+    /** The head of the turn arrow painted on the route: a white triangle pointing up (north; the layer turns it). */
+    private fun turnHead(context: Context): Bitmap {
+        val d = context.resources.displayMetrics.density
+        val w = (44 * d).toInt()
+        val h = (40 * d).toInt()
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
+        c.drawPath(Path().apply { moveTo(w / 2f, 1f * d); lineTo(w - 2f * d, h - 2f * d); lineTo(2f * d, h - 2f * d); close() }, p)
+        return bmp
     }
 
     /** Speed camera pin: red-ringed white disc with a black camera, like the roadside AES sign. */

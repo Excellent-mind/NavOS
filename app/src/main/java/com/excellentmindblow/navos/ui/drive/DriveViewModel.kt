@@ -53,6 +53,19 @@ class DriveViewModel(
     private val _location = MutableStateFlow<Location?>(null)
     val location: StateFlow<Location?> = _location.asStateFlow()
 
+    /** How much of the route is behind you (0..1), so the line can hide it. */
+    private val _driven = MutableStateFlow(0.0)
+    val driven: StateFlow<Double> = _driven.asStateFlow()
+
+    /** The next turn's arrow on the route (points along the line through the turn) and the head's bearing. */
+    data class TurnArrow(
+        val line: List<RoutePoint>,
+        val bearing: Double,
+    )
+
+    private val _turn = MutableStateFlow<TurnArrow?>(null)
+    val turn: StateFlow<TurnArrow?> = _turn.asStateFlow()
+
     /** Where the arrow is drawn: on the route line, heading along it, while you're on the route; else the GPS fix. */
     private val _shown = MutableStateFlow<Location?>(null)
     val shown: StateFlow<Location?> = _shown.asStateFlow()
@@ -219,6 +232,8 @@ class DriveViewModel(
     fun end() {
         service?.stopNavigation()
         _shown.value = null
+        _turn.value = null
+        _driven.value = 0.0
         _state.value = null
         _route.value = null
         _alert.value = null
@@ -269,6 +284,37 @@ class DriveViewModel(
             longitude = p.longitude
             bearing = t.bearingAt(progressM, 25.0).toFloat()
         }
+    }
+
+    /** The driven part and the turn arrow, from where you are on the route. */
+    private fun updateLine(p: Double) {
+        val t = track ?: return
+        if (p.isNaN()) return
+        val total = t.distanceAt(t.source.size - 1)
+        if (total > 0) _driven.value = p / total
+        val s = _state.value
+        val toTurn = s?.distanceToNextTurnMeters
+        if (s == null || toTurn == null || s.offRoute || toTurn > TURN_ARROW_FROM_M ||
+            !com.excellentmindblow.navos.navigation.DriveCamera.isRealTurn(s.maneuverType, s.modifier)
+        ) {
+            _turn.value = null
+            return
+        }
+        val at = p + toTurn
+        val from = maxOf(p, at - TURN_ARROW_BEFORE_M)
+        val to = minOf(total, at + TURN_ARROW_AFTER_M)
+        if (to - from < 8) {
+            _turn.value = null
+            return
+        }
+        val pts = ArrayList<RoutePoint>()
+        var d = from
+        while (d < to) {
+            pts += t.pointAt(d)
+            d += 3.0
+        }
+        pts += t.pointAt(to)
+        _turn.value = TurnArrow(pts, t.bearingAt(to - 4.0, 4.0))
     }
 
     /** Live traffic on the route ahead: amber where slow, red where jammed. */
@@ -367,6 +413,7 @@ class DriveViewModel(
         val snap = snapOf(l)
         val p = snap?.let { track?.progressOf(it) } ?: Double.NaN
         _shown.value = onRoute(l, snap, p)
+        updateLine(p)
         onTheWay.onFix(l, p, snap?.segmentIndex ?: 0)
         if (p.isNaN()) {
             _alert.value = null
@@ -464,5 +511,10 @@ class DriveViewModel(
     private companion object {
         /** Further than this from the line, the arrow shows the real fix (you may have left the route). */
         const val SNAP_TO_ROUTE_M = 35.0
+
+        /** The turn arrow shows from this far before the turn, and covers this much each side of it. */
+        const val TURN_ARROW_FROM_M = 400.0
+        const val TURN_ARROW_BEFORE_M = 45.0
+        const val TURN_ARROW_AFTER_M = 25.0
     }
 }

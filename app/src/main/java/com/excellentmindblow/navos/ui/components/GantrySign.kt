@@ -54,8 +54,14 @@ fun GantrySign(
     thenModifier: String?,
     thenText: String?,
     modifierLayout: Modifier = Modifier,
+    /** The exit number tag ("607"), JKR style. */
+    exit: String? = null,
+    /** Shields to show (road numbers); defaults to [roadRef]. */
+    refs: List<String>? = null,
+    /** Green expressway sign; defaults to whether [roadRef] is an E road. */
+    expressway: Boolean? = null,
 ) {
-    val panel = if (SignColour.isExpressway(roadRef)) Jkr.Green else Jkr.Blue
+    val panel = if (expressway ?: SignColour.isExpressway(roadRef)) Jkr.Green else Jkr.Blue
     val strip = Jalan.colors.laneStrip
     val showLanes = !lanes.isNullOrEmpty()
     val showThen = thenType != null && !thenText.isNullOrBlank()
@@ -69,16 +75,31 @@ fun GantrySign(
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(painterResource(NavFormat.iconForManeuver(maneuverType, modifier)), contentDescription = null, tint = Color.White, modifier = Modifier.size(60.dp))
+            ManeuverGlyph(maneuverType, modifier, Modifier.size(64.dp), Color.White, hole = panel)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(distance, style = JalanType.signDistance, color = Color.White, maxLines = 1)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(distance, style = JalanType.signDistance, color = Color.White, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                    if (!exit.isNullOrBlank()) {
+                        Spacer(Modifier.width(10.dp))
+                        // JKR exit tag: white plate, sign-colour number.
+                        Column(
+                            Modifier.background(Color.White, RoundedCornerShape(6.dp)).padding(horizontal = 7.dp, vertical = 2.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(tr("EXIT", "KELUAR"), style = JalanType.overline.copy(fontSize = 9.sp, letterSpacing = 0.6.sp), color = panel)
+                            Text(exit, style = JalanType.title.copy(fontSize = 18.sp, lineHeight = 18.sp), color = panel, maxLines = 1)
+                        }
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (!roadRef.isNullOrBlank()) {
-                        RouteShield(roadRef.split(';').first().trim(), small = true)
-                        Spacer(Modifier.width(8.dp))
+                    val shields = refs ?: listOfNotNull(roadRef?.split(';')?.first()?.trim()?.takeIf { it.isNotEmpty() })
+                    shields.forEach { r ->
+                        RouteShield(r, small = true)
+                        Spacer(Modifier.width(6.dp))
                     }
+                    if (shields.isNotEmpty()) Spacer(Modifier.width(2.dp))
                     Text(road.uppercase(), style = JalanType.signRoad, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
@@ -91,7 +112,7 @@ fun GantrySign(
                 lanes.orEmpty().forEach { lane ->
                     Box(Modifier.size(44.dp, 34.dp).alpha(if (lane.valid) 1f else 0.3f), contentAlignment = Alignment.Center) {
                         val ind = lane.indications.firstOrNull { it != "none" } ?: "straight"
-                        Icon(painterResource(R.drawable.ic_turn_straight), contentDescription = null, tint = Color.White, modifier = Modifier.size(26.dp).rotate(NavFormat.rotationForIndication(ind)))
+                        ManeuverGlyph(if (ind == "uturn") "uturn" else "turn", ind, Modifier.size(28.dp), Color.White, hole = strip)
                     }
                 }
             }
@@ -103,7 +124,7 @@ fun GantrySign(
             ) {
                 Text(tr("Then", "Kemudian"), style = JalanType.label, color = Color(0xFFB9BDC2))
                 Spacer(Modifier.width(8.dp))
-                Icon(painterResource(NavFormat.iconForManeuver(thenType!!, thenModifier)), contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                ManeuverGlyph(thenType!!, thenModifier, Modifier.size(22.dp), Color.White, hole = strip)
                 Spacer(Modifier.width(8.dp))
                 Text(thenText!!, style = JalanType.label, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }

@@ -36,8 +36,11 @@ object RouteLayers {
         caseColor: Int,
     ) {
         if (style.getSource(SRC_SEL) != null) return
+        selColor = routeColor
+        caseCol = caseColor
         style.addSource(GeoJsonSource(SRC_ALT))
-        style.addSource(GeoJsonSource(SRC_SEL))
+        // Line metrics: lets the line hide the part already driven (line-progress gradient).
+        style.addSource(GeoJsonSource(SRC_SEL, org.maplibre.android.style.sources.GeoJsonOptions().withLineMetrics(true)))
         val below = style.layers.firstOrNull { it.id == "road-label" }?.id
         fun add(l: LineLayer) = if (below != null) style.addLayerBelow(l, below) else style.addLayer(l)
         add(
@@ -64,6 +67,29 @@ object RouteLayers {
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             ),
         )
+    }
+
+    private var selColor = 0
+    private var caseCol = 0
+
+    /**
+     * Hides the route behind you: [fraction] (0..1) of the line's length is
+     * already driven. 0 shows it all (route choice).
+     */
+    fun driven(
+        style: Style,
+        fraction: Double,
+    ) {
+        val f = fraction.coerceIn(0.0, 0.999).toFloat()
+        val clear = Expression.color(android.graphics.Color.TRANSPARENT)
+        fun grad(c: Int) =
+            if (f <= 0.0005f) {
+                Expression.step(Expression.lineProgress(), Expression.color(c), Expression.stop(1f, Expression.color(c)))
+            } else {
+                Expression.step(Expression.lineProgress(), clear, Expression.stop(f, Expression.color(c)))
+            }
+        style.getLayer(LAYER_SEL)?.setProperties(PropertyFactory.lineGradient(grad(selColor)))
+        style.getLayer(LAYER_CASE)?.setProperties(PropertyFactory.lineGradient(grad(caseCol)))
     }
 
     /** Shows [selected] and [others] (null / empty = nothing). */

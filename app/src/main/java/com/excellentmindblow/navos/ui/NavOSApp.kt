@@ -372,6 +372,19 @@ private fun DriveHost(
             }
         }
     }
+    // The route behind you disappears; the next turn is painted on the line.
+    val driven by drive.driven.collectAsStateWithLifecycle()
+    val turnArrow by drive.turn.collectAsStateWithLifecycle()
+    LaunchedEffect(driven, styleTick) { map.style?.let { RouteLayers.driven(it, driven) } }
+    LaunchedEffect(turnArrow, styleTick) { map.style?.let { com.excellentmindblow.navos.ui.map.DriveLayers.showTurn(it, turnArrow?.line, turnArrow?.bearing ?: 0.0) } }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            map.style?.let {
+                RouteLayers.driven(it, 0.0)
+                com.excellentmindblow.navos.ui.map.DriveLayers.showTurn(it, null, 0.0)
+            }
+        }
+    }
     // Speed cameras on the route.
     val cams by drive.cameras.collectAsStateWithLifecycle()
     LaunchedEffect(cams, styleTick) { map.style?.let { com.excellentmindblow.navos.ui.map.DriveLayers.showCameras(it, cams) } }
@@ -477,6 +490,11 @@ private fun DriveHost(
         strip = strip,
         voiceOn = voiceOn,
         alert = alert,
+        sign =
+            state?.let { st ->
+                val steps = route?.steps.orEmpty()
+                com.excellentmindblow.navos.signs.TurnSign.of(steps.getOrNull(st.currentStepIndex), steps.getOrNull(st.currentStepIndex - 1)?.ref, st.instruction)
+            },
         faster = faster,
         poiOn = poiOn,
         poiLoading = poiLoading,
