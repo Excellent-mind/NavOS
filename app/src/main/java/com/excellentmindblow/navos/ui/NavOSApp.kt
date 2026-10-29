@@ -3,6 +3,11 @@ package com.excellentmindblow.navos.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
@@ -90,6 +95,9 @@ private fun AppContent(
     var splash by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
     // Whoever is on screen can listen for map taps (the drive: pins).
     val mapTap = remember { mutableStateOf<((org.maplibre.android.geometry.LatLng) -> Unit)?>(null) }
+    val mapLongTap = remember { mutableStateOf<((org.maplibre.android.geometry.LatLng) -> Unit)?>(null) }
+    val density = LocalDensity.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     Box(Modifier.fillMaxSize()) {
         val c = Jalan.colors
         NavMap(
@@ -101,9 +109,13 @@ private fun AppContent(
                 RouteLayers.install(style, c.route.toArgb(), c.inkQuiet.copy(alpha = 0.55f).toArgb(), c.card.toArgb())
                 com.excellentmindblow.navos.ui.map.DriveLayers.install(style)
                 com.excellentmindblow.navos.ui.map.PoiPins.install(style)
+                com.excellentmindblow.navos.ui.map.PoiPins.installArea(style)
+                com.excellentmindblow.navos.ui.map.DropPin.install(context, style)
+                com.excellentmindblow.navos.ui.map.RouteBubbles.install(style)
                 styleTick++
             },
             onMapClick = { mapTap.value?.invoke(it) },
+            onMapLongClick = { mapLongTap.value?.invoke(it) },
         )
 
         when (screen) {
@@ -111,11 +123,77 @@ private fun AppContent(
                 val shortcuts by places.shortcuts.collectAsStateWithLifecycle()
                 val recents by places.recents.collectAsStateWithLifecycle()
                 val predicted by places.predicted.collectAsStateWithLifecycle()
+                val pinned by places.pinned.collectAsStateWithLifecycle()
+                // Long-press anywhere: a pin and its address. Tap a named place: that place. Tap elsewhere: close.
+                androidx.compose.runtime.DisposableEffect(Unit) {
+                    mapLongTap.value = { ll -> places.dropPin(ll.latitude, ll.longitude) }
+                    mapTap.value = { ll ->
+                        val m = map.map
+                        val hit =
+                            m?.let {
+                                val pt = it.projection.toScreenLocation(ll)
+                                val slop = with(density) { 16.dp.toPx() }
+                                runCatching { it.queryRenderedFeatures(android.graphics.RectF(pt.x - slop, pt.y - slop, pt.x + slop, pt.y + slop), *TAPPABLE_LAYERS) }
+                                    .getOrDefault(emptyList())
+                                    .firstOrNull { f -> f.hasProperty("name") }
+                            }
+                        if (hit != null) {
+                            val g = hit.geometry() as? org.maplibre.geojson.Point
+                            val name = hit.getStringProperty("name:latin")?.takeIf { it.isNotBlank() } ?: hit.getStringProperty("name")
+                            val cat = if (hit.hasProperty("class")) com.excellentmindblow.navos.search.PlaceCategory.label(hit.getStringProperty("class"), hit.getStringProperty("subclass")) else null
+                            places.dropPin(g?.latitude() ?: ll.latitude, g?.longitude() ?: ll.longitude, name, cat)
+                        } else if (places.pinned.value != null) {
+                            places.clearPin()
+                        }
+                    }
+                    onDispose {
+                        mapLongTap.value = null
+                        mapTap.value = null
+                        places.clearPin()
+                    }
+                }
+                // Live traffic on the roads around where the map is looking, every 2 minutes.
+                LaunchedEffect(styleTick) {
+                    while (true) {
+                        val t = map.target
+                        val z = map.map?.cameraPosition?.zoom ?: 0.0
+                        val style = map.style
+                        if (t != null && style != null && z >= 11.0) {
+                            val found =
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    runCatching { com.excellentmindblow.navos.traffic.TrafficClient.area(t.latitude - 0.15, t.longitude - 0.15, t.latitude + 0.15, t.longitude + 0.15) }.getOrNull()
+                                }
+                            if (found != null) com.excellentmindblow.navos.ui.map.PoiPins.showArea(style, found)
+                        }
+                        kotlinx.coroutines.delay(if (t == null) 5_000 else 120_000)
+                    }
+                }
+                LaunchedEffect(pinned, styleTick) { map.style?.let { com.excellentmindblow.navos.ui.map.DropPin.show(it, pinned?.latitude, pinned?.longitude) } }
                 FloatingSearchBar(
                     onSearch = { openSearch(PlacesViewModel.Purpose.GO) },
                     onSettings = { app.go(Screen.SETTINGS) },
                     modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 16.dp, vertical = 12.dp),
                 )
+                MapButtons(map, location, Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.statusBars).padding(top = 84.dp, end = 16.dp))
+                val p = pinned
+                if (p != null) {
+                    BackHandler { places.clearPin() }
+                    com.excellentmindblow.navos.ui.home.PlaceCard(
+                        pinned = p,
+                        distanceM = p.place?.let { places.distanceTo(it) },
+                        onGo = { p.place?.let { app.routeTo(places.picked(it)) } },
+                        onSaveHome = {
+                            places.savePinned(com.excellentmindblow.navos.search.SavedPlaces.HOME)
+                            android.widget.Toast.makeText(context, com.excellentmindblow.navos.tr("Saved as Home", "Disimpan sebagai Rumah"), android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        onSaveWork = {
+                            places.savePinned(com.excellentmindblow.navos.search.SavedPlaces.WORK)
+                            android.widget.Toast.makeText(context, com.excellentmindblow.navos.tr("Saved as Work", "Disimpan sebagai Kerja"), android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        onClose = places::clearPin,
+                        modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars),
+                    )
+                } else {
                 HomeSheet(
                     predicted = predicted,
                     shortcuts = shortcuts,
@@ -126,6 +204,7 @@ private fun AppContent(
                     onSetWork = { openSearch(PlacesViewModel.Purpose.SET_WORK) },
                     modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars),
                 )
+                }
             }
             Screen.SEARCH -> {
                 val query by places.query.collectAsStateWithLifecycle()
@@ -168,13 +247,51 @@ private fun AppContent(
                     val l = location ?: return@LaunchedEffect
                     routes.plan(RoutePoint(l.latitude, l.longitude), RoutePoint(d.latitude, d.longitude))
                 }
-                // Draw the routes and frame them between the From / To card and the sheet.
+                // Draw the routes with a bubble each (time, toll); the chosen one on top in blue.
+                val routeArgb = Jalan.colors.route.toArgb()
                 LaunchedEffect(state, selected, styleTick) {
                     val s = state as? RouteViewModel.State.Ready ?: return@LaunchedEffect
                     val style = map.style ?: return@LaunchedEffect
                     val sel = s.options.getOrNull(selected)?.route
                     RouteLayers.show(style, sel, s.options.map { it.route }.filter { it !== sel })
-                    map.map?.let { m -> with(density) { RouteLayers.frame(m, s.options.map { it.route }, 170.dp.roundToPx(), 460.dp.roundToPx(), 40.dp.roundToPx()) } }
+                    val bubbles =
+                        s.options.mapIndexed { i, o ->
+                            val fare = o.toll
+                            val extra =
+                                when {
+                                    o.tolls == 0 -> com.excellentmindblow.navos.tr("No toll", "Tiada tol")
+                                    fare != null && fare.totalSen > 0 -> com.excellentmindblow.navos.routing.TollPricer.format(fare.totalSen) + if (fare.unpriced > 0) "+" else ""
+                                    else -> com.excellentmindblow.navos.tr("Toll", "Tol")
+                                }
+                            com.excellentmindblow.navos.ui.map.RouteBubbles.Bubble(i, com.excellentmindblow.navos.NavFormat.formatTripDuration(o.route.durationSeconds), extra, i == selected)
+                        }
+                    com.excellentmindblow.navos.ui.map.RouteBubbles.show(context, style, s.options.map { it.route }, bubbles, routeArgb)
+                }
+                // Frame them between the From / To card and the sheet, once per plan (not on every pick).
+                LaunchedEffect(state, styleTick) {
+                    val s = state as? RouteViewModel.State.Ready ?: return@LaunchedEffect
+                    map.map?.let { m -> with(density) { RouteLayers.frame(m, s.options.map { it.route }, 200.dp.roundToPx(), 460.dp.roundToPx(), 56.dp.roundToPx()) } }
+                }
+                // Tap a bubble or near a line to pick that route.
+                androidx.compose.runtime.DisposableEffect(Unit) {
+                    mapTap.value = { ll ->
+                        val m = map.map
+                        if (m != null) {
+                            val pt = m.projection.toScreenLocation(ll)
+                            val slop = with(density) { 14.dp.toPx() }
+                            val box = android.graphics.RectF(pt.x - slop, pt.y - slop, pt.x + slop, pt.y + slop)
+                            val hit =
+                                runCatching {
+                                    m.queryRenderedFeatures(android.graphics.RectF(pt.x - 4, pt.y - 4, pt.x + 4, pt.y + 4), com.excellentmindblow.navos.ui.map.RouteBubbles.LAYER_BUBBLES).firstOrNull()
+                                        ?: m.queryRenderedFeatures(box, com.excellentmindblow.navos.ui.map.RouteBubbles.LAYER_HIT).firstOrNull()
+                                }.getOrNull()
+                            hit?.getNumberProperty(com.excellentmindblow.navos.ui.map.RouteBubbles.PROP_INDEX)?.toInt()?.let(routes::select)
+                        }
+                    }
+                    onDispose {
+                        mapTap.value = null
+                        map.style?.let { com.excellentmindblow.navos.ui.map.RouteBubbles.clear(it) }
+                    }
                 }
                 RoutePreviewScreen(
                     destination = destination,
@@ -241,6 +358,9 @@ private fun DriveHost(
     LaunchedEffect(Unit) {
         if (drive.route.value == null) routes.selectedRoute()?.let { drive.start(it) }
     }
+    // Less on the map while driving (petrol, tolls, hospitals, stations stay).
+    LaunchedEffect(styleTick) { map.style?.let { com.excellentmindblow.navos.ui.map.DriveDeclutter.set(it, true) } }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { map.style?.let { com.excellentmindblow.navos.ui.map.DriveDeclutter.set(it, false) } } }
     // Pins and live traffic on the map; a tap on a pin opens its card, anywhere else closes it.
     LaunchedEffect(pins, selectedId, styleTick) { map.style?.let { com.excellentmindblow.navos.ui.map.PoiPins.showPins(context, it, pins, selectedId) } }
     LaunchedEffect(traffic, styleTick) { map.style?.let { com.excellentmindblow.navos.ui.map.PoiPins.showTraffic(it, traffic) } }
@@ -282,20 +402,62 @@ private fun DriveHost(
     }
     // The route line (also after a reroute or a day / night switch).
     LaunchedEffect(route, styleTick) { map.style?.let { RouteLayers.show(it, route, emptyList()) } }
-    // Follow you: tilted, heading up, the arrow low on the screen under the sign.
+    // The camera: follows you (zoom by speed, closer at turns), or the driver moved the map (free,
+    // follows again after 12 s), or the whole way left (overview, until Re-centre).
     val here = fix ?: phoneFix
-    LaunchedEffect(here) {
+    var camMode by remember { mutableStateOf(com.excellentmindblow.navos.navigation.DriveCamera.Mode.FOLLOW) }
+    var lastGesture by remember { mutableStateOf(0L) }
+    val camView = remember { mutableStateOf<com.excellentmindblow.navos.navigation.DriveCamera.View?>(null) }
+    var lastCamAt by remember { mutableStateOf(0L) }
+    val screenH = with(density) { androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp.toPx() }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        map.onUserGesture = {
+            camMode = com.excellentmindblow.navos.navigation.DriveCamera.Mode.FREE
+            lastGesture = System.currentTimeMillis()
+        }
+        onDispose { map.onUserGesture = null }
+    }
+    LaunchedEffect(camMode, lastGesture) {
+        if (camMode != com.excellentmindblow.navos.navigation.DriveCamera.Mode.FREE) return@LaunchedEffect
+        kotlinx.coroutines.delay(com.excellentmindblow.navos.navigation.DriveCamera.FREE_RESUME_MS)
+        camMode = com.excellentmindblow.navos.navigation.DriveCamera.Mode.FOLLOW
+    }
+    LaunchedEffect(camMode) {
+        if (camMode != com.excellentmindblow.navos.navigation.DriveCamera.Mode.OVERVIEW) return@LaunchedEffect
+        val m = map.map ?: return@LaunchedEffect
+        val r = drive.route.value ?: return@LaunchedEffect
+        // What's left of the way, from where you are.
+        val l = here
+        val from = if (l == null) 0 else com.excellentmindblow.navos.navigation.GeoUtils.snapToPolyline(RoutePoint(l.latitude, l.longitude), r.geometry)?.segmentIndex ?: 0
+        val rest = r.copy(geometry = r.geometry.subList(from.coerceIn(0, r.geometry.size - 2), r.geometry.size))
+        m.animateCamera(org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(org.maplibre.android.camera.CameraPosition.Builder(m.cameraPosition).tilt(0.0).bearing(0.0).build()), 300)
+        kotlinx.coroutines.delay(320)
+        RouteLayers.frame(m, listOf(rest), with(density) { 200.dp.roundToPx() }, with(density) { 280.dp.roundToPx() }, with(density) { 48.dp.roundToPx() })
+    }
+    LaunchedEffect(here, camMode) {
+        if (camMode != com.excellentmindblow.navos.navigation.DriveCamera.Mode.FOLLOW) return@LaunchedEffect
         val l = here ?: return@LaunchedEffect
         val m = map.map ?: return@LaunchedEffect
-        val top = with(density) { 220.dp.toPx().toDouble() }
-        val bottom = with(density) { 200.dp.toPx().toDouble() }
+        val s = drive.state.value
+        val turnM = s?.takeIf { com.excellentmindblow.navos.navigation.DriveCamera.isRealTurn(it.maneuverType, it.modifier) }?.distanceToNextTurnMeters
+        val target = com.excellentmindblow.navos.navigation.DriveCamera.target(if (l.hasSpeed()) l.speed * 3.6 else 0.0, turnM)
+        val now = System.currentTimeMillis()
+        val v = com.excellentmindblow.navos.navigation.DriveCamera.step(camView.value, target, if (lastCamAt == 0L) 1.0 else (now - lastCamAt) / 1000.0)
+        camView.value = v
+        lastCamAt = now
+        // The car sits [carAt] of the way down the clear band between the sign and the bottom sheet.
+        val bandTop = with(density) { 190.dp.toPx() }
+        val bandBottom = with(density) { 250.dp.toPx() }
+        val y = bandTop + (v.carAt * (screenH - bandTop - bandBottom)).toFloat()
+        val padTop = (2 * y - screenH).coerceAtLeast(0f).toDouble()
+        val padBottom = (screenH - 2 * y).coerceAtLeast(0f).toDouble()
         m.animateCamera(
             org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(
                 org.maplibre.android.camera.CameraPosition.Builder()
                     .target(org.maplibre.android.geometry.LatLng(l.latitude, l.longitude))
-                    .zoom(17.2).tilt(55.0)
+                    .zoom(v.zoom).tilt(v.tilt)
                     .bearing(if (l.hasBearing() && l.speed > 1.5f) l.bearing.toDouble() else m.cameraPosition.bearing)
-                    .padding(0.0, top, 0.0, bottom)
+                    .padding(0.0, padTop, 0.0, padBottom)
                     .build(),
             ),
             900,
@@ -351,6 +513,13 @@ private fun DriveHost(
                     )
                 }
             },
+        camMode = camMode,
+        onRecentre = { camMode = com.excellentmindblow.navos.navigation.DriveCamera.Mode.FOLLOW },
+        onOverview = {
+            camMode =
+                if (camMode == com.excellentmindblow.navos.navigation.DriveCamera.Mode.OVERVIEW) com.excellentmindblow.navos.navigation.DriveCamera.Mode.FOLLOW
+                else com.excellentmindblow.navos.navigation.DriveCamera.Mode.OVERVIEW
+        },
         onVoice = { drive.setVoice(!voiceOn) },
         onReport = { picker = true },
         onEnd = { askEnd = true },
@@ -390,5 +559,53 @@ private fun DriveHost(
                 }
             },
         )
+    }
+}
+
+/** Map labels a tap can pick (names of places, shops, stations). */
+private val TAPPABLE_LAYERS = arrayOf("poi-label-15", "poi-label-16", "poi-label-17", "poi-label-18", "poi-major", "transit-label", "toll-booth", "place-label")
+
+/** Compass (only when the map is turned) and "back to me". */
+@Composable
+private fun MapButtons(
+    map: MapController,
+    location: android.location.Location?,
+    modifier: Modifier = Modifier,
+) {
+    val c = Jalan.colors
+    val turned = kotlin.math.abs(((map.bearing + 540.0) % 360.0) - 180.0) > 2.0
+    val awayFromMe =
+        location != null &&
+            map.target?.let { t ->
+                com.excellentmindblow.navos.navigation.GeoUtils.distanceMeters(RoutePoint(t.latitude, t.longitude), RoutePoint(location.latitude, location.longitude)) > 60.0
+            } ?: false
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.End) {
+        androidx.compose.animation.AnimatedVisibility(turned, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(), exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut()) {
+            androidx.compose.material3.Surface(shape = androidx.compose.foundation.shape.CircleShape, color = c.card, shadowElevation = 6.dp, modifier = Modifier.size(48.dp)) {
+                Box(Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = map::resetNorth), contentAlignment = Alignment.Center) {
+                    // Needle: red end points north, turns with the map.
+                    androidx.compose.foundation.Canvas(Modifier.size(26.dp).graphicsLayer { rotationZ = -map.bearing.toFloat() }) {
+                        val w = size.width
+                        val h = size.height
+                        val north = androidx.compose.ui.graphics.Path().apply { moveTo(w / 2, 0f); lineTo(w * 0.68f, h / 2); lineTo(w * 0.32f, h / 2); close() }
+                        val south = androidx.compose.ui.graphics.Path().apply { moveTo(w / 2, h); lineTo(w * 0.68f, h / 2); lineTo(w * 0.32f, h / 2); close() }
+                        drawPath(north, com.excellentmindblow.navos.ui.theme.Traffic.Jam)
+                        drawPath(south, c.inkQuiet)
+                    }
+                }
+            }
+        }
+        androidx.compose.animation.AnimatedVisibility(awayFromMe, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(), exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut()) {
+            androidx.compose.material3.Surface(shape = androidx.compose.foundation.shape.CircleShape, color = c.card, shadowElevation = 6.dp, modifier = Modifier.size(48.dp)) {
+                Box(
+                    Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = com.excellentmindblow.navos.tr("Show my location", "Tunjuk lokasi saya")) {
+                        location?.let { map.moveTo(it.latitude, it.longitude, zoom = 16.0) }
+                    },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    androidx.compose.material3.Icon(com.excellentmindblow.navos.ui.components.JalanIcons.Recentre, contentDescription = com.excellentmindblow.navos.tr("Show my location", "Tunjuk lokasi saya"), tint = c.route)
+                }
+            }
+        }
     }
 }

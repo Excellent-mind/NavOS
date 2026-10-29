@@ -107,4 +107,20 @@ object JalanIcons {
                 moveTo(16f, 17f); lineTo(18f, 21f)
             }
         }
+
+    /** Overview: the whole route - a winding line with ends. */
+    val Overview =
+        icon("overview") {
+            stroke {
+                moveTo(6f, 19f); arcTo(2f, 2f, 0f, true, true, 6f, 19.01f)
+                moveTo(18f, 5f); arcTo(2f, 2f, 0f, true, true, 18f, 5.01f)
+                moveTo(8f, 19f); lineTo(15f, 19f); arcTo(3.5f, 3.5f, 0f, false, false, 15f, 12f); lineTo(9f, 12f); arcTo(3.5f, 3.5f, 0f, false, true, 9f, 5f); lineTo(16f, 5f)
+            }
+        }
+
+    /** Re-centre: the navigation arrow. */
+    val Recentre =
+        icon("recentre") {
+            stroke { moveTo(12f, 3f); lineTo(19f, 20f); lineTo(12f, 16f); lineTo(5f, 20f); close() }
+        }
 }

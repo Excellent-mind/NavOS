@@ -16,3 +16,12 @@ History: 0.7.0 (code 7) = Compose UI phase 6 (petrol/EV/parking/train pins,
 station card, live traffic, faster-route prompt).
 0.8.0 (code 8) = new NavOS logo: launcher icon (adaptive + themed), animated
 opening screen and logo loading animation.
+0.9.0 (code 9) = map logic: smart drive camera (zoom by speed/turns, free/overview,
+Re-centre), long-press pin + tap places on the home map, compass and locate,
+route bubbles and tap-to-pick on route choice, zoom-staged place icons, 3D
+buildings, one-way arrows, house numbers, live traffic on roads around you.
+
+## Traffic server
+Cloudflare Worker `navos-traffic` (server/traffic-worker). Deploy with the
+Cloudflare MCP: multipart PUT of worker.js keeping the D1 binding `DB` and the
+`IP_SALT` secret (keep_bindings: secret_text); apply schema changes to D1 first.

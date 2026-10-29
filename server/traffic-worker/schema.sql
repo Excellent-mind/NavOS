@@ -9,6 +9,18 @@ CREATE TABLE IF NOT EXISTS probes (
 CREATE INDEX IF NOT EXISTS probes_t ON probes (t);
 CREATE INDEX IF NOT EXISTS probes_sess ON probes (sess);
 
+-- Where each road piece is (public map geometry, no drive or sender), for /v1/area.
+CREATE TABLE IF NOT EXISTS segpos (
+  seg TEXT PRIMARY KEY,
+  alat REAL NOT NULL,
+  alon REAL NOT NULL,
+  blat REAL NOT NULL,
+  blon REAL NOT NULL,
+  ff REAL NOT NULL,      -- normal (free-flow) speed, km/h
+  t INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS segpos_pos ON segpos (alat, alon);
+
 -- Per-sender limits for each 10-minute window.
 CREATE TABLE IF NOT EXISTS quota (
   sender TEXT NOT NULL,

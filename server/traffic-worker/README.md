@@ -60,3 +60,10 @@ sender codes as above.
   At most 6 reports and 40 votes per sender per hour.
 - Only places inside Malaysia are accepted. Old reports are deleted by the
   hourly cron a day after they end.
+
+## Area traffic (v0.9.0)
+`/v1/probe` may carry `"g"`: where each piece is (two OpenStreetMap points and
+its normal speed). It is stored per piece in `segpos`, with no drive or sender,
+and `/v1/area {"box": [s, w, n, e]}` returns the slow and jammed pieces in a box
+(at most 0.35 degrees a side) for the home map. Same 3-sender, 10-minute rules
+as `/v1/flow`.

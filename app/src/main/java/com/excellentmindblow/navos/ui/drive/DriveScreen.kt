@@ -68,6 +68,9 @@ fun DriveScreen(
     onTakeFaster: () -> Unit,
     onKeepRoute: () -> Unit,
     station: (@Composable () -> Unit)?,
+    camMode: com.excellentmindblow.navos.navigation.DriveCamera.Mode,
+    onRecentre: () -> Unit,
+    onOverview: () -> Unit,
     onVoice: () -> Unit,
     onReport: () -> Unit,
     onEnd: () -> Unit,
@@ -131,7 +134,40 @@ fun DriveScreen(
             }
         }
         // Speed on the right.
-        SpeedSigns(speedKmh, limitKmh, Modifier.align(Alignment.BottomEnd).windowInsetsPadding(WindowInsets.navigationBars).padding(end = 14.dp, bottom = bottomGap))
+        Column(
+            Modifier.align(Alignment.BottomEnd).windowInsetsPadding(WindowInsets.navigationBars).padding(end = 14.dp, bottom = bottomGap),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            // Whole route / back to following.
+            val overview = camMode == com.excellentmindblow.navos.navigation.DriveCamera.Mode.OVERVIEW
+            Surface(shape = CircleShape, color = if (overview) c.ink else c.card, shadowElevation = 6.dp, modifier = Modifier.size(52.dp)) {
+                Box(Modifier.clickable(role = Role.Button, onClick = onOverview), contentAlignment = Alignment.Center) {
+                    Icon(
+                        JalanIcons.Overview,
+                        contentDescription = if (overview) tr("Back to driving view", "Kembali ke paparan pemanduan") else tr("See the whole route", "Lihat seluruh laluan"),
+                        tint = if (overview) c.onInk else c.ink,
+                    )
+                }
+            }
+            SpeedSigns(speedKmh, limitKmh)
+        }
+        // The map was moved away from you: one tap back.
+        androidx.compose.animation.AnimatedVisibility(
+            visible = camMode != com.excellentmindblow.navos.navigation.DriveCamera.Mode.FOLLOW,
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.85f),
+            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.85f),
+            modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = bottomGap - 56.dp),
+        ) {
+            Row(
+                Modifier.height(48.dp).background(c.ink, RoundedCornerShape(24.dp)).clickable(role = Role.Button, onClick = onRecentre).padding(horizontal = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(JalanIcons.Recentre, contentDescription = null, tint = c.onInk, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(tr("Re-centre", "Pusatkan semula"), style = JalanType.label, color = c.onInk)
+            }
+        }
 
         // Arrival bar, or the station you tapped.
         JalanSheet(Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars)) {

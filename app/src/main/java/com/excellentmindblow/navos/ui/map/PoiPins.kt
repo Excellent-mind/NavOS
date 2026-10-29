@@ -67,6 +67,37 @@ object PoiPins {
         )
     }
 
+    private const val SRC_AREA = "navos-area-traffic"
+
+    /** Traffic on every road around (home map): a thin amber / red band on the left of each carriageway. */
+    fun installArea(style: Style) {
+        if (style.getSource(SRC_AREA) != null) return
+        style.addSource(GeoJsonSource(SRC_AREA))
+        val l =
+            LineLayer(SRC_AREA, SRC_AREA).withProperties(
+                PropertyFactory.lineColor(Expression.switchCase(Expression.get("jam"), Expression.color(0xFFD2283E.toInt()), Expression.color(0xFFE88600.toInt()))),
+                PropertyFactory.lineWidth(Expression.interpolate(Expression.linear(), Expression.zoom(), Expression.stop(11, 1.5f), Expression.stop(14, 3f), Expression.stop(17, 5f))),
+                // Pieces run the way traffic goes; Malaysia drives on the left.
+                PropertyFactory.lineOffset(Expression.interpolate(Expression.linear(), Expression.zoom(), Expression.stop(11, -1f), Expression.stop(14, -2.5f), Expression.stop(17, -6f))),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineOpacity(0.9f),
+            )
+        if (style.getLayer("road-label") != null) style.addLayerBelow(l, "road-label") else style.addLayer(l)
+    }
+
+    fun showArea(
+        style: Style,
+        pieces: List<com.excellentmindblow.navos.traffic.TrafficClient.AreaPiece>,
+    ) {
+        style.getSourceAs<GeoJsonSource>(SRC_AREA)?.setGeoJson(
+            FeatureCollection.fromFeatures(
+                pieces.map { p ->
+                    Feature.fromGeometry(LineString.fromLngLats(listOf(Point.fromLngLat(p.aLon, p.aLat), Point.fromLngLat(p.bLon, p.bLat)))).apply { addBooleanProperty("jam", p.jam) }
+                },
+            ),
+        )
+    }
+
     fun showTraffic(
         style: Style,
         runs: List<DriveViewModel.TrafficRun>,

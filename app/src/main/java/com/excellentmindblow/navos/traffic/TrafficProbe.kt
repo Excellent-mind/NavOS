@@ -11,7 +11,10 @@ package com.excellentmindblow.navos.traffic
  *
  * Privacy: pieces in the first and last [PRIVACY_M] of the trip are never
  * reported, so nobody can tell where a drive started or ended. There is no
- * position, no time from the phone and no account in what is sent.
+ * time from the phone and no account in what is sent. Each piece is sent
+ * with where it is on the map (its two OpenStreetMap points, the same public
+ * place its node ids already name), so the server can colour roads by area;
+ * the server stores that per piece, not per drive or sender.
  *
  * Pure, so it is unit tested.
  */

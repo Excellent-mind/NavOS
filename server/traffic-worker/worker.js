@@ -3,6 +3,12 @@
 // POST /v1/probe  {"s": "<random per-drive id>", "p": [["<osmNodeA>-<osmNodeB>", kmh], ...]}
 //   Anonymous speeds a phone measured on road pieces it just drove. No account,
 //   no location trace: only road-piece ids and speeds, timestamped by the server.
+//   Optional "g": [["<seg>", latA, lonA, latB, lonB, freeFlowKmh], ...] says where
+//   those pieces are on the map (public OpenStreetMap geometry, stored per piece
+//   with no drive or sender attached), so /v1/area can colour them.
+// POST /v1/area   {"box": [south, west, north, east]}  (at most MAX_AREA_DEG a side)
+//   -> {"a": [[latA, lonA, latB, lonB, level], ...]} slow (1) and jammed (2)
+//   pieces in the box, same rules as /v1/flow (MIN_SENDERS, last WINDOW_S).
 // POST /v1/flow   {"segs": ["<osmNodeA>-<osmNodeB>", ...]}
 //   -> {"f": {"<seg>": [medianKmh, senders], ...}} for pieces measured by at
 //   least MIN_SENDERS different senders in the last WINDOW_S seconds.
@@ -52,6 +58,12 @@ const MAX_VOTES_PER_HOUR = 40;
 const MAX_BOX_DEG = 2.5;
 const MAX_REPORTS_OUT = 300;
 const SEG = /^\d{1,12}-\d{1,12}$/;
+const MAX_AREA_DEG = 0.35;
+const MAX_AREA_ROWS = 20000;
+const SEGPOS_KEEP_S = 30 * 86400;
+const SLOW_RATIO = 0.8;
+const JAM_RATIO = 0.5;
+const MIN_FREE_FLOW_KMH = 14.4;
 const SESS = /^[A-Za-z0-9]{16,64}$/;
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -98,14 +110,31 @@ async function probe(req, env) {
     if (typeof seg !== "string" || !SEG.test(seg) || typeof kmh !== "number" || !(kmh >= 0 && kmh <= MAX_KMH)) continue;
     rows.push(stmt.bind(seg, b.s, sender, Math.round(kmh * 10) / 10, t));
   }
+  const pieces = rows.length;
+  // Where the pieces are (no drive, no sender: just the road).
+  if (Array.isArray(b.g)) {
+    const pos = env.DB.prepare(
+      "INSERT INTO segpos (seg, alat, alon, blat, blon, ff, t) VALUES (?, ?, ?, ?, ?, ?, ?) " +
+        "ON CONFLICT (seg) DO UPDATE SET ff = excluded.ff, t = excluded.t",
+    );
+    for (const g of b.g.slice(0, MAX_PROBES)) {
+      if (!Array.isArray(g) || g.length !== 6) continue;
+      const [seg, alat, alon, blat, blon, ff] = g;
+      if (typeof seg !== "string" || !SEG.test(seg) || !inMalaysia(alat, alon) || !inMalaysia(blat, blon)) continue;
+      if (typeof ff !== "number" || !(ff > 0 && ff <= MAX_KMH)) continue;
+      if (metersBetween(alat, alon, blat, blon) > 2000) continue;
+      const r5 = (v) => Math.round(v * 1e5) / 1e5;
+      rows.push(pos.bind(seg, r5(alat), r5(alon), r5(blat), r5(blon), Math.round(ff * 10) / 10, t));
+    }
+  }
   rows.push(
     env.DB.prepare(
       "INSERT INTO quota (sender, w, pieces, drives) VALUES (?, ?, ?, ?) " +
         "ON CONFLICT (sender, w) DO UPDATE SET pieces = pieces + excluded.pieces, drives = drives + excluded.drives",
-    ).bind(sender, w, rows.length, newDrive ? 1 : 0),
+    ).bind(sender, w, pieces, newDrive ? 1 : 0),
   );
   await env.DB.batch(rows);
-  return json({ ok: rows.length - 1 });
+  return json({ ok: pieces });
 }
 
 function median(xs) {
@@ -246,6 +275,32 @@ async function vote(req, env) {
   return json({ ok: await vote1(env, b.id, sender, b.v, t) });
 }
 
+async function area(req, env) {
+  const b = await readBody(req);
+  const box = b.box;
+  if (!Array.isArray(box) || box.length !== 4 || box.some((v) => typeof v !== "number")) return json({ error: "bad request" }, 400);
+  const [s, w, n, e] = box;
+  if (!(n > s && e > w) || n - s > MAX_AREA_DEG || e - w > MAX_AREA_DEG) return json({ error: "box too big" }, 400);
+  const since = now() - WINDOW_S;
+  const res = await env.DB.prepare(
+    `SELECT p.seg, p.sender, p.kmh, s.alat, s.alon, s.blat, s.blon, s.ff FROM segpos s JOIN probes p ON p.seg = s.seg
+     WHERE s.alat BETWEEN ? AND ? AND s.alon BETWEEN ? AND ? AND p.t > ? ORDER BY p.t LIMIT ${MAX_AREA_ROWS}`,
+  ).bind(s, n, w, e, since).all();
+  const bySeg = new Map();
+  for (const r of res.results) {
+    if (!bySeg.has(r.seg)) bySeg.set(r.seg, { r, senders: new Map() });
+    bySeg.get(r.seg).senders.set(r.sender, r.kmh);
+  }
+  const a = [];
+  for (const { r, senders } of bySeg.values()) {
+    if (senders.size < MIN_SENDERS || !(r.ff >= MIN_FREE_FLOW_KMH)) continue;
+    const ratio = median(senders.values()) / r.ff;
+    const level = ratio < JAM_RATIO ? 2 : ratio < SLOW_RATIO ? 1 : 0;
+    if (level) a.push([r.alat, r.alon, r.blat, r.blon, level]);
+  }
+  return json({ a });
+}
+
 async function reports(req, env) {
   const b = await readBody(req);
   const box = b.box;
@@ -265,6 +320,7 @@ export default {
     try {
       if (req.method === "POST" && path === "/v1/probe") return await probe(req, env);
       if (req.method === "POST" && path === "/v1/flow") return await flow(req, env);
+      if (req.method === "POST" && path === "/v1/area") return await area(req, env);
       if (req.method === "POST" && path === "/v1/typical") return await typical(req, env);
       if (req.method === "POST" && path === "/v1/report") return await report(req, env);
       if (req.method === "POST" && path === "/v1/reports") return await reports(req, env);
@@ -282,6 +338,7 @@ export default {
       env.DB.prepare("DELETE FROM quota WHERE w < ?").bind(Math.floor((now() - KEEP_S) / WINDOW_S)),
       env.DB.prepare("DELETE FROM votes WHERE id IN (SELECT id FROM reports WHERE expires < ?)").bind(now() - KEEP_S),
       env.DB.prepare("DELETE FROM reports WHERE expires < ?").bind(now() - KEEP_S),
+      env.DB.prepare("DELETE FROM segpos WHERE t < ?").bind(now() - SEGPOS_KEEP_S),
     ]);
   },
 };

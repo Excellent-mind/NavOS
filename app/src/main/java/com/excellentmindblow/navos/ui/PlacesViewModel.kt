@@ -112,6 +112,58 @@ class PlacesViewModel(
         return place
     }
 
+    /** A spot on the map the driver long-pressed or tapped: where, and what's there once known. */
+    data class Pinned(
+        val latitude: Double,
+        val longitude: Double,
+        val place: GeocodeResult?,
+        val loading: Boolean,
+    )
+
+    private val _pinned = MutableStateFlow<Pinned?>(null)
+    val pinned: StateFlow<Pinned?> = _pinned.asStateFlow()
+    private var pinJob: kotlinx.coroutines.Job? = null
+
+    /** Drops a pin at [lat],[lon]. A tapped map label already knows its [name]; otherwise the address is looked up. */
+    fun dropPin(
+        lat: Double,
+        lon: Double,
+        name: String? = null,
+        category: String? = null,
+    ) {
+        pinJob?.cancel()
+        if (name != null) {
+            _pinned.value = Pinned(lat, lon, GeocodeResult(name, lat, lon, name = name, address = "", category = category), loading = true)
+        } else {
+            _pinned.value = Pinned(lat, lon, null, loading = true)
+        }
+        pinJob =
+            viewModelScope.launch {
+                val found = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { GeocodingService.reverse(lat, lon) }.getOrNull() }
+                val cur = _pinned.value ?: return@launch
+                if (cur.latitude != lat || cur.longitude != lon) return@launch
+                val place =
+                    when {
+                        name != null -> GeocodeResult("$name, ${found?.label ?: ""}".trimEnd(',', ' '), lat, lon, name = name, address = found?.label.orEmpty(), category = category)
+                        found != null -> found.copy(latitude = lat, longitude = lon)
+                        else -> GeocodeResult(String.format(java.util.Locale.US, "%.5f, %.5f", lat, lon), lat, lon, name = com.excellentmindblow.navos.tr("Dropped pin", "Pin diletak"), address = String.format(java.util.Locale.US, "%.5f, %.5f", lat, lon))
+                    }
+                _pinned.value = Pinned(lat, lon, place, loading = false)
+            }
+    }
+
+    fun clearPin() {
+        pinJob?.cancel()
+        _pinned.value = null
+    }
+
+    /** Saves the pinned place as Home or Work. */
+    fun savePinned(key: String) {
+        val p = _pinned.value?.place ?: return
+        saved.save(key, p)
+        _shortcuts.value = loadShortcuts()
+    }
+
     fun clearRecents() {
         recentStore.clear()
         _recents.value = emptyList()

@@ -202,7 +202,22 @@ def build(theme):
     L.append(tr("rail", cls("rail", "transit"), minzoom=12,
                 paint={"line-color": c["rail"], "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.8, 17, 3]}))
 
-    # 3D buildings are added by the app (MapLayers, "navos-3d-buildings") so Map display can switch them.
+    # 3D buildings from zoom 15.5: real heights from the map (render_height), fading in.
+    L.append({"id": "building-3d", "type": "fill-extrusion", "source": "openmaptiles", "source-layer": "building", "minzoom": 15.5,
+              "paint": {"fill-extrusion-color": c["building3d"],
+                        "fill-extrusion-height": ["coalesce", ["get", "render_height"], 6],
+                        "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
+                        "fill-extrusion-opacity": ["interpolate", ["linear"], ["zoom"], 15.5, 0, 16.5, 0.82]}})
+
+    # One-way arrows on town roads from z16.5 (expressways are all one way: no arrows there).
+    ow_roads = cls("primary", "secondary", "tertiary", "minor", "service")
+    for name, sign, rot in (("oneway", 1, 0), ("oneway-back", -1, 180)):
+        L.append({"id": name, "type": "symbol", "source": "openmaptiles", "source-layer": "transportation", "minzoom": 16.5,
+                  "filter": ["all", ow_roads, ["==", ["get", "oneway"], sign]],
+                  "layout": {"symbol-placement": "line", "symbol-spacing": 160, "icon-image": "navos-oneway",
+                             "icon-rotate": rot, "icon-size": ["interpolate", ["linear"], ["zoom"], 16.5, 0.6, 19, 1.0],
+                             "icon-rotation-alignment": "map", "icon-allow-overlap": False},
+                  "paint": {"icon-opacity": 0.75}})
 
     L.append({"id": "boundary", "type": "line", "source": "openmaptiles", "source-layer": "boundary",
               "filter": ["<=", ["get", "admin_level"], 4],
@@ -222,6 +237,62 @@ def build(theme):
                          "icon-image": "shield-yellow", "icon-text-fit": "both", "icon-text-fit-padding": [2, 5, 2, 5],
                          "icon-rotation-alignment": "viewport"},
               "paint": {"text-color": "#111111"}})
+    # Places (OpenMapTiles poi): a coloured round icon per kind, name underneath.
+    # What shows depends on zoom: landmarks from 12, stations from 13, the most
+    # important places from 15, more from 16, nearly everything from 17.
+    # Street furniture (gates, bollards, bins, shelters...) never shows.
+    noise = ["gate", "lift_gate", "bollard", "waste_basket", "shelter", "swimming_pool", "brownfield", "cycle_barrier",
+             "stile", "telephone", "drinking_water", "bicycle_parking", "motorcycle_parking", "pitch", "office",
+             "information", "recycling", "bench", "vending", "entrance"]
+    group = ["match", ["get", "class"],
+             ["fuel"], "fuel",
+             ["restaurant", "fast_food", "cafe", "bar", "ice_cream", "bakery", "beer", "food_court"], "food",
+             ["shop", "grocery", "clothing_store", "hairdresser", "laundry", "alcohol_shop", "butcher", "furniture", "hardware", "electronics", "gift", "shoes"], "shop",
+             ["hospital", "pharmacy", "dentist", "doctors"], "health",
+             ["place_of_worship"], "worship",
+             ["school", "college", "library", "kindergarten"], "edu",
+             ["railway", "bus"], "transit",
+             ["park", "garden", "playground", "golf", "sports_centre", "stadium", "picnic_site", "campsite"], "park",
+             ["lodging"], "lodging",
+             ["bank", "atm"], "money",
+             ["police", "post", "town_hall", "fire_station"], "civic",
+             ["parking"], "parking",
+             ["toll_booth"], "toll",
+             ["attraction", "museum", "theatre", "cinema", "theme_park", "art_gallery", "castle", "zoo"], "fun",
+             ["toilets"], "toilet",
+             ["car"], "car",
+             "other"]
+    not_noise = ["!", ["in", ["get", "class"], ["literal", noise]]]
+    named = ["has", "name"]
+    poi_layout = {"icon-image": ["concat", "navos-poi-", group], "icon-size": 1,
+                  "text-field": ["coalesce", ["get", "name:latin"], ["get", "name"]], "text-font": FONT,
+                  "text-size": 11, "text-anchor": "top", "text-offset": [0, 0.95], "text-max-width": 8,
+                  "text-optional": True, "symbol-sort-key": ["get", "rank"]}
+    poi_paint = {"text-color": c["label"], "text-halo-color": c["label_halo"], "text-halo-width": 1.3}
+    landmark = ["any", ["in", ["get", "subclass"], ["literal", ["mall", "hospital", "university", "stadium", "theme_park", "zoo"]]],
+                ["all", ["==", ["get", "class"], "hospital"], ["<=", ["get", "rank"], 2]]]
+    L.append({"id": "poi-major", "type": "symbol", "source": "openmaptiles", "source-layer": "poi", "minzoom": 12,
+              "filter": ["all", named, landmark], "layout": dict(poi_layout, **{"text-size": 12, "symbol-sort-key": 0}), "paint": poi_paint})
+    L.append({"id": "transit-label", "type": "symbol", "source": "openmaptiles", "source-layer": "poi", "minzoom": 13, "maxzoom": 15,
+              "filter": ["all", named, ["==", ["get", "class"], "railway"], ["in", ["get", "subclass"], ["literal", ["station", "halt"]]]],
+              "layout": poi_layout, "paint": poi_paint})
+    always = ["any", ["in", ["get", "class"], ["literal", ["fuel", "toll_booth", "railway"]]],
+              ["all", ["==", ["get", "class"], "hospital"], ["==", ["get", "subclass"], "hospital"]]]
+    # (zoom from, to, top rank shown, icon also without room for its name)
+    for zmin, zmax, top, lone_icon in ((15, 16, 8, False), (16, 17, 40, False), (17, 18, 120, True), (18, 24, 10000, True)):
+        f = ["all", named, not_noise, ["!", landmark], ["any", always, ["<=", ["get", "rank"], top]]]
+        if zmin < 17:
+            f.append(["!", ["in", ["get", "class"], ["literal", ["bus", "toilets", "atm", "car"]]]])  # small stuff only close in
+            f.append(["!=", group, "other"])
+        L.append({"id": f"poi-label-{zmin}", "type": "symbol", "source": "openmaptiles", "source-layer": "poi",
+                  "minzoom": zmin, "maxzoom": zmax, "filter": f, "layout": dict(poi_layout, **{"text-optional": lone_icon}), "paint": poi_paint})
+    # Toll plazas from z13 (they matter for the route) even without a name.
+    L.append({"id": "toll-booth", "type": "symbol", "source": "openmaptiles", "source-layer": "poi", "minzoom": 13, "maxzoom": 15,
+              "filter": ["==", ["get", "class"], "toll_booth"], "layout": dict(poi_layout, **{"icon-image": "navos-poi-toll"}), "paint": poi_paint})
+    # House numbers, very close in.
+    L.append({"id": "housenumber", "type": "symbol", "source": "openmaptiles", "source-layer": "housenumber", "minzoom": 17.5,
+              "layout": {"text-field": ["get", "housenumber"], "text-font": FONT, "text-size": 10},
+              "paint": {"text-color": c["label"], "text-opacity": 0.7, "text-halo-color": c["label_halo"], "text-halo-width": 1}})
     L.append({"id": "water-label", "type": "symbol", "source": "openmaptiles", "source-layer": "water_name",
               "layout": {"text-field": ["get", "name"], "text-font": FONT, "text-size": 12},
               "paint": {"text-color": c["water_label"], "text-halo-color": c["land"], "text-halo-width": 1}})

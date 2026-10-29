@@ -43,6 +43,22 @@ class MapController {
     var style: Style? = null
         internal set
 
+    /** The camera's heading (degrees), for the compass. */
+    var bearing by mutableStateOf(0.0)
+        internal set
+
+    /** Where the camera looks. */
+    var target by mutableStateOf<LatLng?>(null)
+        internal set
+
+    /** Called when the driver drags, pinches or rotates the map (not when the app moves it). */
+    var onUserGesture: (() -> Unit)? = null
+
+    fun resetNorth() {
+        val m = map ?: return
+        m.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder(m.cameraPosition).bearing(0.0).tilt(0.0).build()), 400)
+    }
+
     fun moveTo(
         lat: Double,
         lon: Double,
@@ -69,7 +85,11 @@ fun NavMap(
     modifier: Modifier = Modifier,
     onStyleReady: (Style) -> Unit = {},
     onMapClick: (LatLng) -> Unit = {},
+    onMapLongClick: (LatLng) -> Unit = {},
 ) {
+    val click by androidx.compose.runtime.rememberUpdatedState(onMapClick)
+    val longClick by androidx.compose.runtime.rememberUpdatedState(onMapLongClick)
+    var listening by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val mapView = remember { MapLibre.getInstance(context); MapView(context).apply { onCreate(null) } }
     var loadedNight by remember { mutableStateOf<Boolean?>(null) }
@@ -103,12 +123,28 @@ fun NavMap(
             m.uiSettings.isCompassEnabled = false
             m.uiSettings.isAttributionEnabled = true
             m.uiSettings.isLogoEnabled = false
-            m.addOnMapClickListener { onMapClick(it); false }
+            if (!listening) {
+                listening = true
+                m.addOnMapClickListener { click(it); false }
+                m.addOnMapLongClickListener { longClick(it); true }
+                m.addOnCameraMoveStartedListener { reason ->
+                    if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) controller.onUserGesture?.invoke()
+                }
+                m.addOnCameraMoveListener {
+                    controller.bearing = m.cameraPosition.bearing
+                    controller.target = m.cameraPosition.target
+                }
+                m.addOnCameraIdleListener {
+                    controller.bearing = m.cameraPosition.bearing
+                    controller.target = m.cameraPosition.target
+                }
+            }
             if (loadedNight == night && m.style != null) return@getMapAsync
             m.setStyle(Style.Builder().fromUri(if (night) MAP_STYLE_NIGHT else MAP_STYLE_DAY)) { style ->
                 loadedNight = night
                 controller.style = style
                 addRoadShield(context, style)
+                MapIcons.addAll(context, style)
                 runCatching {
                     m.locationComponent.activateLocationComponent(
                         LocationComponentActivationOptions.builder(context, style).useDefaultLocationEngine(false).build(),
@@ -156,4 +192,41 @@ fun addRoadShield(
         listOf(ImageStretches(6 * d, 14 * d)),
         ImageContent(5 * d, 4 * d, 19 * d, 16 * d),
     )
+}
+
+/**
+ * While driving the map shows only what matters at speed: petrol, tolls,
+ * hospitals and stations stay; shops, food, house numbers and the like go
+ * (they come back when the drive ends).
+ */
+object DriveDeclutter {
+    private val BUSY = listOf("poi-label-16", "poi-label-17", "poi-label-18")
+    private val HIDDEN = listOf("housenumber")
+    private val saved = HashMap<String, org.maplibre.android.style.expressions.Expression?>()
+
+    fun set(
+        style: Style,
+        driving: Boolean,
+    ) {
+        val keep =
+            org.maplibre.android.style.expressions.Expression.raw(
+                "[\"in\", [\"get\", \"class\"], [\"literal\", [\"fuel\", \"toll_booth\", \"hospital\", \"railway\"]]]",
+            )
+        for (id in BUSY) {
+            val l = style.getLayerAs<org.maplibre.android.style.layers.SymbolLayer>(id) ?: continue
+            if (driving) {
+                if (!saved.containsKey(id)) saved[id] = l.filter
+                l.setFilter(keep)
+            } else {
+                saved.remove(id)?.let { l.setFilter(it) }
+            }
+        }
+        for (id in HIDDEN) {
+            style.getLayer(id)?.setProperties(
+                org.maplibre.android.style.layers.PropertyFactory.visibility(
+                    if (driving) org.maplibre.android.style.layers.Property.NONE else org.maplibre.android.style.layers.Property.VISIBLE,
+                ),
+            )
+        }
+    }
 }
