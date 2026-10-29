@@ -53,9 +53,10 @@ class DriveViewModel(
     private val _location = MutableStateFlow<Location?>(null)
     val location: StateFlow<Location?> = _location.asStateFlow()
 
-    /** How much of the route is behind you (0..1), so the line can hide it. */
-    private val _driven = MutableStateFlow(0.0)
-    val driven: StateFlow<Double> = _driven.asStateFlow()
+    /** The route from where you are to the end (the line on the map), or null to show it all. */
+    private val _ahead = MutableStateFlow<List<RoutePoint>?>(null)
+    val ahead: StateFlow<List<RoutePoint>?> = _ahead.asStateFlow()
+    private var aheadAt = Double.NaN
 
     /** The next turn's arrow on the route (points along the line through the turn) and the head's bearing. */
     data class TurnArrow(
@@ -233,7 +234,8 @@ class DriveViewModel(
         service?.stopNavigation()
         _shown.value = null
         _turn.value = null
-        _driven.value = 0.0
+        _ahead.value = null
+        aheadAt = Double.NaN
         _state.value = null
         _route.value = null
         _alert.value = null
@@ -252,6 +254,8 @@ class DriveViewModel(
     private fun setTrack(route: Route) {
         val t = RouteTrack(route.geometry)
         track = t
+        _ahead.value = null
+        aheadAt = Double.NaN
         smartOnRoute = SmartLanes.onRoute(t, SmartLanes.lanes)
         com.excellentmindblow.navos.traffic.SpeedCameras.load(getApplication())
         _cameras.value = com.excellentmindblow.navos.traffic.SpeedCameras.onRoute(t, com.excellentmindblow.navos.traffic.SpeedCameras.all)
@@ -287,11 +291,20 @@ class DriveViewModel(
     }
 
     /** The driven part and the turn arrow, from where you are on the route. */
-    private fun updateLine(p: Double) {
+    private fun updateLine(
+        p: Double,
+        segment: Int?,
+    ) {
         val t = track ?: return
-        if (p.isNaN()) return
+        if (p.isNaN() || segment == null) return
         val total = t.distanceAt(t.source.size - 1)
-        if (total > 0) _driven.value = p / total
+        // The line starts right under the arrow: your spot on the route, then the rest of it.
+        if (aheadAt.isNaN() || kotlin.math.abs(p - aheadAt) >= 2.0) {
+            aheadAt = p
+            val g = t.source
+            val next = (segment + 1).coerceIn(1, g.size - 1)
+            _ahead.value = listOf(t.pointAt(p)) + g.subList(next, g.size)
+        }
         val s = _state.value
         val toTurn = s?.distanceToNextTurnMeters
         if (s == null || toTurn == null || s.offRoute || toTurn > TURN_ARROW_FROM_M ||
@@ -413,7 +426,7 @@ class DriveViewModel(
         val snap = snapOf(l)
         val p = snap?.let { track?.progressOf(it) } ?: Double.NaN
         _shown.value = onRoute(l, snap, p)
-        updateLine(p)
+        updateLine(p, snap?.segmentIndex)
         onTheWay.onFix(l, p, snap?.segmentIndex ?: 0)
         if (p.isNaN()) {
             _alert.value = null

@@ -77,6 +77,8 @@ fun DriveScreen(
     onTakeFaster: () -> Unit,
     onKeepRoute: () -> Unit,
     station: (@Composable () -> Unit)?,
+    /** What was found for the chips that are on (list, none, or failed). */
+    poiAnswers: @Composable () -> Unit,
     camMode: com.excellentmindblow.navos.navigation.DriveCamera.Mode,
     onRecentre: () -> Unit,
     onOverview: () -> Unit,
@@ -194,7 +196,7 @@ fun DriveScreen(
         val open = expanded || station != null
         LaunchedEffect(expanded, moving, touchedAt, station != null) {
             if (expanded && moving && station == null) {
-                kotlinx.coroutines.delay(AUTO_TUCK_MS)
+                kotlinx.coroutines.delay(if (poiOn.isEmpty()) AUTO_TUCK_MS else AUTO_TUCK_MS * 2)
                 expanded = false
             }
         }
@@ -256,6 +258,7 @@ fun DriveScreen(
                             1 ->
                                 Column {
                                     PoiChips(poiOn, poiLoading) { onPoiToggle(it); touchedAt = System.currentTimeMillis() }
+                                    poiAnswers()
                                     Spacer(Modifier.height(12.dp))
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f).padding(start = 4.dp)) {

@@ -36,11 +36,8 @@ object RouteLayers {
         caseColor: Int,
     ) {
         if (style.getSource(SRC_SEL) != null) return
-        selColor = routeColor
-        caseCol = caseColor
         style.addSource(GeoJsonSource(SRC_ALT))
-        // Line metrics: lets the line hide the part already driven (line-progress gradient).
-        style.addSource(GeoJsonSource(SRC_SEL, org.maplibre.android.style.sources.GeoJsonOptions().withLineMetrics(true)))
+        style.addSource(GeoJsonSource(SRC_SEL))
         val below = style.layers.firstOrNull { it.id == "road-label" }?.id
         fun add(l: LineLayer) = if (below != null) style.addLayerBelow(l, below) else style.addLayer(l)
         add(
@@ -69,27 +66,19 @@ object RouteLayers {
         )
     }
 
-    private var selColor = 0
-    private var caseCol = 0
-
     /**
-     * Hides the route behind you: [fraction] (0..1) of the line's length is
-     * already driven. 0 shows it all (route choice).
+     * While driving: the chosen line from where you are to the end. The line is
+     * cut at your position (no gradient: MapLibre draws a line gradient at low
+     * resolution, so on a long route it faded out well ahead of the car).
      */
-    fun driven(
+    fun showAhead(
         style: Style,
-        fraction: Double,
+        ahead: List<com.excellentmindblow.navos.routing.RoutePoint>,
     ) {
-        val f = fraction.coerceIn(0.0, 0.999).toFloat()
-        val clear = Expression.color(android.graphics.Color.TRANSPARENT)
-        fun grad(c: Int) =
-            if (f <= 0.0005f) {
-                Expression.step(Expression.lineProgress(), Expression.color(c), Expression.stop(1f, Expression.color(c)))
-            } else {
-                Expression.step(Expression.lineProgress(), clear, Expression.stop(f, Expression.color(c)))
-            }
-        style.getLayer(LAYER_SEL)?.setProperties(PropertyFactory.lineGradient(grad(selColor)))
-        style.getLayer(LAYER_CASE)?.setProperties(PropertyFactory.lineGradient(grad(caseCol)))
+        if (ahead.size < 2) return
+        style.getSourceAs<GeoJsonSource>(SRC_SEL)?.setGeoJson(
+            FeatureCollection.fromFeatures(listOf(Feature.fromGeometry(LineString.fromLngLats(ahead.map { Point.fromLngLat(it.longitude, it.latitude) })))),
+        )
     }
 
     /** Shows [selected] and [others] (null / empty = nothing). */

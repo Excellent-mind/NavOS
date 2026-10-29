@@ -35,6 +35,10 @@ shield chips, lane band, "Then" tab only for back-to-back turns; roundabout
 icons trace the clockwise path round a faded ring.
 0.11.1 (code 14) = roundabout icons redrawn (bigger ring, slim strokes, head on a short stub).
 0.11.2 (code 15) = old React Native app (legacy-expo-rn) removed, README rewritten; merged to main.
+0.12.0 (code 16) = drive fixes: route line cut at the car (no gradient), turn
+arrowhead sized to stay inside the line, Petrol/EV/Parking/Train chips answer
+under them (nearest places, none on the way, or failed + Try again), equal
+chips fit 360 dp, Overpass mirror fallback, "onto the road" dropped from the sign.
 
 ## Traffic server
 Cloudflare Worker `navos-traffic` (server/traffic-worker). Deploy with the

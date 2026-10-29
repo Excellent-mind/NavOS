@@ -59,47 +59,142 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Petrol / EV / parking / transit toggles in the drive sheet. */
+/** Petrol / EV / parking / transit toggles in the drive sheet: four equal chips, they fit a 360 dp phone. */
 @Composable
 fun PoiChips(
     on: Set<PoiKind>,
     loading: Set<PoiKind>,
     onToggle: (PoiKind) -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         PoiKind.entries.forEach { k ->
-            val label =
-                when (k) {
-                    PoiKind.FUEL -> tr("Petrol", "Minyak")
-                    PoiKind.EV -> tr("EV", "EV")
-                    PoiKind.PARKING -> tr("Parking", "Parkir")
-                    PoiKind.TRANSIT -> tr("Train", "Tren")
-                }
-            ToggleChip(label + if (k in loading) " …" else "", iconOf(k), k in on) { onToggle(k) }
+            ToggleChip(kindLabel(k), iconOf(k), k in on, k in loading, Modifier.weight(1f)) { onToggle(k) }
         }
     }
 }
+
+fun kindLabel(k: PoiKind): String =
+    when (k) {
+        PoiKind.FUEL -> tr("Petrol", "Minyak")
+        PoiKind.EV -> tr("EV", "EV")
+        PoiKind.PARKING -> tr("Parking", "Parkir")
+        PoiKind.TRANSIT -> tr("Train", "Tren")
+    }
 
 @Composable
 private fun ToggleChip(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     selected: Boolean,
+    busy: Boolean,
+    modifier: Modifier,
     onClick: () -> Unit,
 ) {
     val c = Jalan.colors
     Row(
-        Modifier
-            .heightIn(min = 44.dp)
-            .background(if (selected) c.ink else c.card, RoundedCornerShape(22.dp))
-            .border(1.dp, if (selected) c.ink else c.line, RoundedCornerShape(22.dp))
+        modifier
+            .heightIn(min = 46.dp)
+            .background(if (selected) c.ink else c.card, RoundedCornerShape(23.dp))
+            .border(1.dp, if (selected) c.ink else c.line, RoundedCornerShape(23.dp))
             .clickable(role = Role.Switch, onClick = onClick)
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, contentDescription = null, tint = if (selected) c.onInk else c.ink, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(8.dp))
-        Text(label, style = JalanType.label, color = if (selected) c.onInk else c.ink, maxLines = 1)
+        if (busy) {
+            androidx.compose.material3.CircularProgressIndicator(Modifier.size(15.dp), color = if (selected) c.onInk else c.ink, strokeWidth = 2.dp)
+        } else {
+            Icon(icon, contentDescription = null, tint = if (selected) c.onInk else c.ink, modifier = Modifier.size(17.dp))
+        }
+        Spacer(Modifier.width(5.dp))
+        Text(label, style = JalanType.label.copy(fontSize = 13.sp), color = if (selected) c.onInk else c.ink, maxLines = 1, overflow = TextOverflow.Clip)
+    }
+}
+
+/**
+ * The answer under the chips for each one that's on: the nearest few places
+ * (tap one for its card), or that none are on the way, or that the lookup
+ * failed with a Try again.
+ */
+@Composable
+fun PoiAnswers(
+    on: Set<PoiKind>,
+    status: Map<PoiKind, OnTheWay.Status>,
+    pins: List<OnTheWay.Pin>,
+    knownAheadM: Double,
+    onPick: (String) -> Unit,
+    onRetry: (PoiKind) -> Unit,
+) {
+    val c = Jalan.colors
+    val kinds = PoiKind.entries.filter { it in on }
+    if (kinds.isEmpty()) return
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        kinds.forEach { k ->
+            val mine = pins.filter { it.poi.kind == k }.take(3)
+            val st = status[k]
+            when {
+                mine.isNotEmpty() ->
+                    mine.forEach { pin ->
+                        val brand = if (k == PoiKind.FUEL) FuelBrand.of(pin.poi.name) else null
+                        val name = brand?.displayName ?: pin.poi.name.ifBlank { kindLabel(k) }
+                        val where =
+                            pin.spot?.let { sp ->
+                                when {
+                                    sp.aheadM < 0 -> tr("Here", "Sini")
+                                    sp.offRouteM <= PoiAlongRoute.ON_LINE_M -> tr("${Units.short(sp.aheadM)} ahead · on your route", "${Units.short(sp.aheadM)} di depan · atas laluan")
+                                    else -> tr("${Units.short(sp.aheadM)} ahead · your side", "${Units.short(sp.aheadM)} di depan · sebelah anda")
+                                }
+                            } ?: pin.fromDestinationM?.let { tr("${Units.short(it)} from destination", "${Units.short(it)} dari destinasi") }
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).clickable { onPick(pin.poi.id) }.padding(horizontal = 4.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(iconOf(k), contentDescription = null, tint = c.inkQuiet, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text(name, style = JalanType.bodyStrong, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            Spacer(Modifier.width(8.dp))
+                            Text(where.orEmpty(), style = JalanType.caption, color = c.inkQuiet, maxLines = 1)
+                        }
+                    }
+                st == OnTheWay.Status.LOADING || st == null ->
+                    AnswerLine(k, if (k == PoiKind.FUEL || k == PoiKind.EV) tr("Looking ahead on your route…", "Cari di laluan depan…") else tr("Looking near your destination…", "Cari dekat destinasi…"))
+                st == OnTheWay.Status.FAILED ->
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(iconOf(k), contentDescription = null, tint = c.inkQuiet, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(tr("Couldn't load. Check your data.", "Tak dapat muat. Semak data anda."), style = JalanType.body, color = c.ink, modifier = Modifier.weight(1f), maxLines = 2)
+                        Box(
+                            Modifier.heightIn(min = 40.dp).background(c.field, RoundedCornerShape(20.dp)).clickable(role = Role.Button) { onRetry(k) }.padding(horizontal = 14.dp),
+                            contentAlignment = Alignment.Center,
+                        ) { Text(tr("Try again", "Cuba lagi"), style = JalanType.label, color = c.ink) }
+                    }
+                else -> {
+                    val km = Math.round(knownAheadM / 1000.0)
+                    AnswerLine(
+                        k,
+                        when (k) {
+                            PoiKind.FUEL -> tr("No petrol station on your route in the next $km km", "Tiada stesen minyak di laluan untuk $km km")
+                            PoiKind.EV -> tr("No EV charger on your route in the next $km km", "Tiada pengecas EV di laluan untuk $km km")
+                            PoiKind.PARKING -> tr("No public car park mapped near your destination", "Tiada tempat letak kereta awam dekat destinasi")
+                            PoiKind.TRANSIT -> tr("No train station near your destination", "Tiada stesen tren dekat destinasi")
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnswerLine(
+    k: PoiKind,
+    text: String,
+) {
+    val c = Jalan.colors
+    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(iconOf(k), contentDescription = null, tint = c.inkQuiet, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(text, style = JalanType.body, color = c.inkQuiet, maxLines = 2)
     }
 }
 
