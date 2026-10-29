@@ -32,9 +32,10 @@ object JalanIcons {
     val History =
         icon("history") {
             stroke {
-                moveTo(3f, 12f); arcTo(9f, 9f, 0f, true, true, 5.6f, 5.6f)
-                moveTo(3f, 4f); lineTo(3f, 9f); lineTo(8f, 9f)
-                moveTo(12f, 7f); lineTo(12f, 12f); lineTo(15f, 14f)
+                // A clock face that turns back: most of a circle, its tail curling into an arrow.
+                moveTo(3f, 12f); arcTo(9f, 9f, 0f, true, false, 12f, 3f); arcTo(9.75f, 9.75f, 0f, false, false, 5.26f, 5.74f); lineTo(3f, 8f)
+                moveTo(3f, 3f); lineTo(3f, 8f); lineTo(8f, 8f)
+                moveTo(12f, 7f); lineTo(12f, 12f); lineTo(16f, 14f)
             }
         }
 

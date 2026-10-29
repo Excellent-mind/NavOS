@@ -48,6 +48,7 @@ always starts under the arrow instead of ahead of it while the arrow glides.
 TTLs), "Still there?" vote after passing a report, traffic-ahead warning with
 delay, speeding chime, voice modes (On / Alerts only / Off), Share ETA,
 parked-car memory on the home map.
+0.14.1 (code 20) = recent-places clock icon redrawn (the arc was wrong and drew scribbles).
 
 ## Traffic server
 Cloudflare Worker `navos-traffic` (server/traffic-worker). Deploy with the
