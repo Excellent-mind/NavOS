@@ -26,7 +26,7 @@ object RouteLayers {
     private const val SRC_ALT = "navos-route-alt"
     private const val LAYER_ALT = "navos-route-alt"
     private const val LAYER_CASE = "navos-route-case"
-    private const val LAYER_SEL = "navos-route"
+    const val LAYER_SEL = "navos-route"
 
     /** Adds the (empty) sources and layers; call after every style load. */
     fun install(
@@ -93,7 +93,7 @@ object RouteLayers {
 
     private fun feature(r: Route) = Feature.fromGeometry(LineString.fromLngLats(r.geometry.map { Point.fromLngLat(it.longitude, it.latitude) }))
 
-    private fun width(
+    internal fun width(
         z10: Float,
         z14: Float,
         z18: Float,

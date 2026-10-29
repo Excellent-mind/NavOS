@@ -23,6 +23,8 @@ import com.excellentmindblow.navos.routing.RoutePoint
 import com.excellentmindblow.navos.tr
 import com.excellentmindblow.navos.traffic.RoadReports
 import com.excellentmindblow.navos.traffic.SmartLanes
+import com.excellentmindblow.navos.traffic.TrafficClient
+import com.excellentmindblow.navos.traffic.TrafficFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -81,6 +83,28 @@ class DriveViewModel(
     private val _openLanes = MutableStateFlow<List<SmartLanes.Lane>>(emptyList())
     val openLanes: StateFlow<List<SmartLanes.Lane>> = _openLanes.asStateFlow()
 
+    /** Petrol / EV on the way, parking / transit at the destination. */
+    val onTheWay = OnTheWay(app, viewModelScope)
+
+    /** Slow and jammed stretches ahead, from live traffic (empty without data). */
+    data class TrafficRun(
+        val points: List<RoutePoint>,
+        val jam: Boolean,
+    )
+
+    private val _traffic = MutableStateFlow<List<TrafficRun>>(emptyList())
+    val traffic: StateFlow<List<TrafficRun>> = _traffic.asStateFlow()
+
+    /** A faster way found mid-drive, waiting for the driver to take it or not. */
+    data class Faster(
+        val route: Route,
+        val savedMin: Int,
+    )
+
+    private val _faster = MutableStateFlow<Faster?>(null)
+    val faster: StateFlow<Faster?> = _faster.asStateFlow()
+    private var fasterTimeout: Job? = null
+
     private val main = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private val limits = SpeedLimitTracker({ io.execute(it) }, { main.post(it) }, System::currentTimeMillis, { _route.value != null })
@@ -111,6 +135,9 @@ class DriveViewModel(
             override fun onRerouted(route: Route) {
                 _route.value = route
                 setTrack(route)
+                onTheWay.rerouted(route)
+                _faster.value = null
+                refreshTraffic()
             }
 
             override fun onStopReached(stop: RouteStop) {}
@@ -119,8 +146,11 @@ class DriveViewModel(
                 route: Route,
                 savedSeconds: Double,
             ) {
-                // Phase 5: offer it. For now take it, like Waze does when the saving is real.
-                service?.acceptFasterRoute(route)
+                val min = Math.round(savedSeconds / 60.0).toInt().coerceAtLeast(1)
+                _faster.value = Faster(route, min)
+                // Not answered in 20 s: keep the route you're on.
+                fasterTimeout?.cancel()
+                fasterTimeout = viewModelScope.launch { delay(20_000); _faster.value = null }
             }
         }
 
@@ -153,6 +183,10 @@ class DriveViewModel(
         alerted.clear()
         limits.reset()
         startReports()
+        arrivalName = null
+        onTheWay.start(route)
+        _traffic.value = emptyList()
+        _faster.value = null
         _state.value = null
         _ended.value = false
         val intent = Intent(ctx, NavigationService::class.java)
@@ -177,6 +211,9 @@ class DriveViewModel(
         _reports.value = emptyList()
         _openLanes.value = emptyList()
         reportsJob?.cancel()
+        onTheWay.stop()
+        _traffic.value = emptyList()
+        _faster.value = null
         track = null
         unbind()
     }
@@ -188,10 +225,75 @@ class DriveViewModel(
     }
 
     /** How far along the route [l] is, or NaN off it. */
-    private fun progressOf(l: Location): Double {
-        val t = track ?: return Double.NaN
-        val snap = GeoUtils.snapToPolyline(RoutePoint(l.latitude, l.longitude), t.source) ?: return Double.NaN
-        return if (snap.distanceMeters > 60) Double.NaN else t.progressOf(snap)
+    private fun progressOf(l: Location): Double = snapOf(l)?.let { track?.progressOf(it) } ?: Double.NaN
+
+    private fun snapOf(l: Location): GeoUtils.RouteSnap? {
+        val t = track ?: return null
+        val snap = GeoUtils.snapToPolyline(RoutePoint(l.latitude, l.longitude), t.source) ?: return null
+        return if (snap.distanceMeters > 60) null else snap
+    }
+
+    /** Live traffic on the route ahead: amber where slow, red where jammed. */
+    private fun refreshTraffic() {
+        val r = _route.value ?: return
+        val nodes = r.nodes ?: return
+        val free = r.freeFlowMs ?: return
+        val from = _location.value?.let { snapOf(it)?.segmentIndex } ?: 0
+        viewModelScope.launch {
+            val live = withContext(Dispatchers.IO) { runCatching { TrafficClient.flow(TrafficFlow.piecesAhead(nodes, from)) }.getOrNull() } ?: return@launch
+            if (_route.value !== r) return@launch
+            _traffic.value =
+                TrafficFlow.runs(nodes, free, live, from).map { run ->
+                    TrafficRun(r.geometry.subList(run.from, (run.to + 1).coerceAtMost(r.geometry.size)), run.level == TrafficFlow.Level.JAM)
+                }
+        }
+    }
+
+    /** The place the drive now ends at, when the driver changed it mid-drive (Go here). */
+    var arrivalName: String? = null
+        private set
+
+    /** Take the faster way offered. */
+    fun takeFaster() {
+        val f = _faster.value ?: return
+        _faster.value = null
+        fasterTimeout?.cancel()
+        service?.acceptFasterRoute(f.route)
+        _route.value = f.route
+        setTrack(f.route)
+        onTheWay.rerouted(f.route)
+        refreshTraffic()
+    }
+
+    fun keepRoute() {
+        _faster.value = null
+        fasterTimeout?.cancel()
+    }
+
+    /** Stop at [poi] on the way, in front of the destination. */
+    fun stopAt(poi: com.excellentmindblow.navos.poi.Poi) {
+        val r = _route.value ?: return
+        service?.addStop(RouteStop(RoutePoint(poi.latitude, poi.longitude), poi.name, r.stops.size + 1))
+        onTheWay.select(null)
+    }
+
+    /** Drive to [poi] instead (a car park or station at the destination): a fresh route from here. */
+    fun goTo(
+        poi: com.excellentmindblow.navos.poi.Poi,
+        onFailed: () -> Unit,
+    ) {
+        val l = _location.value ?: return onFailed()
+        onTheWay.select(null)
+        arrivalName = poi.name.ifBlank { null }
+        viewModelScope.launch {
+            val routes = withContext(Dispatchers.IO) { runCatching { com.excellentmindblow.navos.routing.RoutingService.calculateRoutes(RoutePoint(l.latitude, l.longitude), RoutePoint(poi.latitude, poi.longitude)) }.getOrNull() }
+            val best = routes?.firstOrNull() ?: return@launch onFailed()
+            service?.startNavigation(best)
+            _route.value = best
+            setTrack(best)
+            onTheWay.rerouted(best)
+            refreshTraffic()
+        }
     }
 
     /** Road reports along the route, every 2 minutes. */
@@ -212,6 +314,7 @@ class DriveViewModel(
                     }
                     // Smart Lanes load in the background; place them once they are in.
                     if (smartOnRoute.isEmpty()) track?.let { smartOnRoute = SmartLanes.onRoute(it, SmartLanes.lanes) }
+                    refreshTraffic()
                     delay(120_000)
                 }
             }
@@ -222,7 +325,9 @@ class DriveViewModel(
         val here = RoutePoint(l.latitude, l.longitude)
         limits.onLocation(here)
         _limit.value = limits.limitAt(here)
-        val p = progressOf(l)
+        val snap = snapOf(l)
+        val p = snap?.let { track?.progressOf(it) } ?: Double.NaN
+        onTheWay.onFix(l, p, snap?.segmentIndex ?: 0)
         if (p.isNaN()) {
             _alert.value = null
             return

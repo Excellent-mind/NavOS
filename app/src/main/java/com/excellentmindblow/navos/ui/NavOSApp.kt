@@ -86,6 +86,8 @@ private fun AppContent(
         app.go(Screen.SEARCH)
     }
 
+    // Whoever is on screen can listen for map taps (the drive: pins).
+    val mapTap = remember { mutableStateOf<((org.maplibre.android.geometry.LatLng) -> Unit)?>(null) }
     Box(Modifier.fillMaxSize()) {
         val c = Jalan.colors
         NavMap(
@@ -96,8 +98,10 @@ private fun AppContent(
             onStyleReady = { style ->
                 RouteLayers.install(style, c.route.toArgb(), c.inkQuiet.copy(alpha = 0.55f).toArgb(), c.card.toArgb())
                 com.excellentmindblow.navos.ui.map.DriveLayers.install(style)
+                com.excellentmindblow.navos.ui.map.PoiPins.install(style)
                 styleTick++
             },
+            onMapClick = { mapTap.value?.invoke(it) },
         )
 
         when (screen) {
@@ -184,7 +188,7 @@ private fun AppContent(
                     onGo = { app.go(Screen.DRIVE) },
                 )
             }
-            Screen.DRIVE -> DriveHost(app, routes, drive, map, styleTick)
+            Screen.DRIVE -> DriveHost(app, routes, drive, map, styleTick, mapTap)
             Screen.ARRIVED -> {
                 BackHandler { app.go(Screen.HOME) }
                 com.excellentmindblow.navos.ui.drive.ArrivalCard(app.arrivedName, app.arrivedSide) { app.go(Screen.HOME) }
@@ -205,8 +209,15 @@ private fun DriveHost(
     drive: com.excellentmindblow.navos.ui.drive.DriveViewModel,
     map: MapController,
     styleTick: Int,
+    mapTap: androidx.compose.runtime.MutableState<((org.maplibre.android.geometry.LatLng) -> Unit)?>,
 ) {
     val state by drive.state.collectAsStateWithLifecycle()
+    val traffic by drive.traffic.collectAsStateWithLifecycle()
+    val faster by drive.faster.collectAsStateWithLifecycle()
+    val poiOn by drive.onTheWay.kinds.collectAsStateWithLifecycle()
+    val poiLoading by drive.onTheWay.loading.collectAsStateWithLifecycle()
+    val pins by drive.onTheWay.pins.collectAsStateWithLifecycle()
+    val selectedId by drive.onTheWay.selected.collectAsStateWithLifecycle()
     val route by drive.route.collectAsStateWithLifecycle()
     val fix by drive.location.collectAsStateWithLifecycle()
     val phoneFix by app.location.collectAsStateWithLifecycle()
@@ -227,13 +238,37 @@ private fun DriveHost(
     LaunchedEffect(Unit) {
         if (drive.route.value == null) routes.selectedRoute()?.let { drive.start(it) }
     }
+    // Pins and live traffic on the map; a tap on a pin opens its card, anywhere else closes it.
+    LaunchedEffect(pins, selectedId, styleTick) { map.style?.let { com.excellentmindblow.navos.ui.map.PoiPins.showPins(context, it, pins, selectedId) } }
+    LaunchedEffect(traffic, styleTick) { map.style?.let { com.excellentmindblow.navos.ui.map.PoiPins.showTraffic(it, traffic) } }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        mapTap.value = { ll ->
+            val m = map.map
+            if (m != null) {
+                val pt = m.projection.toScreenLocation(ll)
+                val slop = with(density) { 18.dp.toPx() }
+                val hit =
+                    runCatching { m.queryRenderedFeatures(android.graphics.RectF(pt.x - slop, pt.y - slop, pt.x + slop, pt.y + slop), com.excellentmindblow.navos.ui.map.PoiPins.LAYER_PINS) }
+                        .getOrDefault(emptyList())
+                        .firstNotNullOfOrNull { it.getStringProperty(com.excellentmindblow.navos.ui.map.PoiPins.PROP_ID) }
+                drive.onTheWay.select(hit)
+            }
+        }
+        onDispose {
+            mapTap.value = null
+            map.style?.let {
+                com.excellentmindblow.navos.ui.map.PoiPins.showPins(context, it, emptyList(), null)
+                com.excellentmindblow.navos.ui.map.PoiPins.showTraffic(it, emptyList())
+            }
+        }
+    }
     // Reports on the route and open Smart Lanes on the map.
     LaunchedEffect(reports, openLanes, styleTick) { map.style?.let { com.excellentmindblow.navos.ui.map.DriveLayers.show(it, reports, openLanes) } }
     // Arrived (the service ends the drive at the destination): the arrival card.
     LaunchedEffect(ended) {
         if (!ended) return@LaunchedEffect
         val r = drive.route.value
-        app.arrivedName = destination?.name.orEmpty()
+        app.arrivedName = drive.arrivalName ?: destination?.name.orEmpty()
         app.arrivedSide = com.excellentmindblow.navos.NavFormat.arrivalSide(r?.steps?.lastOrNull()?.modifier)?.let { context.getString(it) }
         drive.end()
         map.style?.let {
@@ -272,7 +307,7 @@ private fun DriveHost(
         here?.let { l -> map.moveTo(l.latitude, l.longitude) }
         app.go(Screen.HOME)
     }
-    BackHandler { askEnd = true }
+    BackHandler { if (selectedId != null) drive.onTheWay.select(null) else askEnd = true }
 
     val routeState by routes.state.collectAsStateWithLifecycle()
     val routeSel by routes.selected.collectAsStateWithLifecycle()
@@ -284,6 +319,35 @@ private fun DriveHost(
         strip = strip,
         voiceOn = voiceOn,
         alert = alert,
+        faster = faster,
+        poiOn = poiOn,
+        poiLoading = poiLoading,
+        onPoiToggle = drive.onTheWay::toggle,
+        onTakeFaster = drive::takeFaster,
+        onKeepRoute = drive::keepRoute,
+        station =
+            pins.firstOrNull { it.poi.id == selectedId }?.let { pin ->
+                {
+                    val next = drive.onTheWay.nextAfter(pin)
+                    val nextPoi = next?.nextAheadM?.let { drive.onTheWay.nameOfPinAt(pin.poi.kind, it) }
+                    val nextName = nextPoi?.let { p -> com.excellentmindblow.navos.poi.FuelBrand.of(p.name)?.displayName ?: p.name.ifBlank { null } }
+                    val s = state
+                    val avg = if (s != null && s.durationRemainingSeconds > 1) s.distanceRemainingMeters / s.durationRemainingSeconds else 15.0
+                    com.excellentmindblow.navos.ui.drive.StationCard(
+                        pin = pin,
+                        next = next,
+                        nextName = nextName,
+                        averageMs = avg,
+                        onStop = { drive.stopAt(pin.poi) },
+                        onGo = {
+                            drive.goTo(pin.poi) {
+                                android.widget.Toast.makeText(context, com.excellentmindblow.navos.tr("Couldn't get a route there", "Tak dapat laluan ke sana"), android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onClose = { drive.onTheWay.select(null) },
+                    )
+                }
+            },
         onVoice = { drive.setVoice(!voiceOn) },
         onReport = { picker = true },
         onEnd = { askEnd = true },

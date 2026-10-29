@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.togetherWith
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -60,6 +61,13 @@ fun DriveScreen(
     strip: TripStrip.Strip?,
     voiceOn: Boolean,
     alert: DriveViewModel.Alert?,
+    faster: DriveViewModel.Faster?,
+    poiOn: Set<com.excellentmindblow.navos.poi.PoiKind>,
+    poiLoading: Set<com.excellentmindblow.navos.poi.PoiKind>,
+    onPoiToggle: (com.excellentmindblow.navos.poi.PoiKind) -> Unit,
+    onTakeFaster: () -> Unit,
+    onKeepRoute: () -> Unit,
+    station: (@Composable () -> Unit)?,
     onVoice: () -> Unit,
     onReport: () -> Unit,
     onEnd: () -> Unit,
@@ -87,10 +95,28 @@ fun DriveScreen(
                     thenText = state.nextRoadName ?: state.nextInstruction,
                 )
             }
-            if (alert != null) AlertBanner(alert)
+            // Faster route first (it needs an answer), else what's on the road ahead.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = faster != null,
+                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
+            ) {
+                val last = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(faster) }
+                if (faster != null) last.value = faster
+                last.value?.let { FasterCard(it, state?.durationRemainingSeconds ?: 0.0, onTakeFaster, onKeepRoute) }
+            }
+            androidx.compose.animation.AnimatedVisibility(
+                visible = faster == null && alert != null,
+                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
+            ) {
+                val last = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(alert) }
+                if (alert != null) last.value = alert
+                last.value?.let { AlertBanner(it) }
+            }
         }
 
-        val bottomGap = if (strip != null) 210.dp else 150.dp
+        val bottomGap = if (station != null) 330.dp else if (strip != null) 266.dp else 206.dp
         // Report and voice on the left.
         Column(Modifier.align(Alignment.BottomStart).windowInsetsPadding(WindowInsets.navigationBars).padding(start = 14.dp, bottom = bottomGap), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Surface(shape = CircleShape, color = Traffic.Report, shadowElevation = 6.dp, modifier = Modifier.size(56.dp)) {
@@ -107,8 +133,23 @@ fun DriveScreen(
         // Speed on the right.
         SpeedSigns(speedKmh, limitKmh, Modifier.align(Alignment.BottomEnd).windowInsetsPadding(WindowInsets.navigationBars).padding(end = 14.dp, bottom = bottomGap))
 
-        // Arrival bar.
+        // Arrival bar, or the station you tapped.
         JalanSheet(Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars)) {
+          androidx.compose.animation.AnimatedContent(
+              targetState = station,
+              transitionSpec = {
+                  (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) + androidx.compose.animation.slideInVertically { it / 6 })
+                      .togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)))
+              },
+              contentKey = { it != null },
+              label = "drive-sheet",
+          ) { card ->
+          if (card != null) {
+              card()
+          } else {
+          Column {
+            PoiChips(poiOn, poiLoading, onPoiToggle)
+            Spacer(Modifier.height(12.dp))
             val remaining = state?.durationRemainingSeconds ?: 0.0
             val arrive = SimpleDateFormat("h:mm a", Locale.US).format(Date(System.currentTimeMillis() + (remaining * 1000).toLong()))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -131,6 +172,9 @@ fun DriveScreen(
                 Spacer(Modifier.height(10.dp))
                 TripRibbon(strip, Modifier.fillMaxWidth())
             }
+          }
+          }
+          }
         }
     }
 }

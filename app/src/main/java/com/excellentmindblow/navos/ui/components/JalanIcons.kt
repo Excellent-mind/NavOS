@@ -93,4 +93,18 @@ object JalanIcons {
                 moveTo(16f, 9f); lineTo(22f, 15f)
             }
         }
+
+    /** Train: front of a carriage on rails. */
+    val Train =
+        icon("train") {
+            stroke {
+                moveTo(7f, 3f); lineTo(17f, 3f); arcTo(2f, 2f, 0f, false, true, 19f, 5f); lineTo(19f, 15f); arcTo(2f, 2f, 0f, false, true, 17f, 17f)
+                lineTo(7f, 17f); arcTo(2f, 2f, 0f, false, true, 5f, 15f); lineTo(5f, 5f); arcTo(2f, 2f, 0f, false, true, 7f, 3f); close()
+                moveTo(5f, 10f); lineTo(19f, 10f)
+                moveTo(9f, 13.5f); lineTo(9.01f, 13.5f)
+                moveTo(15f, 13.5f); lineTo(15.01f, 13.5f)
+                moveTo(8f, 17f); lineTo(6f, 21f)
+                moveTo(16f, 17f); lineTo(18f, 21f)
+            }
+        }
 }
