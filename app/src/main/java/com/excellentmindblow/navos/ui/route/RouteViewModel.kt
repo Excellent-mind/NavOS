@@ -29,6 +29,8 @@ data class RouteOption(
     val tolls: Int,
     val toll: TollEstimate?,
     val strip: TripStrip.Strip?,
+    /** Speed / red-light cameras on this route (AES / AwAS). */
+    val cameras: Int = 0,
 )
 
 /** Route choice: asks the routing engine, then works out tolls, prices and the trip strip for each route. */
@@ -60,6 +62,7 @@ class RouteViewModel(
 
     init {
         TollFares.load(app) { refreshPrices() }
+        com.excellentmindblow.navos.traffic.SpeedCameras.load(app)
     }
 
     fun select(i: Int) {
@@ -105,7 +108,8 @@ class RouteViewModel(
 
     private fun option(route: Route): RouteOption {
         val plazas = BundledTolls.along(route)
-        val strip = TripStrip.build(route, plazas, emptyList(), emptyList())
+        val cams = com.excellentmindblow.navos.traffic.SpeedCameras.onRoute(com.excellentmindblow.navos.navigation.RouteTrack(route.geometry), com.excellentmindblow.navos.traffic.SpeedCameras.all)
+        val strip = TripStrip.build(route, plazas + com.excellentmindblow.navos.traffic.SpeedCameras.asRoadPois(cams), emptyList(), emptyList())
         val main = route.steps.filter { it.roadName.isNotBlank() }.groupBy { it.roadName }.maxByOrNull { (_, s) -> s.sumOf { it.distanceMeters } }
         val ref =
             main?.value?.firstNotNullOfOrNull { it.ref?.split(';')?.firstOrNull()?.trim()?.takeIf { r -> r.isNotBlank() } }
@@ -118,6 +122,7 @@ class RouteViewModel(
             tolls = tollMarks.size,
             toll = price(tollMarks),
             strip = strip,
+            cameras = cams.size,
         )
     }
 

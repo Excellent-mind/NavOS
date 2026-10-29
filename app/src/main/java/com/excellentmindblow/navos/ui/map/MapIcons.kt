@@ -45,6 +45,7 @@ object MapIcons {
     ) {
         for ((kind, fill) in KINDS) style.addImage("navos-poi-$kind", badge(context, kind, fill))
         style.addImage("navos-oneway", oneway(context))
+        style.addImage("navos-cam", camera(context))
     }
 
     private fun badge(
@@ -175,6 +176,28 @@ object MapIcons {
             }
             else -> c.drawCircle(cx, cx, 2.2f * u, fill)
         }
+    }
+
+    /** Speed camera pin: red-ringed white disc with a black camera, like the roadside AES sign. */
+    private fun camera(context: Context): Bitmap {
+        val d = context.resources.displayMetrics.density
+        val size = (30 * d).toInt()
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val cx = size / 2f
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        p.color = 0xFFD2152A.toInt()
+        p.setShadowLayer(2f * d, 0f, 1f * d, 0x55000000)
+        c.drawCircle(cx, cx, 13f * d, p)
+        p.clearShadowLayer()
+        p.color = 0xFFFFFFFF.toInt()
+        c.drawCircle(cx, cx, 9.8f * d, p)
+        p.color = 0xFF111111.toInt()
+        val u = d * 0.9f
+        c.drawRoundRect(RectF(cx - 6 * u, cx - 4 * u, cx + 3 * u, cx + 2 * u), u, u, p)
+        c.drawPath(Path().apply { moveTo(cx + 3 * u, cx - 2.5f * u); lineTo(cx + 6.5f * u, cx - 4 * u); lineTo(cx + 6.5f * u, cx + 2 * u); lineTo(cx + 3 * u, cx + 0.5f * u); close() }, p)
+        c.drawRect(RectF(cx - 2.5f * u, cx + 2 * u, cx - 0.5f * u, cx + 6.5f * u), p)
+        return bmp
     }
 
     /** A white chevron pointing along the road (+x), with a dark edge so it reads on asphalt. */

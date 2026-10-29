@@ -123,4 +123,15 @@ object JalanIcons {
         icon("recentre") {
             stroke { moveTo(12f, 3f); lineTo(19f, 20f); lineTo(12f, 16f); lineTo(5f, 20f); close() }
         }
+
+    /** Speed camera: a box camera on a post. */
+    val Camera =
+        icon("camera") {
+            stroke {
+                moveTo(4f, 6f); lineTo(16f, 6f); lineTo(16f, 13f); lineTo(4f, 13f); close()
+                moveTo(16f, 8f); lineTo(20f, 6.5f); lineTo(20f, 12.5f); lineTo(16f, 11f)
+                moveTo(9f, 13f); lineTo(9f, 21f)
+                moveTo(6f, 21f); lineTo(12f, 21f)
+            }
+        }
 }

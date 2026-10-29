@@ -71,7 +71,16 @@ class DriveViewModel(
         val title: String,
         val detail: String,
         val distanceM: Double,
+        /** A speed camera: its limit (0 = not known), else null. */
+        val cameraLimit: Int? = null,
+        /** Over the camera's limit right now. */
+        val over: Boolean = false,
     )
+
+    /** Cameras on the route, for the map. */
+    private val _cameras = MutableStateFlow<List<com.excellentmindblow.navos.traffic.SpeedCameras.OnRoute>>(emptyList())
+    val cameras: StateFlow<List<com.excellentmindblow.navos.traffic.SpeedCameras.OnRoute>> = _cameras.asStateFlow()
+    private val overWarned = HashSet<String>()
 
     private val _alert = MutableStateFlow<Alert?>(null)
     val alert: StateFlow<Alert?> = _alert.asStateFlow()
@@ -185,6 +194,7 @@ class DriveViewModel(
         SmartLanes.load(ctx)
         setTrack(route)
         alerted.clear()
+        overWarned.clear()
         limits.reset()
         startReports()
         arrivalName = null
@@ -215,6 +225,7 @@ class DriveViewModel(
         _limit.value = null
         _reports.value = emptyList()
         _openLanes.value = emptyList()
+        _cameras.value = emptyList()
         reportsJob?.cancel()
         onTheWay.stop()
         _traffic.value = emptyList()
@@ -227,6 +238,8 @@ class DriveViewModel(
         val t = RouteTrack(route.geometry)
         track = t
         smartOnRoute = SmartLanes.onRoute(t, SmartLanes.lanes)
+        com.excellentmindblow.navos.traffic.SpeedCameras.load(getApplication())
+        _cameras.value = com.excellentmindblow.navos.traffic.SpeedCameras.onRoute(t, com.excellentmindblow.navos.traffic.SpeedCameras.all)
     }
 
     /** How far along the route [l] is, or NaN off it. */
@@ -349,7 +362,8 @@ class DriveViewModel(
     private fun onFix(l: Location) {
         val here = RoutePoint(l.latitude, l.longitude)
         limits.onLocation(here)
-        _limit.value = limits.limitAt(here)
+        val mapLimit = limits.limitAt(here)
+        _limit.value = mapLimit
         val snap = snapOf(l)
         val p = snap?.let { track?.progressOf(it) } ?: Double.NaN
         _shown.value = onRoute(l, snap, p)
@@ -368,8 +382,31 @@ class DriveViewModel(
 
         val report = RoadReports.nextAhead(_reports.value, p, 800.0)?.takeIf { it.report.kind != RoadReports.Kind.SMART_LANE }
         val lane = open.firstOrNull { p in (it.startM - 2_000.0)..it.endM }
+        // Speed camera ahead: first, it costs money. Its limit shows when the map has none.
+        val cam = com.excellentmindblow.navos.traffic.SpeedCameras.nextToWarn(_cameras.value, p)
+        val speedKmh = if (l.hasSpeed()) l.speed * 3.6 else 0.0
+        val camLimit = cam?.camera?.limitKmh ?: mapLimit
+        if (cam != null && mapLimit == null && cam.camera.limitKmh != null) _limit.value = cam.camera.limitKmh
+        val camOver = cam != null && camLimit != null && speedKmh > camLimit + 3
         _alert.value =
             when {
+                cam != null -> {
+                    val c = cam.camera
+                    val ahead = cam.atM - p
+                    Alert(
+                        "camera-${c.latitude}-${c.longitude}",
+                        RoadReports.Kind.HAZARD,
+                        if (c.redLight) tr("Red-light camera", "Kamera lampu merah") else tr("Speed camera", "Kamera laju"),
+                        when {
+                            camOver -> tr("Slow down - you're over the limit", "Perlahan - anda melebihi had")
+                            c.limitKmh != null -> tr("AES · limit ${c.limitKmh} km/h", "AES · had ${c.limitKmh} km/j")
+                            else -> tr("AES ahead", "AES di depan")
+                        },
+                        ahead.coerceAtLeast(0.0),
+                        cameraLimit = c.limitKmh ?: 0,
+                        over = camOver,
+                    )
+                }
                 report != null ->
                     Alert("report-${report.report.id}", report.report.kind, report.report.kind.label, RoadReports.detail(report.report), report.atM - p)
                 lane != null -> {
@@ -386,9 +423,19 @@ class DriveViewModel(
                 else -> null
             }
         _alert.value?.let { a ->
+            // Over the limit near a camera: one more, firmer warning.
+            if (a.cameraLimit != null && a.over && a.distanceM < 400 && overWarned.add(a.key)) {
+                service?.announce(a.key + "-over", tr("Slow down. Speed camera ahead.", "Perlahan. Kamera laju di depan."))
+            }
             if (alerted.add(a.key)) {
                 val spoken =
-                    if (a.kind == RoadReports.Kind.SMART_LANE) {
+                    if (a.cameraLimit != null) {
+                        if (a.cameraLimit > 0) {
+                            tr("Speed camera ahead. Limit ${a.cameraLimit}.", "Kamera laju di depan. Had ${a.cameraLimit}.")
+                        } else {
+                            tr("Speed camera ahead.", "Kamera laju di depan.")
+                        }
+                    } else if (a.kind == RoadReports.Kind.SMART_LANE) {
                         tr("Smart lane open ahead. You may use the left emergency lane.", "Smart lane dibuka di depan. Boleh guna lorong kecemasan kiri.")
                     } else {
                         a.kind.spoken

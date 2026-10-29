@@ -18,6 +18,7 @@ import org.maplibre.geojson.Point
 object DriveLayers {
     private const val SRC_REPORTS = "navos-reports"
     private const val SRC_LANES = "navos-smartlanes"
+    private const val SRC_CAMS = "navos-cameras"
 
     fun install(style: Style) {
         if (style.getSource(SRC_REPORTS) != null) return
@@ -34,6 +35,14 @@ object DriveLayers {
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
         if (below != null) style.addLayerBelow(lane, below) else style.addLayer(lane)
+        style.addSource(GeoJsonSource(SRC_CAMS))
+        style.addLayer(
+            org.maplibre.android.style.layers.SymbolLayer(SRC_CAMS, SRC_CAMS).withProperties(
+                PropertyFactory.iconImage("navos-cam"),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+            ),
+        )
         style.addLayer(
             CircleLayer("navos-reports", SRC_REPORTS).withProperties(
                 PropertyFactory.circleRadius(9f),
@@ -59,6 +68,16 @@ object DriveLayers {
         )
         style.getSourceAs<GeoJsonSource>(SRC_LANES)?.setGeoJson(
             FeatureCollection.fromFeatures(lanes.map { l -> Feature.fromGeometry(LineString.fromLngLats(l.line.map { Point.fromLngLat(it.longitude, it.latitude) })) }),
+        )
+    }
+
+    /** Speed cameras on the route. */
+    fun showCameras(
+        style: Style,
+        cams: List<com.excellentmindblow.navos.traffic.SpeedCameras.OnRoute>,
+    ) {
+        style.getSourceAs<GeoJsonSource>(SRC_CAMS)?.setGeoJson(
+            FeatureCollection.fromFeatures(cams.map { Feature.fromGeometry(Point.fromLngLat(it.camera.longitude, it.camera.latitude)) }),
         )
     }
 

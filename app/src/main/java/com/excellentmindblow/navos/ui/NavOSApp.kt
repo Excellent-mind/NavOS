@@ -27,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.excellentmindblow.navos.ui.components.FloatingSearchBar
-import com.excellentmindblow.navos.ui.home.HomeSheet
 import com.excellentmindblow.navos.ui.map.MapController
 import com.excellentmindblow.navos.ui.map.NavMap
 import com.excellentmindblow.navos.routing.RoutePoint
@@ -122,9 +121,6 @@ private fun AppContent(
 
         when (screen) {
             Screen.HOME -> {
-                val shortcuts by places.shortcuts.collectAsStateWithLifecycle()
-                val recents by places.recents.collectAsStateWithLifecycle()
-                val predicted by places.predicted.collectAsStateWithLifecycle()
                 val pinned by places.pinned.collectAsStateWithLifecycle()
                 // Long-press anywhere: a pin and its address. Tap a named place: that place. Tap elsewhere: close.
                 androidx.compose.runtime.DisposableEffect(Unit) {
@@ -195,17 +191,6 @@ private fun AppContent(
                         onClose = places::clearPin,
                         modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars),
                     )
-                } else {
-                HomeSheet(
-                    predicted = predicted,
-                    shortcuts = shortcuts,
-                    recents = recents,
-                    distanceTo = places::distanceTo,
-                    onGo = { app.routeTo(places.picked(it)) },
-                    onSetHome = { openSearch(PlacesViewModel.Purpose.SET_HOME) },
-                    onSetWork = { openSearch(PlacesViewModel.Purpose.SET_WORK) },
-                    modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars),
-                )
                 }
             }
             Screen.SEARCH -> {
@@ -387,6 +372,10 @@ private fun DriveHost(
             }
         }
     }
+    // Speed cameras on the route.
+    val cams by drive.cameras.collectAsStateWithLifecycle()
+    LaunchedEffect(cams, styleTick) { map.style?.let { com.excellentmindblow.navos.ui.map.DriveLayers.showCameras(it, cams) } }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { map.style?.let { com.excellentmindblow.navos.ui.map.DriveLayers.showCameras(it, emptyList()) } } }
     // Reports on the route and open Smart Lanes on the map.
     LaunchedEffect(reports, openLanes, styleTick) { map.style?.let { com.excellentmindblow.navos.ui.map.DriveLayers.show(it, reports, openLanes) } }
     // Arrived (the service ends the drive at the destination): the arrival card.

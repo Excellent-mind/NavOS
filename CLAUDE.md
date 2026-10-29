@@ -22,6 +22,9 @@ route bubbles and tap-to-pick on route choice, zoom-staged place icons, 3D
 buildings, one-way arrows, house numbers, live traffic on roads around you.
 0.9.1 (code 10) = drive fixes: arrow snapped onto the route line (navigation
 arrow while driving), drive sheet slides up/down and tucks itself while moving.
+0.10.0 (code 11) = AES / AwAS speed-camera warnings (bundled OSM cameras,
+tools/cameras/build.py -> assets/cameras.json), camera count on route cards,
+camera pins; home screen without the bottom sheet.
 
 ## Traffic server
 Cloudflare Worker `navos-traffic` (server/traffic-worker). Deploy with the

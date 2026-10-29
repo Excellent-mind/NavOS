@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -162,6 +163,14 @@ private fun RouteCard(
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
             )
+            if (o.cameras > 0) {
+                Text(
+                    tr("${o.cameras} AES", "${o.cameras} AES"),
+                    style = JalanType.label.copy(fontSize = 12.sp),
+                    color = Color.White,
+                    modifier = Modifier.padding(end = 6.dp).background(com.excellentmindblow.navos.ui.theme.Jkr.LimitRing, RoundedCornerShape(6.dp)).padding(horizontal = 7.dp, vertical = 3.dp),
+                )
+            }
             val fare = o.toll
             when {
                 o.tolls == 0 -> TollPlate(tr("No toll", "Tiada tol"), free = true)
