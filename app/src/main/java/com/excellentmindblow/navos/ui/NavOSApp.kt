@@ -86,6 +86,8 @@ private fun AppContent(
         app.go(Screen.SEARCH)
     }
 
+    // The opening animation, once per launch, until the map has drawn.
+    var splash by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
     // Whoever is on screen can listen for map taps (the drive: pins).
     val mapTap = remember { mutableStateOf<((org.maplibre.android.geometry.LatLng) -> Unit)?>(null) }
     Box(Modifier.fillMaxSize()) {
@@ -198,6 +200,7 @@ private fun AppContent(
                 com.excellentmindblow.navos.ui.settings.SettingsScreen(theme = theme, onTheme = app::setTheme, onBack = { app.go(Screen.HOME) })
             }
         }
+        if (splash) com.excellentmindblow.navos.ui.brand.SplashOverlay(ready = styleTick > 0, onDone = { splash = false })
     }
 }
 

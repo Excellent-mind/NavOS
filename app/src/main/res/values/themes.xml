@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Plain app theme while the new UI is built (the old UI was removed). -->
-    <style name="Theme.NavOS" parent="Theme.AppCompat.DayNight.NoActionBar" />
+    <!-- Black window under the opening animation (ui/brand/NavLogo.kt SplashOverlay). -->
+    <style name="Theme.NavOS" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
 </resources>

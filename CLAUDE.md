@@ -14,3 +14,5 @@ The version shows in Settings → About.
 
 History: 0.7.0 (code 7) = Compose UI phase 6 (petrol/EV/parking/train pins,
 station card, live traffic, faster-route prompt).
+0.8.0 (code 8) = new NavOS logo: launcher icon (adaptive + themed), animated
+opening screen and logo loading animation.

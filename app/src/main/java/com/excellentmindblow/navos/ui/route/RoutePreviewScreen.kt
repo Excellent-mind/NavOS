@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -92,7 +91,7 @@ fun RoutePreviewScreen(
             when (state) {
                 RouteViewModel.State.Idle, RouteViewModel.State.Loading -> {
                     Row(Modifier.fillMaxWidth().padding(vertical = 28.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(22.dp), color = c.route, strokeWidth = 2.5.dp)
+                        com.excellentmindblow.navos.ui.brand.NavLogoLoader(36.dp, ink = c.ink)
                         Spacer(Modifier.width(12.dp))
                         Text(tr("Finding routes…", "Cari laluan…"), style = JalanType.bodyStrong, color = c.ink)
                     }
