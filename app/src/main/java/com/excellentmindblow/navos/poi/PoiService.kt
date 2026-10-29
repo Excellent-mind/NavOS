@@ -57,7 +57,13 @@ data class ParkAndRide(
  * Blocking - call off the main thread. Throws on network/HTTP failure.
  */
 object PoiService {
-    private const val OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+    /** Public Overpass servers, tried in turn (any one can be busy or down). */
+    private val OVERPASS_URLS =
+        listOf(
+            "https://overpass-api.de/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter",
+            "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+        )
     private const val USER_AGENT = "NavOS/0.1 (navigation app; contact: excellentmindblow@gmail.com)"
     const val RADIUS_METERS = 5000
     private const val MAX_PER_KIND = 60
@@ -313,13 +319,28 @@ object PoiService {
     }
 
     private fun overpass(query: String): String {
-        val connection = URL(OVERPASS_URL).openConnection() as HttpURLConnection
+        var last: Exception? = null
+        for (url in OVERPASS_URLS) {
+            try {
+                return overpassAt(url, query)
+            } catch (e: Exception) {
+                last = e
+            }
+        }
+        throw last ?: RuntimeException("Station lookup failed")
+    }
+
+    private fun overpassAt(
+        url: String,
+        query: String,
+    ): String {
+        val connection = URL(url).openConnection() as HttpURLConnection
         connection.requestMethod = "POST"
         connection.doOutput = true
         connection.setRequestProperty("User-Agent", USER_AGENT)
         connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-        connection.connectTimeout = 15_000
-        connection.readTimeout = 30_000
+        connection.connectTimeout = 10_000
+        connection.readTimeout = 25_000
 
         try {
             connection.outputStream.use { out ->

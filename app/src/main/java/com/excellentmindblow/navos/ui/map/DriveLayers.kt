@@ -44,7 +44,7 @@ object DriveLayers {
         val turn =
             LineLayer(SRC_TURN, SRC_TURN).withProperties(
                 PropertyFactory.lineColor("#FFFFFF"),
-                PropertyFactory.lineWidth(RouteLayers.width(3f, 5f, 9f, 22f)),
+                PropertyFactory.lineWidth(RouteLayers.width(2.4f, 4f, 7.6f, 18f)),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
@@ -56,7 +56,18 @@ object DriveLayers {
                 PropertyFactory.iconRotate(Expression.get("b")),
                 PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
                 PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
-                PropertyFactory.iconSize(Expression.interpolate(Expression.exponential(1.5f), Expression.zoom(), Expression.stop(14, 0.35f), Expression.stop(17, 0.7f), Expression.stop(19, 1.4f))),
+                // The head's width follows the route line's (RouteLayers.width 6/10/19/46 at z10/14/18/20),
+                // at 85 % of it, so it always sits inside the blue line. The image is 44 dp wide.
+                PropertyFactory.iconSize(
+                    Expression.interpolate(
+                        Expression.exponential(1.5f),
+                        Expression.zoom(),
+                        Expression.stop(10, 0.85f * 6f / 44f),
+                        Expression.stop(14, 0.85f * 10f / 44f),
+                        Expression.stop(18, 0.85f * 19f / 44f),
+                        Expression.stop(20, 0.85f * 46f / 44f),
+                    ),
+                ),
                 PropertyFactory.iconAllowOverlap(true),
                 PropertyFactory.iconIgnorePlacement(true),
             ),

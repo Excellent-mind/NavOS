@@ -50,6 +50,19 @@ class OnTheWay(
     private val _loading = MutableStateFlow<Set<PoiKind>>(emptySet())
     val loading: StateFlow<Set<PoiKind>> = _loading.asStateFlow()
 
+    /** Where each lookup stands, for the sheet's answer under the chips. */
+    enum class Status { LOADING, READY, FAILED }
+
+    private val _status = MutableStateFlow<Map<PoiKind, Status>>(emptyMap())
+    val status: StateFlow<Map<PoiKind, Status>> = _status.asStateFlow()
+
+    private fun setStatus(
+        kinds: Collection<PoiKind>,
+        st: Status,
+    ) {
+        _status.value = _status.value + kinds.associateWith { st }
+    }
+
     private val _selected = MutableStateFlow<String?>(null)
     val selected: StateFlow<String?> = _selected.asStateFlow()
 
@@ -102,6 +115,7 @@ class OnTheWay(
         _pins.value = emptyList()
         _selected.value = null
         _loading.value = emptySet()
+        _status.value = emptyMap()
     }
 
     fun toggle(kind: PoiKind) {
@@ -113,8 +127,20 @@ class OnTheWay(
             return
         }
         when (kind) {
-            PoiKind.FUEL, PoiKind.EV -> if (nearby.isEmpty()) fetchAhead(force = true) else refreshPins()
-            PoiKind.PARKING, PoiKind.TRANSIT -> if (atDestination[kind] == null) fetchDestination(kind) else refreshPins()
+            PoiKind.FUEL, PoiKind.EV ->
+                if (nearby.isEmpty() || _status.value[kind] == Status.FAILED) {
+                    fetchAhead(force = true)
+                } else {
+                    setStatus(listOf(kind), Status.READY)
+                    refreshPins()
+                }
+            PoiKind.PARKING, PoiKind.TRANSIT ->
+                if (atDestination[kind] == null) {
+                    fetchDestination(kind)
+                } else {
+                    setStatus(listOf(kind), Status.READY)
+                    refreshPins()
+                }
         }
     }
 
@@ -144,6 +170,17 @@ class OnTheWay(
         return PoiAlongRoute.nextAfter(spot.aheadM.coerceAtLeast(0.0), others, LOOK_AHEAD_M + PoiService.RADIUS_METERS)
     }
 
+    /** Try a failed lookup again. */
+    fun retry(kind: PoiKind) {
+        when (kind) {
+            PoiKind.FUEL, PoiKind.EV -> fetchAhead(force = true)
+            PoiKind.PARKING, PoiKind.TRANSIT -> fetchDestination(kind)
+        }
+    }
+
+    /** How far ahead stations on the way are known (for "none in the next N km"). */
+    val knownAheadM: Double get() = LOOK_AHEAD_M + PoiService.RADIUS_METERS
+
     fun nameOfPinAt(
         kind: PoiKind,
         aheadM: Double,
@@ -158,7 +195,9 @@ class OnTheWay(
         val centre = if (!here.isNaN()) t.pointAt(here + LOOK_AHEAD_M) else t.pointAt(minOf(LOOK_AHEAD_M, t.distanceAt(t.source.size - 1)))
         lastFetchAt = System.currentTimeMillis()
         if (at != null) lastFetch = Location(at)
-        _loading.value = _loading.value + setOf(PoiKind.FUEL, PoiKind.EV).intersect(_kinds.value)
+        val wanted = setOf(PoiKind.FUEL, PoiKind.EV).intersect(_kinds.value)
+        _loading.value = _loading.value + wanted
+        if (nearby.isEmpty()) setStatus(wanted, Status.LOADING)
         fetchJob =
             scope.launch {
                 val found =
@@ -169,6 +208,7 @@ class OnTheWay(
                         }.getOrNull()
                     }
                 _loading.value = _loading.value - PoiKind.FUEL - PoiKind.EV
+                setStatus(listOf(PoiKind.FUEL, PoiKind.EV), if (found != null || nearby.isNotEmpty()) Status.READY else Status.FAILED)
                 if (found != null && track === t) {
                     // Keep the ones still ahead from before, so a station doesn't blink out between lookups.
                     nearby = (found + nearby).distinctBy { it.id }
@@ -182,6 +222,7 @@ class OnTheWay(
     private fun fetchDestination(kind: PoiKind) {
         val dest = route?.geometry?.lastOrNull() ?: return
         _loading.value = _loading.value + kind
+        setStatus(listOf(kind), Status.LOADING)
         scope.launch {
             val found =
                 withContext(Dispatchers.IO) {
@@ -190,7 +231,9 @@ class OnTheWay(
                     }.getOrNull()
                 }
             _loading.value = _loading.value - kind
-            atDestination = atDestination + (kind to (found ?: emptyList()))
+            setStatus(listOf(kind), if (found != null) Status.READY else Status.FAILED)
+            // A failed lookup is not remembered as "none": turning the chip on again retries.
+            if (found != null) atDestination = atDestination + (kind to found)
             refreshPins()
         }
     }

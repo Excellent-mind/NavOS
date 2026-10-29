@@ -23,6 +23,7 @@ data class TurnSign(
     val towards: String? = null,
 ) {
     companion object {
+        private val UNNAMED = Regex("(?i)\\s+onto the road$")
         private val EXIT_IN_NAME = Regex("(?i)^\\s*(exit|keluar|susur keluar)\\s*([0-9]{2,4}[A-Za-z]?)\\s*[-:,]?\\s*")
 
         /**
@@ -35,6 +36,8 @@ data class TurnSign(
             onRoadRef: String?,
             fallback: String,
         ): TurnSign {
+            // "Bear left onto the road" (an unnamed road) reads as plain "Bear left".
+            val fallback = fallback.replace(UNNAMED, "")
             if (step == null) return TurnSign(null, emptyList(), fallback, SignColour.isExpressway(onRoadRef))
             var name = step.roadName.trim()
             var exit = step.exits?.trim()?.takeIf { it.isNotEmpty() }

@@ -46,5 +46,6 @@ class TurnSignTest {
     @Test
     fun noNameFallsBackToTheInstruction() {
         assertEquals("Keep left", TurnSign.of(step(""), null, "Keep left").text)
+        assertEquals("Bear left", TurnSign.of(step(""), null, "Bear left onto the road").primary)
     }
 }

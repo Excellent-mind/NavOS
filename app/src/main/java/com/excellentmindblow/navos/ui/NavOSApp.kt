@@ -373,16 +373,13 @@ private fun DriveHost(
         }
     }
     // The route behind you disappears; the next turn is painted on the line.
-    val driven by drive.driven.collectAsStateWithLifecycle()
+    val ahead by drive.ahead.collectAsStateWithLifecycle()
     val turnArrow by drive.turn.collectAsStateWithLifecycle()
-    LaunchedEffect(driven, styleTick) { map.style?.let { RouteLayers.driven(it, driven) } }
+    LaunchedEffect(ahead, styleTick) { map.style?.let { st -> ahead?.let { RouteLayers.showAhead(st, it) } } }
     LaunchedEffect(turnArrow, styleTick) { map.style?.let { com.excellentmindblow.navos.ui.map.DriveLayers.showTurn(it, turnArrow?.line, turnArrow?.bearing ?: 0.0) } }
     androidx.compose.runtime.DisposableEffect(Unit) {
         onDispose {
-            map.style?.let {
-                RouteLayers.driven(it, 0.0)
-                com.excellentmindblow.navos.ui.map.DriveLayers.showTurn(it, null, 0.0)
-            }
+            map.style?.let { com.excellentmindblow.navos.ui.map.DriveLayers.showTurn(it, null, 0.0) }
         }
     }
     // Speed cameras on the route.
@@ -405,7 +402,13 @@ private fun DriveHost(
         app.go(Screen.ARRIVED)
     }
     // The route line (also after a reroute or a day / night switch).
-    LaunchedEffect(route, styleTick) { map.style?.let { RouteLayers.show(it, route, emptyList()) } }
+    LaunchedEffect(route, styleTick) {
+        map.style?.let { st ->
+            RouteLayers.show(st, route, emptyList())
+            // Keep it cut at the car after a style reload.
+            drive.ahead.value?.let { RouteLayers.showAhead(st, it) }
+        }
+    }
     // The camera: follows you (zoom by speed, closer at turns), or the driver moved the map (free,
     // follows again after 12 s), or the whole way left (overview, until Re-centre).
     val shownFix by drive.shown.collectAsStateWithLifecycle()
@@ -499,6 +502,17 @@ private fun DriveHost(
         poiOn = poiOn,
         poiLoading = poiLoading,
         onPoiToggle = drive.onTheWay::toggle,
+        poiAnswers = {
+            val poiStatus by drive.onTheWay.status.collectAsStateWithLifecycle()
+            com.excellentmindblow.navos.ui.drive.PoiAnswers(
+                on = poiOn,
+                status = poiStatus,
+                pins = pins,
+                knownAheadM = drive.onTheWay.knownAheadM,
+                onPick = drive.onTheWay::select,
+                onRetry = drive.onTheWay::retry,
+            )
+        },
         onTakeFaster = drive::takeFaster,
         onKeepRoute = drive::keepRoute,
         station =
